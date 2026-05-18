@@ -22,7 +22,21 @@ const app = new Hono<AppEnv>();
 app.use("*", async (c, next) => {
   const allowedOrigins = c.env.APP_ORIGIN.split(",").map((origin) => origin.trim()).filter(Boolean);
   const middleware = cors({
-    origin: allowedOrigins,
+    origin: (origin) => {
+      if (!origin) return null;
+      if (allowedOrigins.includes(origin)) return origin;
+
+      try {
+        const { hostname, protocol } = new URL(origin);
+        if (protocol === "https:" && (hostname === "cozy-d-714.pages.dev" || hostname.endsWith(".cozy-d-714.pages.dev"))) {
+          return origin;
+        }
+      } catch {
+        return null;
+      }
+
+      return null;
+    },
     allowMethods: ["GET", "POST", "DELETE", "OPTIONS"],
     allowHeaders: ["Content-Type", "Authorization"]
   });

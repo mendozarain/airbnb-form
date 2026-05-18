@@ -44,17 +44,32 @@ The production flow fills the restricted Google Form with Browser Run, uploads t
 
 ## Deployments
 
-GitHub Actions deploys `main` through `.github/workflows/deploy.yml`:
+GitHub Actions deploys through `.github/workflows/deploy.yml`:
 
 1. Install dependencies with Bun.
 2. Typecheck shared, frontend, and backend packages.
 3. Deploy the backend Worker with Wrangler.
 4. Build the frontend and deploy it to the existing Cloudflare Pages project.
 
+Branch behavior:
+
+- `main` deploys production:
+  - Frontend: `https://cozy-d-714.pages.dev`
+  - Backend: `https://cozy-d-714-backend.rhainne-work.workers.dev`
+- `dev` deploys a persistent preview:
+  - Frontend: the latest Cloudflare Pages deployment for branch `dev`
+  - Backend: `https://cozy-d-714-backend-dev.rhainne-work.workers.dev`
+- Pull requests into `main` or `dev` deploy branch previews and comment the frontend/backend URLs on the PR.
+- When a PR is closed or merged into `main` or `dev`, the workflow deletes that branch's temporary preview Worker and Pages preview deployments.
+- The `dev` preview is intentionally not deleted.
+
 The workflow expects these GitHub repository secrets:
 
 - `CLOUDFLARE_ACCOUNT_ID`
 - `CLOUDFLARE_API_TOKEN`
+- `DATABASE_URL`
+- `GMAIL_SMTP_USER`
+- `GMAIL_SMTP_APP_PASSWORD`
 
 Cloudflare Pages native Git linking is not enabled because the current Pages project was created as a Direct Uploads project, and Cloudflare does not allow changing a Direct Uploads project into a Git-source project in place.
 
