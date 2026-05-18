@@ -1,0 +1,4 @@
+DATABASE_URL="postgresql://USER:PASSWORD@HOST/neondb?sslmode=require&channel_binding=require"
+NEON_AUTH_URL="https://YOUR_NEON_AUTH_HOST/YOUR_DATABASE/auth"
+ADMIN_EMAILS="you@example.com"
+PUBLIC_APP_ORIGIN="http://localhost:5173"

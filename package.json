@@ -1,0 +1,21 @@
+{
+  "name": "cozy-d-714",
+  "version": "1.0.0",
+  "private": true,
+  "workspaces": [
+    "frontend",
+    "backend",
+    "shared"
+  ],
+  "scripts": {
+    "dev": "bun --cwd frontend dev",
+    "dev:frontend": "bun --cwd frontend dev",
+    "dev:backend": "bun --cwd backend dev",
+    "capture:google": "bun scripts/capture-google-session.ts",
+    "build": "bun --cwd shared build && bun --cwd frontend build && bun --cwd backend build",
+    "typecheck": "bun --cwd shared typecheck && bun --cwd frontend typecheck && bun --cwd backend typecheck"
+  },
+  "devDependencies": {
+    "typescript": "^5.9.3"
+  }
+}
