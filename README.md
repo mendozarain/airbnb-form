@@ -42,6 +42,22 @@ Create the Neon tables with `backend/schema.sql`.
 
 The production flow fills the restricted Google Form with Browser Run, uploads the guest IDs, captures the filled form before submit, submits the Google Form, then emails the entrance-pass screenshot and check-in guide to the guest.
 
+## Deployments
+
+GitHub Actions deploys `main` through `.github/workflows/deploy.yml`:
+
+1. Install dependencies with Bun.
+2. Typecheck shared, frontend, and backend packages.
+3. Deploy the backend Worker with Wrangler.
+4. Build the frontend and deploy it to the existing Cloudflare Pages project.
+
+The workflow expects these GitHub repository secrets:
+
+- `CLOUDFLARE_ACCOUNT_ID`
+- `CLOUDFLARE_API_TOKEN`
+
+Cloudflare Pages native Git linking is not enabled because the current Pages project was created as a Direct Uploads project, and Cloudflare does not allow changing a Direct Uploads project into a Git-source project in place.
+
 ## Admin Auth
 
 Admin pages use Neon Auth. The frontend signs in through `VITE_NEON_AUTH_URL`, then sends a Neon Auth JWT to the Worker. The Worker verifies that JWT against the Neon Auth `/jwt` JWKS endpoint before serving `/api/admin/*`.
