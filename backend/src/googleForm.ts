@@ -4,7 +4,7 @@ import type { AdminSubmission } from "@cozy-d-714/shared";
 import type { Env } from "./env";
 import { loadGoogleStorageState } from "./googleSession";
 
-const AUTOMATION_VERSION = "google-form-reuse-open-picker-v24";
+const AUTOMATION_VERSION = "google-form-reuse-open-picker-v26";
 
 export type GoogleFormFile = {
   filename: string;
@@ -102,6 +102,7 @@ export async function submitGoogleForm(env: Env, submission: GoogleFormSubmissio
 
     await clickQuestionCheckbox(page, /I confirm that the information provided is accurate/i, "agreement");
     await waitForNoUploadPicker(page);
+    await closeUnexpectedTabs(page);
 
     await setGoogleFormSubmitControlsVisible(page, false);
     const screenshot = await page.screenshot({ type: "png", fullPage: true });
@@ -161,32 +162,31 @@ async function uploadIdFiles(page: any, files: GoogleFormFile[]) {
     hasText: /Attach\s+Valid\s+Id/i
   }).first();
   const uploadTimeoutMs = uploadTimeoutFor(files);
-  const chunks = chunkFiles(files, 2);
-  const uploadedFilenames: string[] = [];
+  const expectedFilenames = files.map((file) => file.filename);
 
   // Google Forms file uploads are wrapped in a custom "Add file" button.
   // Django analogy: this is closer to driving the browser widget than POSTing
   // multipart data straight to a view.
   await removeAttachedFiles(page, uploadQuestion, 0);
+  await closeUnexpectedTabs(page);
 
-  for (const fileChunk of chunks) {
-    uploadedFilenames.push(...fileChunk.map((file) => file.filename));
-    await uploadIdFileChunk(page, uploadQuestion, fileChunk, uploadedFilenames, uploadTimeoutMs, fileChunk === chunks[0]);
-  }
-
+  await uploadIdFileBatch(page, uploadQuestion, files, uploadTimeoutMs);
   await closeUploadPickerIfOpen(page);
+  await waitForAttachedFiles(page, uploadQuestion, expectedFilenames, uploadTimeoutMs);
 }
 
-async function uploadIdFileChunk(page: any, uploadQuestion: any, files: GoogleFormFile[], expectedFilenames: string[], uploadTimeoutMs: number, openPicker: boolean) {
+async function uploadIdFileBatch(page: any, uploadQuestion: any, files: GoogleFormFile[], uploadTimeoutMs: number) {
   const payloads = files.map((file) => ({
     name: file.filename,
     mimeType: file.contentType,
     buffer: Buffer.from(file.bytes)
   }));
+  const expectedFilenames = files.map((file) => file.filename);
 
   const dialog = page.locator('[role="dialog"], div[aria-modal="true"]').filter({ hasText: /Insert file|Upload up to|Browse/i }).last();
+  await closeUnexpectedTabs(page);
 
-  if (openPicker || !(await dialog.isVisible({ timeout: 1_000 }).catch(() => false))) {
+  if (!(await dialog.isVisible({ timeout: 1_000 }).catch(() => false))) {
     await uploadQuestion.getByText(/Add file/i).click();
   }
 
@@ -194,6 +194,7 @@ async function uploadIdFileChunk(page: any, uploadQuestion: any, files: GoogleFo
 
   const chooserPromise = page.waitForEvent("filechooser", { timeout: 15_000 }).catch(() => null);
   await clickBrowseInPicker(page, dialog);
+  await closeUnexpectedTabs(page);
   const fileChooser = await chooserPromise;
 
   if (fileChooser) {
@@ -202,6 +203,7 @@ async function uploadIdFileChunk(page: any, uploadQuestion: any, files: GoogleFo
     throw new Error("Could not find Google Drive picker's file input after clicking Browse.");
   }
 
+  await waitForPickerUploadComplete(page, files.length, uploadTimeoutMs).catch(() => undefined);
   await waitForUploadChunkOutcome(page, dialog, uploadQuestion, expectedFilenames, uploadTimeoutMs);
 }
 
@@ -284,10 +286,12 @@ async function waitForUploadChunkOutcome(page: any, dialog: any, uploadQuestion:
   let enterPresses = 0;
 
   while (Date.now() - startedAt < timeoutMs) {
+    await closeUnexpectedTabs(page);
     const attachedCount = await countAttachedFiles(uploadQuestion, filenames);
+    const hasExpectedFiles = await hasExpectedAttachedFiles(uploadQuestion, filenames);
     const pickerVisible = await isUploadPickerVisible(page);
 
-    if (attachedCount >= filenames.length && (!pickerVisible || await isPickerReadyForMoreFiles(page))) {
+    if ((attachedCount >= filenames.length || hasExpectedFiles) && (!pickerVisible || await isPickerReadyForMoreFiles(page))) {
       return;
     }
 
@@ -307,6 +311,32 @@ async function waitForUploadChunkOutcome(page: any, dialog: any, uploadQuestion:
 
   const attachedCount = await countAttachedFiles(uploadQuestion, filenames);
   throw new Error(`Google Drive picker did not finish attaching files. Attached ${attachedCount}/${filenames.length}.`);
+}
+
+async function waitForAttachedFiles(page: any, uploadQuestion: any, filenames: string[], timeoutMs: number) {
+  const startedAt = Date.now();
+
+  while (Date.now() - startedAt < timeoutMs) {
+    await closeUnexpectedTabs(page);
+
+    if (await hasExpectedAttachedFiles(uploadQuestion, filenames)) {
+      return;
+    }
+
+    const attachedCount = await countAttachedFiles(uploadQuestion, filenames);
+    if (attachedCount >= filenames.length) {
+      return;
+    }
+
+    if (await isUploadPickerVisible(page)) {
+      await closeUploadPickerIfOpen(page);
+    }
+
+    await page.waitForTimeout(1_000);
+  }
+
+  const attachedCount = await countAttachedFiles(uploadQuestion, filenames);
+  throw new Error(`Uploaded ID files did not all attach to the Google Form. Attached ${attachedCount}/${filenames.length}.`);
 }
 
 async function clickPickerPrimaryActionOnce(page: any, dialog: any) {
@@ -368,6 +398,7 @@ async function waitForNoUploadPicker(page: any, timeoutMs = 120_000) {
   const startedAt = Date.now();
 
   while (Date.now() - startedAt < timeoutMs) {
+    await closeUnexpectedTabs(page);
     const pickerVisible = await isUploadPickerVisible(page);
 
     if (!pickerVisible) {
@@ -825,16 +856,6 @@ async function countAttachedFiles(uploadQuestion: any, filenames: string[]) {
   }, filenames).catch(() => 0);
 }
 
-function chunkFiles<T>(items: T[], size: number) {
-  const chunks: T[][] = [];
-
-  for (let index = 0; index < items.length; index += size) {
-    chunks.push(items.slice(index, index + size));
-  }
-
-  return chunks;
-}
-
 function uniqueFiles(files: GoogleFormFile[]) {
   const seen = new Set<string>();
   return files.filter((file) => {
@@ -897,6 +918,21 @@ async function setFilesInAnyFrame(page: any, payloads: Array<{ name: string; mim
   }
 
   return false;
+}
+
+async function closeUnexpectedTabs(page: any) {
+  const context = page.context?.();
+  const pages = context?.pages?.() ?? [];
+
+  for (const candidate of pages) {
+    if (candidate === page || candidate.isClosed?.()) {
+      continue;
+    }
+
+    await candidate.close().catch(() => undefined);
+  }
+
+  await page.bringToFront().catch(() => undefined);
 }
 
 function uploadTimeoutFor(files: GoogleFormFile[]) {
