@@ -4,7 +4,7 @@ import type { AdminSubmission } from "@cozy-d-714/shared";
 import type { Env } from "./env";
 import { loadGoogleStorageState } from "./googleSession";
 
-const AUTOMATION_VERSION = "google-form-reuse-open-picker-v26";
+const AUTOMATION_VERSION = "google-form-reuse-open-picker-v27";
 
 export type GoogleFormFile = {
   filename: string;
@@ -101,11 +101,11 @@ export async function submitGoogleForm(env: Env, submission: GoogleFormSubmissio
     }
 
     await clickQuestionCheckbox(page, /I confirm that the information provided is accurate/i, "agreement");
-    await waitForNoUploadPicker(page);
+    await waitForNoUploadPicker(page, 45_000);
     await closeUnexpectedTabs(page);
 
     await setGoogleFormSubmitControlsVisible(page, false);
-    const screenshot = await page.screenshot({ type: "png", fullPage: true });
+    const screenshot = await page.screenshot({ type: "png", fullPage: true, timeout: 15_000 });
     await setGoogleFormSubmitControlsVisible(page, true);
     const screenshotKey = `automation/${crypto.randomUUID()}-entrance-pass-before-submit.png`;
     await env.ID_BUCKET.put(screenshotKey, screenshot, {
@@ -190,16 +190,16 @@ async function uploadIdFileBatch(page: any, uploadQuestion: any, files: GoogleFo
     await uploadQuestion.getByText(/Add file/i).click();
   }
 
-  await dialog.waitFor({ state: "visible", timeout: 60_000 });
+  await dialog.waitFor({ state: "visible", timeout: 45_000 });
 
-  const chooserPromise = page.waitForEvent("filechooser", { timeout: 15_000 }).catch(() => null);
+  const chooserPromise = page.waitForEvent("filechooser", { timeout: 10_000 }).catch(() => null);
   await clickBrowseInPicker(page, dialog);
   await closeUnexpectedTabs(page);
   const fileChooser = await chooserPromise;
 
   if (fileChooser) {
     await fileChooser.setFiles(payloads, { timeout: uploadTimeoutMs });
-  } else if (!(await setFilesInAnyFrame(page, payloads, 90_000, uploadTimeoutMs))) {
+  } else if (!(await setFilesInAnyFrame(page, payloads, 45_000, uploadTimeoutMs))) {
     throw new Error("Could not find Google Drive picker's file input after clicking Browse.");
   }
 
@@ -211,7 +211,7 @@ async function clickBrowseInPicker(page: any, dialog: any) {
   const browseButton = dialog.getByRole("button", { name: /^Browse$/i }).last();
 
   if (await browseButton.isVisible({ timeout: 5_000 }).catch(() => false)) {
-    await browseButton.click({ timeout: 20_000 });
+    await browseButton.click({ timeout: 12_000 });
     return;
   }
 
@@ -220,7 +220,7 @@ async function clickBrowseInPicker(page: any, dialog: any) {
 
 async function clickVisibleTextButtonInAnyFrame(page: any, text: string) {
   const startedAt = Date.now();
-  const timeoutMs = 60_000;
+  const timeoutMs = 30_000;
 
   while (Date.now() - startedAt < timeoutMs) {
     for (const frame of page.frames()) {
@@ -250,7 +250,7 @@ async function clickVisibleTextButtonInAnyFrame(page: any, text: string) {
   throw new Error(`Could not click ${text} in the Google file picker.`);
 }
 
-async function clickPickerPrimaryAction(page: any, dialog: any, timeoutMs = 30_000) {
+async function clickPickerPrimaryAction(page: any, dialog: any, timeoutMs = 20_000) {
   // Google's file picker is loaded in frames and the button text shifts between
   // "Upload", "Insert", and "Select". Treat it like a third-party widget rather
   // than a normal form field.
@@ -394,7 +394,7 @@ async function waitForUploadToAttach(page: any, dialog: any, uploadQuestion: any
   throw new Error(`Uploaded ID files did not all attach to the Google Form. Expected ${filenames.length}.`);
 }
 
-async function waitForNoUploadPicker(page: any, timeoutMs = 120_000) {
+async function waitForNoUploadPicker(page: any, timeoutMs = 75_000) {
   const startedAt = Date.now();
 
   while (Date.now() - startedAt < timeoutMs) {
@@ -523,7 +523,7 @@ async function setGoogleFormSubmitControlsVisible(page: any, visible: boolean) {
 
 async function waitForGoogleFormSubmission(page: any) {
   const startedAt = Date.now();
-  const timeoutMs = 90_000;
+  const timeoutMs = 60_000;
 
   while (Date.now() - startedAt < timeoutMs) {
     await page.waitForLoadState("domcontentloaded", { timeout: 5_000 }).catch(() => undefined);
@@ -939,11 +939,11 @@ function uploadTimeoutFor(files: GoogleFormFile[]) {
   const totalBytes = files.reduce((sum, file) => sum + file.bytes.byteLength, 0);
   const totalMegabytes = totalBytes / 1024 / 1024;
 
-  // Multiple Drive uploads are slow in Browser Run. Give larger batches time
-  // without making small, normal submissions feel stuck forever.
+  // Keep uploads inside a practical window so runs fail fast if Drive stalls.
+  // Target: roughly 1-2 minutes even for larger ID sets.
   return Math.min(
-    10 * 60_000,
-    Math.max(180_000, files.length * 75_000 + totalMegabytes * 2_000)
+    120_000,
+    Math.max(60_000, 35_000 + files.length * 10_000 + totalMegabytes * 1_000)
   );
 }
 

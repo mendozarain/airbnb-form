@@ -272,19 +272,21 @@ function AdminPage({ adminEmail }: { adminEmail: string }) {
   async function confirmSelectedSubmission() {
     if (!selectedSubmission) return;
 
-    setReviewLoading(true);
     setError("");
-    setNotice("Submitting to Google Form, uploading IDs, saving the entrance-pass screenshot, then emailing the guest. Larger ID batches can take up to 10 minutes.");
+    setNotice("Queued in background. You can close this tab and return later to check if it succeeded.");
     try {
       const result = await confirmSubmission(selectedSubmission.id);
-      setNotice(result.emailSent ? "Submitted and emailed to the guest." : `Submitted, but email needs attention: ${result.emailError ?? "unknown email error"}`);
-      setSelectedSubmission(null);
+      const status = typeof result.status === "string" ? result.status : "queued";
+      setSelectedSubmission((current: any) => current ? { ...current, status } : current);
+      setNotice(
+        result.alreadyRunning
+          ? "Submission is already running in the background."
+          : "Submission queued. Status will update automatically."
+      );
       await refresh();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not confirm submission");
-      setNotice("Confirm failed before the email could be sent. See the error below.");
-    } finally {
-      setReviewLoading(false);
+      setNotice("Could not queue the submission. See the error below.");
     }
   }
 
@@ -451,6 +453,49 @@ function AdminPage({ adminEmail }: { adminEmail: string }) {
   useEffect(() => {
     void refresh();
   }, [submissionTab]);
+
+  useEffect(() => {
+    if (!selectedSubmission || !isSubmittingStatus(selectedSubmission.status)) {
+      return;
+    }
+
+    let cancelled = false;
+    const submissionId = selectedSubmission.id as string;
+
+    const poll = async () => {
+      try {
+        const data = await getSubmission(submissionId);
+        if (cancelled) return;
+
+        setSelectedSubmission(data.submission);
+
+        if (!isSubmittingStatus(String(data.submission?.status ?? ""))) {
+          if (data.submission?.status === "submitted_email_sent") {
+            setNotice("Background submit finished and email was sent.");
+          } else if (data.submission?.status === "submitted_email_failed") {
+            setNotice("Background submit finished, but email failed. You can retry from this screen.");
+          } else if (data.submission?.status === "failed") {
+            setNotice("Background submit failed. Check the error details below.");
+          } else if (data.submission?.status === "ready_for_review") {
+            setNotice("Background submit was reset to Ready for review. You can run Confirm again.");
+          }
+          await refresh();
+        }
+      } catch {
+        // Keep polling silently; intermittent network errors should not break the UI.
+      }
+    };
+
+    void poll();
+    const interval = window.setInterval(() => {
+      void poll();
+    }, 8_000);
+
+    return () => {
+      cancelled = true;
+      window.clearInterval(interval);
+    };
+  }, [selectedSubmission?.id, selectedSubmission?.status]);
 
   return (
     <main className="shell">
@@ -1153,5 +1198,5 @@ function googleStatusDotClass(status: SettingsStatus | null) {
 }
 
 function isSubmittingStatus(status: string) {
-  return status === "submitting";
+  return status === "queued" || status === "submitting";
 }

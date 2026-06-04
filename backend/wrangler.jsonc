@@ -27,6 +27,6 @@
     "remote": true
   },
   "triggers": {
-    "crons": ["17 18 * * *"]
+    "crons": ["* * * * *", "17 18 * * *"]
   }
 }

@@ -73,7 +73,7 @@ export async function confirmSubmission(id: string) {
   const response = await appFetch(`${API_BASE}/api/admin/submissions/${id}/confirm`, {
     method: "POST",
     headers: await adminHeaders()
-  }, { timeoutMs: 10 * 60_000 });
+  });
   return readJson(response);
 }
 
