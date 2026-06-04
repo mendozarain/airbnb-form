@@ -11,7 +11,7 @@ import {
 } from "@cozy-d-714/shared";
 import { hashToken, sqlFor } from "./db";
 import type { AppEnv } from "./env";
-import { getBrowserLivePreview, submitGoogleForm, type GoogleFormFile } from "./googleForm";
+import { getBrowserLivePreview, submitGoogleForm, type GoogleFormFile, type GoogleFormSubmission } from "./googleForm";
 import { isExplicitlyBlockedAdminEmail, requireAdmin } from "./auth";
 import { hashBetterAuthPassword } from "./password";
 import { checkGoogleSession, getGoogleSessionStatus, saveUploadedGoogleStorageState } from "./googleSession";
@@ -175,12 +175,12 @@ app.post("/api/admin/submissions/:id/reset-submitting", async (c) => {
     update submissions
     set status = 'ready_for_review'
     where id = ${c.req.param("id")}
-      and status = 'submitting'
+      and status in ('queued', 'submitting')
     returning id
   `;
 
   if (!rows[0]) {
-    return c.json({ error: "Submission is not currently stuck submitting" }, 409);
+    return c.json({ error: "Submission is not currently queued/submitting" }, 409);
   }
 
   await sql`
@@ -419,12 +419,12 @@ app.get("/api/admin/submissions", async (c) => {
   const sql = sqlFor(c.env);
   const status = c.req.query("status");
   const statusFilter = status === "ready_for_review"
-    ? sql`status in ('ready_for_review', 'submitting', 'failed', 'submitted_email_failed')`
+    ? sql`status in ('ready_for_review', 'queued', 'submitting', 'failed', 'submitted_email_failed')`
     : status === "done"
       ? sql`status in ('submitted', 'submitted_email_sent')`
     : status
       ? sql`status = ${status}`
-      : sql`status in ('ready_for_review', 'submitting', 'failed', 'submitted_email_failed', 'rejected', 'submitted', 'submitted_email_sent')`;
+      : sql`status in ('ready_for_review', 'queued', 'submitting', 'failed', 'submitted_email_failed', 'rejected', 'submitted', 'submitted_email_sent')`;
   const rows = await sql`
     select id, guest_email, check_in, check_out, status, created_at
     from submissions
@@ -510,108 +510,54 @@ app.get("/api/admin/files/:id", async (c) => {
 
 app.post("/api/admin/submissions/:id/confirm", async (c) => {
   try {
-  const sql = sqlFor(c.env);
-  const rows = await sql`
-    select
-      s.*,
-      coalesce(
-        json_agg(json_build_object('fullName', g.full_name, 'age', g.age) order by g.created_at) filter (where g.id is not null),
-        '[]'
-      ) as guests,
-      coalesce(
-        json_agg(
-          json_build_object(
-            'r2Key', gf.r2_key,
-            'filename', gf.filename,
-            'contentType', gf.content_type
-          )
-        ) filter (where gf.id is not null),
-        '[]'
-      ) as id_files
-    from submissions s
-    left join guests g on g.submission_id = s.id
-    left join guest_files gf on gf.guest_id = g.id
-    where s.id = ${c.req.param("id")}
-    group by s.id
-    limit 1
-  `;
-  const row = rows[0];
+    const sql = sqlFor(c.env);
+    const submissionId = c.req.param("id");
 
-  if (!row) {
-    return c.json({ error: "Submission not found" }, 404);
-  }
+    const queuedRows = await sql`
+      update submissions
+      set status = 'queued'
+      where id = ${submissionId}
+        and status in ('ready_for_review', 'failed', 'submitted_email_failed')
+      returning id
+    `;
 
-  const parsedSubmission = adminSubmissionSchema.parse({
-    guestEmail: row.guest_email,
-    buildingCode: row.building_code,
-    unitNumber: row.unit_number,
-    checkIn: toIsoDateString(row.check_in),
-    checkOut: toIsoDateString(row.check_out),
-    purpose: row.purpose,
-    ownerName: row.owner_name,
-    ownerContact: row.owner_contact,
-    acceptedRules: true,
-    guests: row.guests
-  });
-  const idFiles: GoogleFormFile[] = [];
+    if (!queuedRows[0]) {
+      const existingRows = await sql`
+        select status
+        from submissions
+        where id = ${submissionId}
+        limit 1
+      `;
+      const existing = existingRows[0];
 
-  for (const file of row.id_files as Array<{ r2Key: string; filename: string; contentType: string }>) {
-    const object = await c.env.ID_BUCKET.get(file.r2Key);
-
-    if (!object) {
-      return c.json({ error: `ID file is missing from storage: ${file.filename}` }, 500);
-    }
-
-    idFiles.push({
-      filename: file.filename,
-      contentType: file.contentType,
-      bytes: await object.arrayBuffer()
-    });
-  }
-
-  const submission = { ...parsedSubmission, idFiles };
-
-  await sql`update submissions set status = 'submitting' where id = ${c.req.param("id")}`;
-  const result = await submitGoogleForm(c.env, submission);
-  let finalStatus = result.ok ? "submitted" : result.retryable ? "ready_for_review" : "failed";
-  let emailError: string | null = null;
-
-  if (result.ok && result.screenshotKey) {
-    try {
-      const receipt = await c.env.ID_BUCKET.get(result.screenshotKey);
-
-      if (!receipt) {
-        throw new Error("Entrance pass screenshot was not found in storage.");
+      if (!existing) {
+        return c.json({ error: "Submission not found" }, 404);
       }
 
-      await withTimeout(
-        sendEntrancePassEmail(c.env, submission.guestEmail, {
-          filename: "matina-enclaves-entrance-pass.png",
-          contentType: "image/png",
-          bytes: await receipt.arrayBuffer()
-        }, await getEmailTemplate(c.env)),
-        45_000,
-        "Gmail SMTP timed out while sending the entrance pass."
-      );
-      finalStatus = "submitted_email_sent";
-    } catch (error) {
-      emailError = error instanceof Error ? error.message : "Could not email entrance pass.";
-      finalStatus = "submitted_email_failed";
+      const status = String(existing.status ?? "");
+      if (status === "queued" || status === "submitting") {
+        return c.json({
+          ok: true,
+          queued: true,
+          alreadyRunning: true,
+          status
+        }, 202);
+      }
+
+      return c.json({ error: "Submission cannot be confirmed in its current state." }, 409);
     }
-  }
 
-  await sql`
-    insert into automation_runs (submission_id, status, error_message, screenshot_r2_key, finished_at)
-    values (${c.req.param("id")}, ${finalStatus}, ${result.error ?? emailError}, ${result.screenshotKey ?? null}, now())
-  `;
+    await sql`
+      insert into automation_runs (submission_id, status, error_message, finished_at)
+      values (${submissionId}, 'queued', null, now())
+    `;
 
-  await sql`
-    update submissions
-    set status = ${finalStatus}
-    where id = ${c.req.param("id")}
-  `;
-
-  return c.json({ ...result, emailSent: finalStatus === "submitted_email_sent", emailError }, result.ok ? 200 : 500);
+    return c.json({
+      ok: true,
+      queued: true,
+      status: "queued",
+      message: "Submission queued. Background worker will pick this up shortly."
+    }, 202);
   } catch (error) {
     console.error(error instanceof Error ? error.message : error);
     return c.json({ error: error instanceof Error ? error.message : "Could not confirm submission" }, 500);
@@ -671,10 +617,168 @@ app.delete("/api/admin/submissions/:id", async (c) => {
   return c.json({ ok: true, deletedFiles: r2Keys.length });
 });
 
+const SUBMISSION_QUEUE_CRON = "* * * * *";
+const CLEANUP_CRON = "17 18 * * *";
+
+async function processQueuedSubmission(env: AppEnv["Bindings"]) {
+  const sql = sqlFor(env);
+  const claimed = await sql`
+    with next_submission as (
+      select id
+      from submissions
+      where status = 'queued'
+      order by created_at asc
+      limit 1
+    )
+    update submissions s
+    set status = 'submitting'
+    from next_submission
+    where s.id = next_submission.id
+      and s.status = 'queued'
+    returning s.id
+  `;
+
+  const submissionId = String(claimed[0]?.id ?? "");
+  if (!submissionId) {
+    return;
+  }
+
+  await runSubmissionConfirmation(env, submissionId);
+}
+
+async function runSubmissionConfirmation(env: AppEnv["Bindings"], submissionId: string) {
+  const sql = sqlFor(env);
+
+  try {
+    const submission = await loadSubmissionForAutomation(env, submissionId);
+    const result = await submitGoogleForm(env, submission);
+    let finalStatus = result.ok ? "submitted" : result.retryable ? "ready_for_review" : "failed";
+    let emailError: string | null = null;
+
+    if (result.ok && result.screenshotKey) {
+      try {
+        const receipt = await env.ID_BUCKET.get(result.screenshotKey);
+
+        if (!receipt) {
+          throw new Error("Entrance pass screenshot was not found in storage.");
+        }
+
+        await withTimeout(
+          sendEntrancePassEmail(env, submission.guestEmail, {
+            filename: "matina-enclaves-entrance-pass.png",
+            contentType: "image/png",
+            bytes: await receipt.arrayBuffer()
+          }, await getEmailTemplate(env)),
+          45_000,
+          "Gmail SMTP timed out while sending the entrance pass."
+        );
+        finalStatus = "submitted_email_sent";
+      } catch (error) {
+        emailError = error instanceof Error ? error.message : "Could not email entrance pass.";
+        finalStatus = "submitted_email_failed";
+      }
+    }
+
+    await sql`
+      insert into automation_runs (submission_id, status, error_message, screenshot_r2_key, finished_at)
+      values (${submissionId}, ${finalStatus}, ${result.error ?? emailError}, ${result.screenshotKey ?? null}, now())
+    `;
+
+    await sql`
+      update submissions
+      set status = ${finalStatus}
+      where id = ${submissionId}
+    `;
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Could not confirm submission";
+    console.error(message);
+
+    await sql`
+      insert into automation_runs (submission_id, status, error_message, finished_at)
+      values (${submissionId}, 'failed', ${message}, now())
+    `;
+    await sql`
+      update submissions
+      set status = 'failed'
+      where id = ${submissionId}
+        and status in ('queued', 'submitting')
+    `;
+  }
+}
+
+async function loadSubmissionForAutomation(env: AppEnv["Bindings"], submissionId: string): Promise<GoogleFormSubmission> {
+  const sql = sqlFor(env);
+  const rows = await sql`
+    select
+      s.*,
+      coalesce(
+        json_agg(json_build_object('fullName', g.full_name, 'age', g.age) order by g.created_at) filter (where g.id is not null),
+        '[]'
+      ) as guests,
+      coalesce(
+        json_agg(
+          json_build_object(
+            'r2Key', gf.r2_key,
+            'filename', gf.filename,
+            'contentType', gf.content_type
+          )
+        ) filter (where gf.id is not null),
+        '[]'
+      ) as id_files
+    from submissions s
+    left join guests g on g.submission_id = s.id
+    left join guest_files gf on gf.guest_id = g.id
+    where s.id = ${submissionId}
+    group by s.id
+    limit 1
+  `;
+  const row = rows[0];
+
+  if (!row) {
+    throw new Error("Submission not found");
+  }
+
+  const parsedSubmission = adminSubmissionSchema.parse({
+    guestEmail: row.guest_email,
+    buildingCode: row.building_code,
+    unitNumber: row.unit_number,
+    checkIn: toIsoDateString(row.check_in),
+    checkOut: toIsoDateString(row.check_out),
+    purpose: row.purpose,
+    ownerName: row.owner_name,
+    ownerContact: row.owner_contact,
+    acceptedRules: true,
+    guests: row.guests
+  });
+
+  const idFiles: GoogleFormFile[] = [];
+  for (const file of row.id_files as Array<{ r2Key: string; filename: string; contentType: string }>) {
+    const object = await env.ID_BUCKET.get(file.r2Key);
+
+    if (!object) {
+      throw new Error(`ID file is missing from storage: ${file.filename}`);
+    }
+
+    idFiles.push({
+      filename: file.filename,
+      contentType: file.contentType,
+      bytes: await object.arrayBuffer()
+    });
+  }
+
+  return { ...parsedSubmission, idFiles };
+}
+
 export default {
   fetch: app.fetch,
-  scheduled(_event: ScheduledController, env: AppEnv["Bindings"], ctx: ExecutionContext) {
-    ctx.waitUntil(cleanupOrphanUploads(env));
+  scheduled(event: ScheduledController, env: AppEnv["Bindings"], ctx: ExecutionContext) {
+    if (event.cron === SUBMISSION_QUEUE_CRON) {
+      ctx.waitUntil(processQueuedSubmission(env));
+    }
+
+    if (event.cron === CLEANUP_CRON) {
+      ctx.waitUntil(cleanupOrphanUploads(env));
+    }
   }
 };
 
