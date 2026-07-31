@@ -1,0 +1,66 @@
+import { jest } from "@jest/globals";
+import { SubmissionStatus } from "../generated/prisma/enums.js";
+import { AutomationService } from "./automation.service.js";
+
+describe("AutomationService", () => {
+  it("resends an entrance pass after its email was already sent", async () => {
+    const screenshot = Buffer.from("entrance pass");
+    const template = { subject: "Entrance pass", html: "<p>Attached</p>" };
+    const prisma = {
+      submission: {
+        findUnique: resolved({
+          guestEmail: "guest@example.com",
+          status: SubmissionStatus.SUBMITTED_EMAIL_SENT,
+          runs: [{ id: "run-1", screenshotStorageKey: "screenshots/pass.png" }]
+        }),
+        updateMany: resolved({ count: 1 }),
+        update: resolved({})
+      },
+      automationRun: {
+        update: resolved({})
+      },
+      $transaction: jest.fn(async (operations: Promise<unknown>[]) => Promise.all(operations))
+    };
+    const storage = { getBytes: resolved(screenshot) };
+    const email = { sendEntrancePass: resolved({ messageId: "message-1" }) };
+    const settings = { getEmailTemplate: resolved(template) };
+    const service = new AutomationService(
+      prisma as never,
+      storage as never,
+      {} as never,
+      settings as never,
+      email as never
+    );
+
+    await expect(service.retryEmail("submission-1")).resolves.toEqual({
+      ok: true,
+      status: "submitted_email_sent"
+    });
+    expect(prisma.submission.updateMany).toHaveBeenCalledWith({
+      where: {
+        id: "submission-1",
+        status: {
+          in: [SubmissionStatus.SUBMITTED_EMAIL_FAILED, SubmissionStatus.SUBMITTED_EMAIL_SENT]
+        }
+      },
+      data: { status: SubmissionStatus.SUBMITTED }
+    });
+    expect(email.sendEntrancePass).toHaveBeenCalledWith(
+      "guest@example.com",
+      {
+        filename: "matina-enclaves-entrance-pass.png",
+        contentType: "image/png",
+        bytes: screenshot
+      },
+      template
+    );
+    expect(prisma.submission.update).toHaveBeenCalledWith({
+      where: { id: "submission-1" },
+      data: { status: SubmissionStatus.SUBMITTED_EMAIL_SENT }
+    });
+  });
+});
+
+function resolved<T>(value: T) {
+  return jest.fn<() => Promise<T>>().mockResolvedValue(value);
+}

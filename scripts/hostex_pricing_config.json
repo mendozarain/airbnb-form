@@ -1,0 +1,66 @@
+{
+  "property_name": "D-714 Mantina Enclaves, Davao City",
+  "property_id": 12684960,
+  "timezone": "Australia/Brisbane",
+  "horizon_days": 365,
+  "base_airbnb_price": 3000,
+  "minimum_airbnb_price": 2500,
+  "maximum_non_event_airbnb_price": 3700,
+  "rainy_season_discount": 0.05,
+  "urgent_gap_days": 14,
+  "urgent_gap_discount": 0.17,
+  "weekend_premium": 0.08,
+  "low_occupancy_threshold": 0.3,
+  "low_occupancy_discount": 0.05,
+  "low_occupancy_lead_days": 45,
+  "medium_occupancy_threshold": 0.65,
+  "medium_occupancy_premium": 0.08,
+  "high_occupancy_threshold": 0.8,
+  "high_occupancy_premium": 0.15,
+  "event_boost": 0.25,
+  "round_to": 50,
+  "listings": [
+    {
+      "channel_type": "airbnb",
+      "listing_id": "1659842633688681776",
+      "ratio": 1.0
+    },
+    {
+      "channel_type": "booking.com",
+      "listing_id": "1654264601-65867120",
+      "ratio": 1.5
+    },
+    {
+      "channel_type": "booking.com",
+      "listing_id": "1654264601-65867117",
+      "ratio": 1.5
+    },
+    {
+      "channel_type": "booking.com",
+      "listing_id": "1654264601-65867118",
+      "ratio": 1.5
+    },
+    {
+      "channel_type": "agoda",
+      "listing_id": "1390142168-23351825",
+      "ratio": 1.5
+    },
+    {
+      "channel_type": "booking_site",
+      "listing_id": "119606-15877",
+      "ratio": 1.5
+    }
+  ],
+  "recurring_events": [
+    {
+      "name": "Araw ng Davao",
+      "start": "03-16",
+      "end": "03-16"
+    },
+    {
+      "name": "Kadayawan Festival",
+      "start": "08-15",
+      "end": "08-24"
+    }
+  ]
+}

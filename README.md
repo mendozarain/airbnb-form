@@ -1,88 +1,133 @@
-# cozy-d-714
+# Cozy Davao D-714
 
-Version 1.0.0
+Guest registration and PMO submission app for one Airbnb unit. The codebase is intentionally small and conventional so it is easy to learn and review.
 
-One-time guest registration links for guest booking stays, with an admin review step before submitting the restricted PMO Google Form.
+## Architecture
 
-## Structure
-
-- `frontend/` - Vite + React + Formik guest/admin UI.
-- `backend/` - Cloudflare Worker + Hono API.
-- `shared/` - shared Zod schemas and TypeScript types.
-
-## Local setup
-
-```bash
-bun install
-bun dev:frontend
-bun dev:backend
+```text
+Browser
+  -> Railway frontend (React + Caddy)
+       -> /api/* proxy over Railway private network
+            -> Railway API (NestJS)
+                 -> Railway Postgres (Prisma)
+                 -> Railway Bucket (S3 API)
+                 -> Playwright / Google Forms
+                 -> AgentMail email API
 ```
 
-The backend needs these before real use:
+The Django mental map is:
+
+| Django | NestJS |
+| --- | --- |
+| app | module |
+| urls.py + views.py | controller |
+| services.py | service |
+| models.py | prisma/schema.prisma |
+| migrations | prisma/migrations |
+| permission class | Better Auth guard / `@Roles` |
+| management command | `backend/scripts` |
+
+## Folders
+
+- `frontend/`: React, Vite, Tailwind, and shadcn/ui screens.
+- `backend/`: NestJS modules, Prisma schema, automation, and migration commands.
+- `shared/`: the small set of Zod contracts and domain types used by both apps.
+
+## Local Setup
+
+Requirements: Node.js 22, npm, PostgreSQL, and an S3-compatible bucket.
 
 ```bash
-wrangler secret put DATABASE_URL
-wrangler secret put GMAIL_SMTP_USER
-wrangler secret put GMAIL_SMTP_APP_PASSWORD
+npm install
+cp backend/.env.example backend/.env
+npm run migrate:dev --workspace backend
+npm run dev:api
+npm run dev:frontend
 ```
 
-For local Worker dev, copy `backend/.dev.vars.example` to `backend/.dev.vars` and put your Neon URL there. The real `.dev.vars` file is ignored by git.
+Open `http://localhost:5173`. Vite proxies `/api` to Nest on port 3000.
 
-For local frontend auth, copy `frontend/.env.example` to `frontend/.env.local` and set `VITE_NEON_AUTH_URL` from the Neon Auth configuration page.
+Useful checks:
 
-Create the Neon tables with `backend/schema.sql`.
+```bash
+npm run typecheck
+npm run lint
+npm test
+npm run build
+```
 
-## Cloudflare
+Capture a fresh Google browser session:
 
-`backend/wrangler.jsonc` defines:
+```bash
+npm run capture:google --workspace backend
+```
 
-- `ID_BUCKET` - R2 bucket for temporary ID uploads and automation screenshots.
-- `BROWSER` - Cloudflare Browser Run binding for Playwright automation.
-- Cron cleanup for orphan ID uploads older than 24 hours.
+Upload the resulting `backend/google-storage-state.json` from Admin Settings.
 
-The production flow fills the restricted Google Form with Browser Run, uploads the guest IDs, captures the filled form before submit, submits the Google Form, then emails the entrance-pass screenshot and check-in guide to the guest.
+## Authentication
 
-## Deployments
+Better Auth is mounted at `/api/auth`. Email/password signup is disabled. Existing administrators are migrated with their UUIDs, roles, and scrypt password hashes, but old sessions are intentionally discarded.
 
-GitHub Actions deploys through `.github/workflows/deploy.yml`:
+Generate the production secret once:
 
-1. Install dependencies with Bun.
-2. Typecheck shared, frontend, and backend packages.
-3. Deploy the backend Worker with Wrangler.
-4. Build the frontend and deploy it to the existing Cloudflare Pages project.
+```bash
+openssl rand -base64 32
+```
 
-Branch behavior:
+Store it as `BETTER_AUTH_SECRET` on the API service.
 
-- `main` deploys production:
-  - Frontend: `https://cozy-d-714.pages.dev`
-  - Backend: `https://cozy-d-714-backend.rhainne-work.workers.dev`
-- `dev` deploys a persistent preview:
-  - Frontend: the latest Cloudflare Pages deployment for branch `dev`
-  - Backend: `https://cozy-d-714-backend-dev.rhainne-work.workers.dev`
-- Pull requests into `main` or `dev` deploy branch previews and comment the frontend/backend URLs on the PR.
-- When a PR is closed or merged into `main` or `dev`, the workflow deletes that branch's temporary preview Worker and Pages preview deployments.
-- The `dev` preview is intentionally not deleted.
+## Railway Services
 
-The workflow expects these GitHub repository secrets:
+Use four project resources:
 
-- `CLOUDFLARE_ACCOUNT_ID`
-- `CLOUDFLARE_API_TOKEN`
-- `DATABASE_URL`
-- `GMAIL_SMTP_USER`
-- `GMAIL_SMTP_APP_PASSWORD`
+- `frontend`: repository root with `RAILWAY_DOCKERFILE_PATH=frontend/Dockerfile`.
+- `api`: repository root with `RAILWAY_DOCKERFILE_PATH=backend/Dockerfile`, one replica, private networking enabled.
+- `Postgres`: referenced by the API as `DATABASE_URL`.
+- `uploads`: Railway Bucket credentials injected into the API as the documented `AWS_*` variables.
 
-Cloudflare Pages native Git linking is not enabled because the current Pages project was created as a Direct Uploads project, and Cloudflare does not allow changing a Direct Uploads project into a Git-source project in place.
+Frontend variables:
 
-## Admin Auth
+```text
+API_INTERNAL_URL=${{api.RAILWAY_PRIVATE_DOMAIN}}:3000
+```
 
-Admin pages use Neon Auth. The frontend signs in through `VITE_NEON_AUTH_URL`, then sends a Neon Auth JWT to the Worker. The Worker verifies that JWT against the Neon Auth `/jwt` JWKS endpoint before serving `/api/admin/*`.
+Railway injects the frontend `PORT`; Caddy listens on it automatically.
 
-Set `ADMIN_EMAILS` to a comma-separated allowlist, or assign the `admin` role in Neon Auth. If `ADMIN_EMAILS` is empty, any signed-in Neon Auth user can access admin routes, which is useful during local setup but too loose for production.
+API variables are listed in `backend/.env.example`. In production, set `BETTER_AUTH_URL`, `PUBLIC_APP_URL`, and `TRUSTED_ORIGINS` to the public frontend URL. The API listens on port 3000 and does not need a public domain.
 
-## Release 1
+## Legacy Migration
 
-- Mobile-friendly guest registration flow with one-time invite URLs.
-- Admin review, reject, delete, pending, ready, rejected, and done tabs.
-- Temporary ID storage in R2 with 24-hour cleanup for abandoned uploads.
-- Browser Run automation for the restricted PMO Google Form.
-- Gmail SMTP delivery for the entrance pass and editable HTML check-in guide.
+Authenticate and link the Railway CLI first:
+
+```bash
+railway login
+railway link
+```
+
+Apply the Railway schema, then inspect the source without writing:
+
+```bash
+npm run migrate:deploy --workspace backend
+npm run migrate:legacy -- --dry-run
+```
+
+The migration command reads `SOURCE_DATABASE_URL`, `DATABASE_URL`, and destination `AWS_*` credentials. For source objects, either provide `SOURCE_AWS_*` credentials or run `npx wrangler login` and set `SOURCE_R2_BUCKET_NAME`. It refuses to run if the source has open invites/active submissions or the destination already contains app data.
+
+Run the final copy:
+
+```bash
+npm run migrate:legacy
+```
+
+Only unexpired guest IDs, screenshots newer than 31 days, and Google session files are copied. Row relationships plus object sizes, content types, and metadata are verified without logging personal values.
+
+Set the AgentMail API key and inbox directly in Railway so secrets do not pass through source control:
+
+```bash
+railway variable set --service api \
+  AGENTMAIL_API_KEY="am_..." \
+  AGENTMAIL_INBOX_ID="cozy-davao@agentmail.to" \
+  EMAIL_REPLY_TO="you@example.com"
+```
+
+Keep the old providers untouched for seven days after acceptance. Decommission them only after both administrators can sign in, the complete guest flow passes, and Railway automation successfully submits and emails one registration.
