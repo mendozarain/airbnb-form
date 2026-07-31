@@ -13,7 +13,7 @@ import {
 describe("entrance pass screenshot capture", () => {
   it("uses the high-density mobile capture profile", () => {
     expect(ENTRANCE_PASS_CAPTURE_PROFILE).toEqual({
-      name: "mobile-430-dpr2-compact-redacted-v3",
+      name: "mobile-430-dpr2-compact-redacted-v4",
       viewport: { width: 430, height: 932 },
       deviceScaleFactor: 2,
       expectedPixelWidth: 860
@@ -40,16 +40,16 @@ describe("entrance pass screenshot capture", () => {
     expect(() => assertEntrancePassScreenshotPrivacy(0)).not.toThrow();
   });
 
-  it("hides and restores both Google email identity shapes through the same capture gate", async () => {
+  it("hides and restores all Google email identity shapes through the same capture gate", async () => {
     const page = {
       evaluate: jest
         .fn<(callback: unknown, visible: boolean) => Promise<number>>()
-        .mockResolvedValueOnce(2)
-        .mockResolvedValueOnce(2)
+        .mockResolvedValueOnce(3)
+        .mockResolvedValueOnce(3)
     };
 
-    await expect(setGoogleEmailIdentityVisible(page, false)).resolves.toBe(2);
-    await expect(setGoogleEmailIdentityVisible(page, true)).resolves.toBe(2);
+    await expect(setGoogleEmailIdentityVisible(page, false)).resolves.toBe(3);
+    await expect(setGoogleEmailIdentityVisible(page, true)).resolves.toBe(3);
     expect(page.evaluate.mock.calls.map((call) => call[1])).toEqual([false, true]);
   });
 
