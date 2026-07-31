@@ -1,5 +1,9 @@
 import { jest } from "@jest/globals";
-import { DEFAULT_EMAIL_TEMPLATE, EmailService } from "./email.service.js";
+import {
+  DEFAULT_EMAIL_TEMPLATE,
+  DEFAULT_VISITOR_VIEWING_EMAIL_TEMPLATE,
+  EmailService
+} from "./email.service.js";
 
 describe("EmailService", () => {
   const originalEnv = { ...process.env };
@@ -90,5 +94,21 @@ describe("EmailService", () => {
     expect(DEFAULT_EMAIL_TEMPLATE.html).toContain("Is there parking?");
     expect(DEFAULT_EMAIL_TEMPLATE.html).toContain("Open location in Google Maps");
     expect(DEFAULT_EMAIL_TEMPLATE.html).not.toMatch(/\battach(?:ed|ment)\b/i);
+  });
+
+  it("keeps the visitor and viewing template limited to visit essentials", () => {
+    expect(DEFAULT_VISITOR_VIEWING_EMAIL_TEMPLATE.subject).toBe(
+      "Your Cozy Davao D-714 entrance pass and visit details"
+    );
+    expect(DEFAULT_VISITOR_VIEWING_EMAIL_TEMPLATE.html).toContain("<!-- entrance-pass-slot -->");
+    expect(DEFAULT_VISITOR_VIEWING_EMAIL_TEMPLATE.html).toContain("Bldg.D_714");
+    expect(DEFAULT_VISITOR_VIEWING_EMAIL_TEMPLATE.html).toContain("cloud@731");
+    expect(DEFAULT_VISITOR_VIEWING_EMAIL_TEMPLATE.html).toContain("Open location in Google Maps");
+    expect(DEFAULT_VISITOR_VIEWING_EMAIL_TEMPLATE.html).toContain("Paid parking");
+    expect(DEFAULT_VISITOR_VIEWING_EMAIL_TEMPLATE.html).not.toContain("How to check in");
+    expect(DEFAULT_VISITOR_VIEWING_EMAIL_TEMPLATE.html).not.toContain("Appliance guide");
+    expect(DEFAULT_VISITOR_VIEWING_EMAIL_TEMPLATE.html).not.toContain("Keys");
+    expect(DEFAULT_VISITOR_VIEWING_EMAIL_TEMPLATE.html).not.toContain("early check-in");
+    expect(DEFAULT_VISITOR_VIEWING_EMAIL_TEMPLATE.html).not.toMatch(/\battach(?:ed|ment)\b/i);
   });
 });

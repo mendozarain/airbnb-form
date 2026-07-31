@@ -6,10 +6,10 @@ import { requiredEnv } from "../config/env.js";
 import { StorageService } from "../storage/storage.service.js";
 import { GoogleSessionService } from "../settings/google-session.service.js";
 
-const AUTOMATION_VERSION = "google-form-compact-inline-pass-v31";
+const AUTOMATION_VERSION = "google-form-purpose-email-redacted-v32";
 
 export const ENTRANCE_PASS_CAPTURE_PROFILE = {
-  name: "mobile-430-dpr2-compact-v2",
+  name: "mobile-430-dpr2-compact-redacted-v3",
   viewport: { width: 430, height: 932 },
   deviceScaleFactor: 2,
   expectedPixelWidth: 860
@@ -109,12 +109,22 @@ export class GoogleFormRunner {
       await setGoogleFormSubmitControlsVisible(page, false);
       await setUnusedGuestRowsVisible(page, false);
       let screenshot: Buffer;
+      let emailRedactionCount = 0;
       try {
+        emailRedactionCount = await setGoogleEmailIdentityVisible(page, false);
+        assertEntrancePassScreenshotPrivacy(await countVisibleEmailAddresses(page));
         await prepareEntrancePassScreenshot(page);
         screenshot = await page.screenshot(ENTRANCE_PASS_SCREENSHOT_OPTIONS);
       } finally {
-        await setUnusedGuestRowsVisible(page, true);
-        await setGoogleFormSubmitControlsVisible(page, true);
+        try {
+          await setGoogleEmailIdentityVisible(page, true);
+        } finally {
+          try {
+            await setUnusedGuestRowsVisible(page, true);
+          } finally {
+            await setGoogleFormSubmitControlsVisible(page, true);
+          }
+        }
       }
 
       const screenshotKey = `automation/${crypto.randomUUID()}-entrance-pass-before-submit.png`;
@@ -128,7 +138,9 @@ export class GoogleFormRunner {
               viewportHeight: String(ENTRANCE_PASS_CAPTURE_PROFILE.viewport.height),
               deviceScaleFactor: String(ENTRANCE_PASS_CAPTURE_PROFILE.deviceScaleFactor),
               pixelWidth: String(width),
-              pixelHeight: String(height)
+              pixelHeight: String(height),
+              emailIdentityRedacted: String(emailRedactionCount > 0),
+              emailRedactionCount: String(emailRedactionCount)
             }
           });
         },
@@ -184,6 +196,120 @@ export function shouldHideUnusedGuestRow(questionText: string, textboxValues: st
     textboxValues.length === 1 &&
     textboxValues[0].trim() === ""
   );
+}
+
+export function containsEmailAddress(value: string) {
+  return /\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/i.test(value);
+}
+
+export function assertEntrancePassScreenshotPrivacy(visibleEmailCount: number) {
+  if (visibleEmailCount > 0) {
+    throw new Error(
+      `Entrance pass privacy check found ${visibleEmailCount} visible email address${visibleEmailCount === 1 ? "" : "es"}`
+    );
+  }
+}
+
+export async function setGoogleEmailIdentityVisible(page: any, visible: boolean): Promise<number> {
+  return page.evaluate((show: boolean) => {
+    const marker = "data-cozy-d714-email-redaction";
+    const emailPattern = /\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/i;
+
+    if (show) {
+      const redacted = Array.from(document.querySelectorAll<HTMLElement>(`[${marker}]`));
+      for (const element of redacted) {
+        const saved = element.getAttribute(marker);
+        element.style.removeProperty("display");
+        if (saved) {
+          const previous = JSON.parse(saved) as { value: string; priority: string };
+          if (previous.value) {
+            element.style.setProperty("display", previous.value, previous.priority);
+          }
+        }
+        element.removeAttribute(marker);
+      }
+      return redacted.length;
+    }
+
+    const isVisible = (element: Element) => {
+      const style = window.getComputedStyle(element);
+      const rect = element.getBoundingClientRect();
+      return (
+        style.display !== "none" &&
+        style.visibility !== "hidden" &&
+        Number(style.opacity || "1") > 0 &&
+        rect.width > 0 &&
+        rect.height > 0
+      );
+    };
+    const leafEmailElements = Array.from(document.querySelectorAll<HTMLElement>("body *")).filter(
+      (element) =>
+        isVisible(element) &&
+        containsEmailText(element.textContent ?? "") &&
+        !Array.from(element.children).some((child) => containsEmailText(child.textContent ?? ""))
+    );
+    const targets: HTMLElement[] = [];
+
+    for (const source of leafEmailElements) {
+      const listItem = source.closest<HTMLElement>("[role='listitem']");
+      if (listItem && /record[\s\S]*email/i.test(listItem.textContent ?? "")) {
+        targets.push(listItem);
+        continue;
+      }
+
+      let target: HTMLElement = source;
+      let ancestor = source.parentElement;
+      for (let depth = 0; ancestor && depth < 5; depth += 1, ancestor = ancestor.parentElement) {
+        if (ancestor.matches("form, body")) break;
+        const text = ancestor.textContent ?? "";
+        if (/switch account/i.test(text) || /record[\s\S]*email/i.test(text)) {
+          target = ancestor;
+          break;
+        }
+        if (depth === 0) target = ancestor;
+      }
+      targets.push(target);
+    }
+
+    const uniqueTargets = targets.filter(
+      (target, index, all) =>
+        all.indexOf(target) === index && !all.some((other) => other !== target && other.contains(target))
+    );
+    for (const target of uniqueTargets) {
+      const saved = {
+        value: target.style.getPropertyValue("display"),
+        priority: target.style.getPropertyPriority("display")
+      };
+      target.setAttribute(marker, JSON.stringify(saved));
+      target.style.setProperty("display", "none", "important");
+    }
+    return uniqueTargets.length;
+
+    function containsEmailText(value: string) {
+      return emailPattern.test(value);
+    }
+  }, visible);
+}
+
+export async function countVisibleEmailAddresses(page: any): Promise<number> {
+  return page.evaluate(() => {
+    const emailPattern = /\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/i;
+    return Array.from(document.querySelectorAll<HTMLElement>("body *")).filter((element) => {
+      const style = window.getComputedStyle(element);
+      const rect = element.getBoundingClientRect();
+      const visible =
+        style.display !== "none" &&
+        style.visibility !== "hidden" &&
+        Number(style.opacity || "1") > 0 &&
+        rect.width > 0 &&
+        rect.height > 0;
+      return (
+        visible &&
+        emailPattern.test(element.textContent ?? "") &&
+        !Array.from(element.children).some((child) => emailPattern.test(child.textContent ?? ""))
+      );
+    }).length;
+  });
 }
 
 export function validateEntrancePassScreenshot(screenshot: Uint8Array): EntrancePassDimensions {
