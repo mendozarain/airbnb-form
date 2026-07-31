@@ -4,12 +4,6 @@ import { requiredEnv } from "../config/env.js";
 
 const AGENTMAIL_API_URL = "https://api.agentmail.to/v0";
 
-type Attachment = {
-  filename: string;
-  contentType: string;
-  bytes: Buffer;
-};
-
 export const DEFAULT_EMAIL_TEMPLATE: EmailTemplate = {
   subject: "Your Cozy Davao D-714 entrance pass and check-in guide",
   html: `<!doctype html>
@@ -38,7 +32,7 @@ export class EmailService {
     return Boolean(process.env.AGENTMAIL_API_KEY?.trim() && process.env.AGENTMAIL_INBOX_ID?.trim());
   }
 
-  async sendEntrancePass(to: string, attachment: Attachment, template: EmailTemplate, imageUrl: string) {
+  async sendEntrancePass(to: string, template: EmailTemplate, imageUrl: string) {
     const inboxId = requiredEnv("AGENTMAIL_INBOX_ID");
     const replyTo = process.env.EMAIL_REPLY_TO?.trim();
     const html = addEntrancePassImage(template.html, imageUrl);
@@ -47,13 +41,6 @@ export class EmailService {
       subject: template.subject.replace(/[\r\n]+/g, " ").trim(),
       html,
       text: `${htmlToText(html)}\n\nOpen entrance pass full size: ${imageUrl}`,
-      attachments: [
-        {
-          filename: attachment.filename,
-          content_type: attachment.contentType,
-          content: attachment.bytes.toString("base64")
-        }
-      ],
       ...(replyTo ? { reply_to: replyTo } : {})
     };
 
@@ -102,7 +89,7 @@ export function addEntrancePassImage(templateHtml: string, imageUrl: string) {
 <div style="max-width:680px;margin:0 auto;padding:0 14px 24px;">
   <div style="background:#fff;border:1px solid #d5dee2;padding:18px 12px 22px;border-radius:8px;text-align:center;">
     <h2 style="margin:0 0 8px;font-family:Arial,Helvetica,sans-serif;color:#172026;font-size:22px;">Your entrance pass</h2>
-    <p style="margin:0 0 16px;font-family:Arial,Helvetica,sans-serif;color:#4b5563;font-size:15px;line-height:1.5;">Tap the image to open the sharp full-size version. The PNG is also attached.</p>
+    <p style="margin:0 0 16px;font-family:Arial,Helvetica,sans-serif;color:#4b5563;font-size:15px;line-height:1.5;">Tap the image to open the sharp full-size version.</p>
     <a href="${safeUrl}" target="_blank" style="display:block;text-decoration:none;">
       <img src="${safeUrl}" alt="Matina Enclaves entrance pass" width="430" style="display:block;width:100%;max-width:430px;height:auto;margin:0 auto;border:0;" />
     </a>
