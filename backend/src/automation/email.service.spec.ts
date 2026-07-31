@@ -1,5 +1,9 @@
 import { jest } from "@jest/globals";
-import { DEFAULT_EMAIL_TEMPLATE, EmailService } from "./email.service.js";
+import {
+  DEFAULT_EMAIL_TEMPLATE,
+  DEFAULT_VISITOR_VIEWING_EMAIL_TEMPLATE,
+  EmailService
+} from "./email.service.js";
 
 describe("EmailService", () => {
   const originalEnv = { ...process.env };
@@ -85,10 +89,53 @@ describe("EmailService", () => {
   });
 
   it("keeps the complete hospitality guide in the redesigned default template", () => {
+    expect(DEFAULT_EMAIL_TEMPLATE.html).toContain('role="presentation" align="center" width="680"');
+    expect(DEFAULT_EMAIL_TEMPLATE.html).toContain("max-width:680px;margin:0 auto;text-align:left;");
+    expect(DEFAULT_EMAIL_TEMPLATE.html).toContain("Your upcoming stay at Building D, Unit 714");
+    expect(DEFAULT_EMAIL_TEMPLATE.html).toContain("We’re looking forward to hosting you");
+    expect(DEFAULT_EMAIL_TEMPLATE.html).toContain("Floor 7, Unit 714");
+    expect(DEFAULT_EMAIL_TEMPLATE.html).not.toContain("Room 714");
     expect(DEFAULT_EMAIL_TEMPLATE.html).toContain("How to check in");
+    expect(DEFAULT_EMAIL_TEMPLATE.html).toContain("Finding your keys");
+    expect(DEFAULT_EMAIL_TEMPLATE.html).toContain('alt="Mailbox 714 key location"');
+    expect(DEFAULT_EMAIL_TEMPLATE.html).toContain('alt="Keys inside mailbox 714"');
     expect(DEFAULT_EMAIL_TEMPLATE.html).toContain("Appliance guide");
     expect(DEFAULT_EMAIL_TEMPLATE.html).toContain("Is there parking?");
     expect(DEFAULT_EMAIL_TEMPLATE.html).toContain("Open location in Google Maps");
     expect(DEFAULT_EMAIL_TEMPLATE.html).not.toMatch(/\battach(?:ed|ment)\b/i);
+  });
+
+  it("keeps the visitor and viewing template limited to visit essentials", () => {
+    expect(DEFAULT_VISITOR_VIEWING_EMAIL_TEMPLATE.subject).toBe(
+      "Your Cozy Davao D-714 entrance pass and visit details"
+    );
+    expect(DEFAULT_VISITOR_VIEWING_EMAIL_TEMPLATE.html).toContain(
+      'role="presentation" align="center" width="680"'
+    );
+    expect(DEFAULT_VISITOR_VIEWING_EMAIL_TEMPLATE.html).toContain(
+      "max-width:680px;margin:0 auto;text-align:left;"
+    );
+    expect(DEFAULT_VISITOR_VIEWING_EMAIL_TEMPLATE.html).toContain(
+      "Your upcoming visit to Building D, Unit 714"
+    );
+    expect(DEFAULT_VISITOR_VIEWING_EMAIL_TEMPLATE.html).toContain(
+      "We’re looking forward to welcoming you"
+    );
+    expect(DEFAULT_VISITOR_VIEWING_EMAIL_TEMPLATE.html).not.toContain(
+      "Your upcoming stay at Building D, Unit 714"
+    );
+    expect(DEFAULT_VISITOR_VIEWING_EMAIL_TEMPLATE.html).toContain("Find Unit 714");
+    expect(DEFAULT_VISITOR_VIEWING_EMAIL_TEMPLATE.html).not.toContain("Room 714");
+    expect(DEFAULT_VISITOR_VIEWING_EMAIL_TEMPLATE.html).toContain("<!-- entrance-pass-slot -->");
+    expect(DEFAULT_VISITOR_VIEWING_EMAIL_TEMPLATE.html).toContain("Bldg.D_714");
+    expect(DEFAULT_VISITOR_VIEWING_EMAIL_TEMPLATE.html).toContain("cloud@731");
+    expect(DEFAULT_VISITOR_VIEWING_EMAIL_TEMPLATE.html).toContain("Open location in Google Maps");
+    expect(DEFAULT_VISITOR_VIEWING_EMAIL_TEMPLATE.html).toContain("Paid parking");
+    expect(DEFAULT_VISITOR_VIEWING_EMAIL_TEMPLATE.html).not.toContain("How to check in");
+    expect(DEFAULT_VISITOR_VIEWING_EMAIL_TEMPLATE.html).not.toContain("Appliance guide");
+    expect(DEFAULT_VISITOR_VIEWING_EMAIL_TEMPLATE.html).not.toContain("Keys");
+    expect(DEFAULT_VISITOR_VIEWING_EMAIL_TEMPLATE.html).not.toContain("Finding your keys");
+    expect(DEFAULT_VISITOR_VIEWING_EMAIL_TEMPLATE.html).not.toContain("early check-in");
+    expect(DEFAULT_VISITOR_VIEWING_EMAIL_TEMPLATE.html).not.toMatch(/\battach(?:ed|ment)\b/i);
   });
 });

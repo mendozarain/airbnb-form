@@ -6,10 +6,12 @@ import { requiredEnv } from "../config/env.js";
 import { StorageService } from "../storage/storage.service.js";
 import { GoogleSessionService } from "../settings/google-session.service.js";
 
-const AUTOMATION_VERSION = "google-form-compact-inline-pass-v31";
+const AUTOMATION_VERSION = "google-form-purpose-account-ui-redacted-v35";
+const EMAIL_ADDRESS_PATTERN_SOURCE = String.raw`\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b`;
+const MINIMUM_VISIBLE_FORM_QUESTIONS = 5;
 
 export const ENTRANCE_PASS_CAPTURE_PROFILE = {
-  name: "mobile-430-dpr2-compact-v2",
+  name: "mobile-430-dpr2-account-ui-redacted-v6",
   viewport: { width: 430, height: 932 },
   deviceScaleFactor: 2,
   expectedPixelWidth: 860
@@ -109,12 +111,25 @@ export class GoogleFormRunner {
       await setGoogleFormSubmitControlsVisible(page, false);
       await setUnusedGuestRowsVisible(page, false);
       let screenshot: Buffer;
+      let emailRedactionCount = 0;
+      let visibleQuestionCount = 0;
       try {
+        emailRedactionCount = await setGoogleEmailIdentityVisible(page, false);
+        assertEntrancePassScreenshotPrivacy(await countVisibleEmailAddresses(page));
+        visibleQuestionCount = await countVisibleGoogleFormQuestions(page);
+        assertEntrancePassFormContentVisible(visibleQuestionCount);
         await prepareEntrancePassScreenshot(page);
         screenshot = await page.screenshot(ENTRANCE_PASS_SCREENSHOT_OPTIONS);
       } finally {
-        await setUnusedGuestRowsVisible(page, true);
-        await setGoogleFormSubmitControlsVisible(page, true);
+        try {
+          await setGoogleEmailIdentityVisible(page, true);
+        } finally {
+          try {
+            await setUnusedGuestRowsVisible(page, true);
+          } finally {
+            await setGoogleFormSubmitControlsVisible(page, true);
+          }
+        }
       }
 
       const screenshotKey = `automation/${crypto.randomUUID()}-entrance-pass-before-submit.png`;
@@ -128,7 +143,10 @@ export class GoogleFormRunner {
               viewportHeight: String(ENTRANCE_PASS_CAPTURE_PROFILE.viewport.height),
               deviceScaleFactor: String(ENTRANCE_PASS_CAPTURE_PROFILE.deviceScaleFactor),
               pixelWidth: String(width),
-              pixelHeight: String(height)
+              pixelHeight: String(height),
+              emailIdentityRedacted: String(emailRedactionCount > 0),
+              emailRedactionCount: String(emailRedactionCount),
+              visibleQuestionCount: String(visibleQuestionCount)
             }
           });
         },
@@ -184,6 +202,225 @@ export function shouldHideUnusedGuestRow(questionText: string, textboxValues: st
     textboxValues.length === 1 &&
     textboxValues[0].trim() === ""
   );
+}
+
+export function containsEmailAddress(value: string) {
+  return new RegExp(EMAIL_ADDRESS_PATTERN_SOURCE, "i").test(value);
+}
+
+export function assertEntrancePassScreenshotPrivacy(visibleEmailCount: number) {
+  if (visibleEmailCount > 0) {
+    throw new Error(
+      `Entrance pass privacy check found ${visibleEmailCount} visible email address${visibleEmailCount === 1 ? "" : "es"}`
+    );
+  }
+}
+
+export async function setGoogleEmailIdentityVisible(page: any, visible: boolean): Promise<number> {
+  return page.evaluate(
+    ({ show, emailPatternSource }: { show: boolean; emailPatternSource: string }) => {
+      const hiddenMarker = "data-cozy-d714-privacy-hidden";
+      const displayMarker = "data-cozy-d714-privacy-display";
+      const textMarker = "data-cozy-d714-email-redaction";
+
+      if (show) {
+        const hidden = Array.from(document.querySelectorAll<HTMLElement>(`[${hiddenMarker}]`));
+        for (const element of hidden) {
+          const previousDisplay = element.getAttribute(displayMarker) ?? "";
+          element.style.removeProperty("display");
+          if (previousDisplay) element.style.display = previousDisplay;
+          element.removeAttribute(hiddenMarker);
+          element.removeAttribute(displayMarker);
+        }
+
+        const redacted = Array.from(document.querySelectorAll<HTMLElement>(`span[${textMarker}]`));
+        for (const span of redacted) {
+          const parent = span.parentNode;
+          span.replaceWith(document.createTextNode(span.textContent ?? ""));
+          parent?.normalize();
+        }
+        return hidden.length + redacted.length;
+      }
+
+      const isVisible = (element: Element) => {
+        const style = window.getComputedStyle(element);
+        const rect = element.getBoundingClientRect();
+        return (
+          style.display !== "none" &&
+          style.visibility !== "hidden" &&
+          Number(style.opacity || "1") > 0 &&
+          rect.width > 0 &&
+          rect.height > 0
+        );
+      };
+
+      let redactionCount = 0;
+      const hide = (element: Element | null | undefined) => {
+        if (!(element instanceof HTMLElement) || !isVisible(element)) return;
+        if (element.closest(`[${hiddenMarker}]`)) return;
+        element.setAttribute(hiddenMarker, "");
+        element.setAttribute(displayMarker, element.style.display);
+        element.style.setProperty("display", "none", "important");
+        redactionCount += 1;
+      };
+
+      const normalizedText = (element: Element) => (element.textContent ?? "").replace(/\s+/g, " ").trim();
+      const visibleElements = Array.from(document.querySelectorAll<HTMLElement>("body *")).filter(isVisible);
+      const smallestMatch = (pattern: RegExp) =>
+        visibleElements.find(
+          (element) =>
+            pattern.test(normalizedText(element)) &&
+            !Array.from(element.children).some((child) => pattern.test(normalizedText(child)))
+        );
+
+      const receiptLabel = smallestMatch(/Record[\s\S]*as the email to be included with my response/i);
+      let receiptQuestion = receiptLabel;
+      for (let depth = 0; receiptQuestion?.parentElement && depth < 8; depth += 1) {
+        const parent = receiptQuestion.parentElement;
+        const parentText = normalizedText(parent);
+        if (parent.getAttribute("role") === "list" || parentText.length > 300) break;
+        receiptQuestion = parent;
+      }
+      hide(receiptQuestion);
+
+      const switchAccount = smallestMatch(/^Switch account$/i);
+      hide(switchAccount?.closest("a, button, [role='button'], [role='link']") ?? switchAccount);
+
+      const saving = smallestMatch(/^Saving(?:…|\.\.\.)?$/i);
+      if (saving) {
+        let savingContainer: HTMLElement = saving;
+        for (let depth = 0; depth < 3; depth += 1) {
+          const parent = savingContainer.parentElement;
+          const parentText = parent ? normalizedText(parent) : "";
+          if (!parent || parentText.length > 40 || !/Saving(?:…|\.\.\.)?/i.test(parentText)) break;
+          savingContainer = parent;
+        }
+        hide(savingContainer);
+      }
+
+      const accountNotice = smallestMatch(
+        /The name, email, and photo associated with your Google account will be recorded/i
+      );
+      hide(accountNotice);
+
+      const receiptCopy = smallestMatch(/A copy of your responses will be emailed to/i);
+      hide(receiptCopy);
+
+      const restoredProgress = smallestMatch(/Your progress has been restored/i);
+      if (restoredProgress) {
+        let progressContainer: HTMLElement = restoredProgress;
+        for (let depth = 0; depth < 4; depth += 1) {
+          const parent = progressContainer.parentElement;
+          const parentText = parent ? normalizedText(parent) : "";
+          if (!parent || parentText.length > 80 || !/Your progress has been restored/i.test(parentText)) {
+            break;
+          }
+          progressContainer = parent;
+        }
+        hide(progressContainer);
+      }
+
+      const emailPattern = new RegExp(emailPatternSource, "i");
+      const visibleEmailLeaf = visibleElements.find(
+        (element) =>
+          isVisible(element) &&
+          emailPattern.test(normalizedText(element)) &&
+          !Array.from(element.children).some((child) => emailPattern.test(normalizedText(child)))
+      );
+      if (visibleEmailLeaf) {
+        let accountRow: HTMLElement = visibleEmailLeaf;
+        for (let depth = 0; depth < 4; depth += 1) {
+          const parent = accountRow.parentElement;
+          if (!parent) break;
+          const text = normalizedText(parent);
+          if (text.length > 300 || !emailPattern.test(text)) break;
+          accountRow = parent;
+        }
+        hide(accountRow);
+      }
+
+      const textNodes = Array.from(document.querySelectorAll<HTMLElement>("body *")).flatMap((element) =>
+        isVisible(element)
+          ? Array.from(element.childNodes).filter((node) => node.nodeType === Node.TEXT_NODE)
+          : []
+      );
+
+      for (const textNode of textNodes) {
+        const value = textNode.nodeValue ?? "";
+        const emailPattern = new RegExp(emailPatternSource, "gi");
+        const matches = Array.from(value.matchAll(emailPattern));
+        if (!matches.length) continue;
+
+        const fragment = document.createDocumentFragment();
+        let cursor = 0;
+        for (const match of matches) {
+          const index = match.index ?? 0;
+          if (index > cursor) fragment.append(document.createTextNode(value.slice(cursor, index)));
+
+          const span = document.createElement("span");
+          span.setAttribute(textMarker, "");
+          span.setAttribute("aria-hidden", "true");
+          span.textContent = match[0];
+          span.style.setProperty("visibility", "hidden", "important");
+          span.style.setProperty("opacity", "0", "important");
+          span.style.setProperty("color", "transparent", "important");
+          span.style.setProperty("-webkit-text-fill-color", "transparent", "important");
+          fragment.append(span);
+          cursor = index + match[0].length;
+          redactionCount += 1;
+        }
+        if (cursor < value.length) fragment.append(document.createTextNode(value.slice(cursor)));
+        textNode.replaceWith(fragment);
+      }
+      return redactionCount;
+    },
+    { show: visible, emailPatternSource: EMAIL_ADDRESS_PATTERN_SOURCE }
+  );
+}
+
+export async function countVisibleEmailAddresses(page: any): Promise<number> {
+  return page.evaluate(() => {
+    const emailPattern = /\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/i;
+    return Array.from(document.querySelectorAll<HTMLElement>("body *")).filter((element) => {
+      const style = window.getComputedStyle(element);
+      const rect = element.getBoundingClientRect();
+      const visible =
+        style.display !== "none" &&
+        style.visibility !== "hidden" &&
+        Number(style.opacity || "1") > 0 &&
+        rect.width > 0 &&
+        rect.height > 0;
+      return (
+        visible &&
+        emailPattern.test(element.textContent ?? "") &&
+        !Array.from(element.children).some((child) => emailPattern.test(child.textContent ?? ""))
+      );
+    }).length;
+  });
+}
+
+export async function countVisibleGoogleFormQuestions(page: any): Promise<number> {
+  return page.evaluate(() => {
+    return Array.from(document.querySelectorAll<HTMLElement>('[role="listitem"]')).filter((element) => {
+      const style = window.getComputedStyle(element);
+      const rect = element.getBoundingClientRect();
+      return (
+        style.display !== "none" &&
+        style.visibility !== "hidden" &&
+        Number(style.opacity || "1") > 0 &&
+        rect.width > 0 &&
+        rect.height > 0
+      );
+    }).length;
+  });
+}
+
+export function assertEntrancePassFormContentVisible(visibleQuestionCount: number) {
+  if (visibleQuestionCount < MINIMUM_VISIBLE_FORM_QUESTIONS) {
+    throw new Error(
+      `Entrance pass capture found only ${visibleQuestionCount} visible form questions; expected at least ${MINIMUM_VISIBLE_FORM_QUESTIONS}`
+    );
+  }
 }
 
 export function validateEntrancePassScreenshot(screenshot: Uint8Array): EntrancePassDimensions {

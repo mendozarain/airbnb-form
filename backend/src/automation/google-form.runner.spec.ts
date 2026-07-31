@@ -1,7 +1,14 @@
 import { jest } from "@jest/globals";
+import { chromium } from "playwright";
 import {
+  assertEntrancePassFormContentVisible,
+  assertEntrancePassScreenshotPrivacy,
+  containsEmailAddress,
+  countVisibleEmailAddresses,
+  countVisibleGoogleFormQuestions,
   ENTRANCE_PASS_CAPTURE_PROFILE,
   ENTRANCE_PASS_SCREENSHOT_OPTIONS,
+  setGoogleEmailIdentityVisible,
   shouldHideUnusedGuestRow,
   validateEntrancePassScreenshot,
   validatePersistAndSubmitEntrancePass
@@ -10,7 +17,7 @@ import {
 describe("entrance pass screenshot capture", () => {
   it("uses the high-density mobile capture profile", () => {
     expect(ENTRANCE_PASS_CAPTURE_PROFILE).toEqual({
-      name: "mobile-430-dpr2-compact-v2",
+      name: "mobile-430-dpr2-account-ui-redacted-v6",
       viewport: { width: 430, height: 932 },
       deviceScaleFactor: 2,
       expectedPixelWidth: 860
@@ -23,6 +30,91 @@ describe("entrance pass screenshot capture", () => {
       caret: "hide",
       timeout: 15_000
     });
+  });
+
+  it("recognises visible Google account email text without retaining the address", () => {
+    expect(containsEmailAddress("Signed in as guest@example.com")).toBe(true);
+    expect(containsEmailAddress("Switch account")).toBe(false);
+  });
+
+  it("stops capture when any visible email-shaped text remains", () => {
+    expect(() => assertEntrancePassScreenshotPrivacy(2)).toThrow(
+      "privacy check found 2 visible email addresses"
+    );
+    expect(() => assertEntrancePassScreenshotPrivacy(0)).not.toThrow();
+  });
+
+  it("hides and restores all Google email identity shapes through the same capture gate", async () => {
+    const page = {
+      evaluate: jest
+        .fn<(callback: unknown, options: { show: boolean }) => Promise<number>>()
+        .mockResolvedValueOnce(3)
+        .mockResolvedValueOnce(3)
+    };
+
+    await expect(setGoogleEmailIdentityVisible(page, false)).resolves.toBe(3);
+    await expect(setGoogleEmailIdentityVisible(page, true)).resolves.toBe(3);
+    expect(page.evaluate.mock.calls.map((call) => call[1].show)).toEqual([false, true]);
+  });
+
+  it("hides and restores the complete Google account and email receipt UI without hiding form questions", async () => {
+    const browser = await chromium.launch({ headless: true });
+    const page = await browser.newPage();
+    try {
+      await page.setContent(`
+        <div id="account-row"><span>guest@example.com</span><a href="#">Switch account</a></div>
+        <div id="saving"><span aria-hidden="true">↻</span><span>Saving...</span></div>
+        <div id="account-notice">The name, email, and photo associated with your Google account will be recorded when you upload files and submit this form</div>
+        <div role="list">
+          <div id="email-question">
+            <h2>Email *</h2>
+            <label>Record <span>guest@example.com</span> as the email to be included with my response</label>
+          </div>
+        </div>
+        ${Array.from(
+          { length: 6 },
+          (_, index) => `<div role="listitem">Visible question ${index + 1}</div>`
+        ).join("")}
+        <div id="receipt-copy">A copy of your responses will be emailed to guest@example.com.</div>
+        <div id="restored-progress"><span>Your progress has been restored</span></div>
+      `);
+
+      await expect(setGoogleEmailIdentityVisible(page, false)).resolves.toBeGreaterThanOrEqual(5);
+      await expect(countVisibleEmailAddresses(page)).resolves.toBe(0);
+      await expect(countVisibleGoogleFormQuestions(page)).resolves.toBe(6);
+      for (const selector of [
+        "#account-row",
+        "#saving",
+        "#account-notice",
+        "#email-question",
+        "#receipt-copy",
+        "#restored-progress"
+      ]) {
+        await expect(page.locator(selector).isVisible()).resolves.toBe(false);
+      }
+
+      await expect(setGoogleEmailIdentityVisible(page, true)).resolves.toBeGreaterThanOrEqual(5);
+      await expect(countVisibleEmailAddresses(page)).resolves.toBe(3);
+      await expect(countVisibleGoogleFormQuestions(page)).resolves.toBe(6);
+      for (const selector of [
+        "#account-row",
+        "#saving",
+        "#account-notice",
+        "#email-question",
+        "#receipt-copy",
+        "#restored-progress"
+      ]) {
+        await expect(page.locator(selector).isVisible()).resolves.toBe(true);
+      }
+    } finally {
+      await browser.close();
+    }
+  });
+
+  it("stops capture when the filled Google Form content is no longer visible", () => {
+    expect(() => assertEntrancePassFormContentVisible(0)).toThrow("expected at least 5");
+    expect(() => assertEntrancePassFormContentVisible(4)).toThrow("expected at least 5");
+    expect(() => assertEntrancePassFormContentVisible(5)).not.toThrow();
   });
 
   it("hides only empty numbered guest rows after the first guest", () => {

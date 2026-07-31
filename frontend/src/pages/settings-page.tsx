@@ -1,28 +1,37 @@
 import { CheckCircle2, Loader2, RefreshCw, Upload, XCircle } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
-import type { EmailTemplate, SettingsStatus } from "@cozy-d-714/shared";
+import type { EmailTemplate, EmailTemplateKind, EmailTemplateSet, SettingsStatus } from "@cozy-d-714/shared";
 import { PageHeader } from "@/components/page-header";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import { api } from "@/lib/api";
 
+const EMPTY_TEMPLATES: EmailTemplateSet = {
+  tenant: { subject: "", html: "" },
+  visitorViewing: { subject: "", html: "" }
+};
+
 export function SettingsPage() {
   const [status, setStatus] = useState<SettingsStatus | null>(null);
-  const [template, setTemplate] = useState<EmailTemplate>({ subject: "", html: "" });
+  const [templates, setTemplates] = useState<EmailTemplateSet>(EMPTY_TEMPLATES);
+  const [savedTemplates, setSavedTemplates] = useState<EmailTemplateSet>(EMPTY_TEMPLATES);
+  const [activeTemplate, setActiveTemplate] = useState<EmailTemplateKind>("tenant");
   const [loading, setLoading] = useState(true);
   const [acting, setActing] = useState(false);
 
   const refresh = useCallback(async () => {
     setLoading(true);
     try {
-      const [nextStatus, email] = await Promise.all([api.getSettings(), api.getEmailTemplate()]);
+      const [nextStatus, email] = await Promise.all([api.getSettings(), api.getEmailTemplates()]);
       setStatus(nextStatus);
-      setTemplate(email.template);
+      setTemplates(email.templates);
+      setSavedTemplates(email.templates);
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Could not load settings");
     } finally {
@@ -46,6 +55,33 @@ export function SettingsPage() {
       setActing(false);
     }
   }
+
+  function updateTemplate(update: Partial<EmailTemplate>) {
+    setTemplates((current) => ({
+      ...current,
+      [activeTemplate]: { ...current[activeTemplate], ...update }
+    }));
+  }
+
+  async function saveActiveTemplate() {
+    setActing(true);
+    try {
+      const current = templates[activeTemplate];
+      const result = await api.saveEmailTemplate(activeTemplate, current);
+      setTemplates((value) => ({ ...value, [activeTemplate]: result.template }));
+      setSavedTemplates((value) => ({ ...value, [activeTemplate]: result.template }));
+      toast.success(
+        activeTemplate === "tenant" ? "Tenant email template saved" : "Visitor / Viewing email template saved"
+      );
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Could not save email template");
+    } finally {
+      setActing(false);
+    }
+  }
+
+  const template = templates[activeTemplate];
+  const dirty = !templatesEqual(template, savedTemplates[activeTemplate]);
 
   if (loading && !status)
     return (
@@ -123,32 +159,49 @@ export function SettingsPage() {
       <section className="space-y-4 border-t border-slate-200 pt-7">
         <div>
           <h2 className="text-lg font-semibold">Guest email</h2>
-          <p className="text-sm text-slate-500">The PMO screenshot is attached to this message.</p>
+          <p className="text-sm text-slate-500">
+            Each message shows the entrance pass inline with a button for the full-size image. No file is
+            attached.
+          </p>
         </div>
+        <Tabs value={activeTemplate} onValueChange={(value) => setActiveTemplate(value as EmailTemplateKind)}>
+          <TabsList>
+            <TabsTrigger value="tenant">
+              Tenant{templatesEqual(templates.tenant, savedTemplates.tenant) ? "" : " •"}
+            </TabsTrigger>
+            <TabsTrigger value="visitorViewing">
+              Visitor / Viewing
+              {templatesEqual(templates.visitorViewing, savedTemplates.visitorViewing) ? "" : " •"}
+            </TabsTrigger>
+          </TabsList>
+        </Tabs>
         <div className="space-y-4 rounded-lg border border-slate-200 bg-white p-4">
+          <p className="text-sm text-slate-500">
+            {activeTemplate === "tenant"
+              ? "Complete arrival, check-in, appliance, and stay guide for tenants."
+              : "Shared essentials-only message for visitors of tenants and property viewings."}
+          </p>
           <div className="space-y-2">
-            <Label htmlFor="subject">Subject</Label>
+            <Label htmlFor={`${activeTemplate}-subject`}>Subject</Label>
             <Input
-              id="subject"
+              id={`${activeTemplate}-subject`}
               value={template.subject}
-              onChange={(event) => setTemplate((value) => ({ ...value, subject: event.target.value }))}
+              onChange={(event) => updateTemplate({ subject: event.target.value })}
             />
           </div>
           <div className="space-y-2">
-            <Label htmlFor="html">HTML body</Label>
+            <Label htmlFor={`${activeTemplate}-html`}>HTML body</Label>
             <Textarea
-              id="html"
+              id={`${activeTemplate}-html`}
               className="min-h-72 font-mono text-xs"
               value={template.html}
-              onChange={(event) => setTemplate((value) => ({ ...value, html: event.target.value }))}
+              onChange={(event) => updateTemplate({ html: event.target.value })}
             />
           </div>
-          <div className="flex justify-end">
-            <Button
-              disabled={acting}
-              onClick={() => void run(() => api.saveEmailTemplate(template), "Email template saved")}
-            >
-              Save template
+          <div className="flex items-center justify-between gap-3">
+            <span className="text-sm text-slate-500">{dirty ? "Unsaved changes" : "All changes saved"}</span>
+            <Button disabled={acting || !dirty} onClick={() => void saveActiveTemplate()}>
+              Save {activeTemplate === "tenant" ? "Tenant" : "Visitor / Viewing"}
             </Button>
           </div>
         </div>
@@ -162,6 +215,10 @@ export function SettingsPage() {
       </section>
     </div>
   );
+}
+
+function templatesEqual(left: EmailTemplate, right: EmailTemplate) {
+  return left.subject === right.subject && left.html === right.html;
 }
 
 function Connection({ title, connected, detail }: { title: string; connected: boolean; detail: string }) {
