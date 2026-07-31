@@ -89,7 +89,11 @@ describe("EmailService", () => {
   });
 
   it("keeps the complete hospitality guide in the redesigned default template", () => {
+    expect(DEFAULT_EMAIL_TEMPLATE.html).toContain("Welcome to Building D Unit 714");
     expect(DEFAULT_EMAIL_TEMPLATE.html).toContain("How to check in");
+    expect(DEFAULT_EMAIL_TEMPLATE.html).toContain("Finding your keys");
+    expect(DEFAULT_EMAIL_TEMPLATE.html).toContain('alt="Mailbox 714 key location"');
+    expect(DEFAULT_EMAIL_TEMPLATE.html).toContain('alt="Keys inside mailbox 714"');
     expect(DEFAULT_EMAIL_TEMPLATE.html).toContain("Appliance guide");
     expect(DEFAULT_EMAIL_TEMPLATE.html).toContain("Is there parking?");
     expect(DEFAULT_EMAIL_TEMPLATE.html).toContain("Open location in Google Maps");
@@ -100,6 +104,7 @@ describe("EmailService", () => {
     expect(DEFAULT_VISITOR_VIEWING_EMAIL_TEMPLATE.subject).toBe(
       "Your Cozy Davao D-714 entrance pass and visit details"
     );
+    expect(DEFAULT_VISITOR_VIEWING_EMAIL_TEMPLATE.html).toContain("Welcome to Building D Unit 714");
     expect(DEFAULT_VISITOR_VIEWING_EMAIL_TEMPLATE.html).toContain("<!-- entrance-pass-slot -->");
     expect(DEFAULT_VISITOR_VIEWING_EMAIL_TEMPLATE.html).toContain("Bldg.D_714");
     expect(DEFAULT_VISITOR_VIEWING_EMAIL_TEMPLATE.html).toContain("cloud@731");
@@ -108,6 +113,7 @@ describe("EmailService", () => {
     expect(DEFAULT_VISITOR_VIEWING_EMAIL_TEMPLATE.html).not.toContain("How to check in");
     expect(DEFAULT_VISITOR_VIEWING_EMAIL_TEMPLATE.html).not.toContain("Appliance guide");
     expect(DEFAULT_VISITOR_VIEWING_EMAIL_TEMPLATE.html).not.toContain("Keys");
+    expect(DEFAULT_VISITOR_VIEWING_EMAIL_TEMPLATE.html).not.toContain("Finding your keys");
     expect(DEFAULT_VISITOR_VIEWING_EMAIL_TEMPLATE.html).not.toContain("early check-in");
     expect(DEFAULT_VISITOR_VIEWING_EMAIL_TEMPLATE.html).not.toMatch(/\battach(?:ed|ment)\b/i);
   });

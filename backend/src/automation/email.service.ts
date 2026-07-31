@@ -22,7 +22,7 @@ export const DEFAULT_EMAIL_TEMPLATE: EmailTemplate = {
             <tr>
               <td style="background:#173d32;padding:42px 34px 38px;border-radius:22px 22px 0 0;color:#fff;">
                 <p style="margin:0 0 14px;color:#d9c49d;font-size:12px;font-weight:bold;letter-spacing:2px;text-transform:uppercase;">Matina Enclaves · Davao City</p>
-                <h1 style="margin:0;font-family:Georgia,'Times New Roman',serif;font-size:42px;line-height:1.08;font-weight:normal;">Welcome to Room 714</h1>
+                <h1 style="margin:0;font-family:Georgia,'Times New Roman',serif;font-size:42px;line-height:1.08;font-weight:normal;">Welcome to Building D Unit 714</h1>
                 <p style="margin:18px 0 0;color:#e7efe9;font-size:17px;line-height:1.6;">Your entrance pass is shown below, followed by a thoughtfully gathered guide for an easy arrival and a comfortable stay.</p>
               </td>
             </tr>
@@ -81,6 +81,13 @@ export const DEFAULT_EMAIL_TEMPLATE: EmailTemplate = {
                     <td valign="top" style="padding:4px 0 0;color:#26332e;font-size:15px;line-height:1.65;">When checking out, leave the keys inside mailbox <strong>714</strong>.</td>
                   </tr>
                 </table>
+                <div style="margin:28px 0 0;padding:22px;background:#fffdf9;border:1px solid #dce4dc;border-radius:16px;">
+                  <p style="margin:0 0 8px;color:#9a6f3b;font-size:11px;font-weight:bold;letter-spacing:1.8px;text-transform:uppercase;">Finding your keys</p>
+                  <h3 style="margin:0 0 12px;font-family:Georgia,'Times New Roman',serif;color:#173d32;font-size:24px;font-weight:normal;">Mailbox 714</h3>
+                  <p style="margin:0 0 16px;color:#4f5c56;font-size:15px;line-height:1.65;">Look for designated mailbox <strong>714</strong> in the lobby, then open it to collect the key set shown below.</p>
+                  <img src="https://pub-41d35b18e4304b4cb15b733d7bf3b1e3.r2.dev/email/70a592d1-105d-4e92-b94c-871d3a7ce442.jpeg" alt="Mailbox 714 key location" width="612" style="display:block;width:100%;max-width:612px;height:auto;margin:0 auto 14px;border:1px solid #d5dee2;border-radius:12px;" />
+                  <img src="https://pub-41d35b18e4304b4cb15b733d7bf3b1e3.r2.dev/email/e6135be8-cd5d-4f31-b7f6-0bda7b71f0fb.jpeg" alt="Keys inside mailbox 714" width="612" style="display:block;width:100%;max-width:612px;height:auto;margin:0 auto;border:1px solid #d5dee2;border-radius:12px;" />
+                </div>
               </td>
             </tr>
             <tr>
@@ -140,7 +147,7 @@ export const DEFAULT_VISITOR_VIEWING_EMAIL_TEMPLATE: EmailTemplate = {
             <tr>
               <td style="background:#173d32;padding:42px 34px 38px;border-radius:22px 22px 0 0;color:#fff;">
                 <p style="margin:0 0 14px;color:#d9c49d;font-size:12px;font-weight:bold;letter-spacing:2px;text-transform:uppercase;">Matina Enclaves · Davao City</p>
-                <h1 style="margin:0;font-family:Georgia,'Times New Roman',serif;font-size:42px;line-height:1.08;font-weight:normal;">Your visit to Room 714</h1>
+                <h1 style="margin:0;font-family:Georgia,'Times New Roman',serif;font-size:42px;line-height:1.08;font-weight:normal;">Welcome to Building D Unit 714</h1>
                 <p style="margin:18px 0 0;color:#e7efe9;font-size:17px;line-height:1.6;">Your entrance pass is shown below, followed by the essential details for a smooth visit.</p>
               </td>
             </tr>
