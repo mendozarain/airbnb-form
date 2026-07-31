@@ -36,7 +36,8 @@ describe("EmailService", () => {
       {
         subject: "Entrance pass\r\n",
         html: "<p>Hello &amp; welcome</p>"
-      }
+      },
+      "https://dev.example.com/api/entrance-pass/signed-token"
     );
 
     expect(fetchMock).toHaveBeenCalledTimes(1);
@@ -52,8 +53,6 @@ describe("EmailService", () => {
       to: ["guest@example.com"],
       reply_to: "replies@example.com",
       subject: "Entrance pass",
-      html: "<p>Hello &amp; welcome</p>",
-      text: "Hello & welcome",
       attachments: [
         {
           filename: "entrance-pass.png",
@@ -62,6 +61,12 @@ describe("EmailService", () => {
         }
       ]
     });
+    expect(body.html).toContain("<p>Hello &amp; welcome</p>");
+    expect(body.html).toContain('src="https://dev.example.com/api/entrance-pass/signed-token"');
+    expect(body.html).toContain("Open entrance pass full size");
+    expect(body.text).toContain("Hello & welcome");
+    expect(body.text).toContain("Open entrance pass full size");
+    expect(body.text).toContain("https://dev.example.com/api/entrance-pass/signed-token");
   });
 
   it("returns a useful error when AgentMail rejects a message", async () => {
@@ -81,7 +86,8 @@ describe("EmailService", () => {
           contentType: "image/png",
           bytes: Buffer.from("image bytes")
         },
-        { subject: "Entrance pass", html: "<p>Hello</p>" }
+        { subject: "Entrance pass", html: "<p>Hello</p>" },
+        "https://dev.example.com/api/entrance-pass/signed-token"
       )
     ).rejects.toThrow("AgentMail API failed (403): Message rejected");
   });

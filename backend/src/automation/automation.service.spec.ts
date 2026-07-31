@@ -24,12 +24,16 @@ describe("AutomationService", () => {
     const storage = { getBytes: resolved(screenshot) };
     const email = { sendEntrancePass: resolved({ messageId: "message-1" }) };
     const settings = { getEmailTemplate: resolved(template) };
+    const passImages = {
+      createUrl: jest.fn(() => "https://dev.example.com/api/entrance-pass/signed-token")
+    };
     const service = new AutomationService(
       prisma as never,
       storage as never,
       {} as never,
       settings as never,
-      email as never
+      email as never,
+      passImages as never
     );
 
     await expect(service.retryEmail("submission-1")).resolves.toEqual({
@@ -52,7 +56,8 @@ describe("AutomationService", () => {
         contentType: "image/png",
         bytes: screenshot
       },
-      template
+      template,
+      "https://dev.example.com/api/entrance-pass/signed-token"
     );
     expect(prisma.submission.update).toHaveBeenCalledWith({
       where: { id: "submission-1" },

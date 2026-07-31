@@ -38,14 +38,15 @@ export class EmailService {
     return Boolean(process.env.AGENTMAIL_API_KEY?.trim() && process.env.AGENTMAIL_INBOX_ID?.trim());
   }
 
-  async sendEntrancePass(to: string, attachment: Attachment, template: EmailTemplate) {
+  async sendEntrancePass(to: string, attachment: Attachment, template: EmailTemplate, imageUrl: string) {
     const inboxId = requiredEnv("AGENTMAIL_INBOX_ID");
     const replyTo = process.env.EMAIL_REPLY_TO?.trim();
+    const html = addEntrancePassImage(template.html, imageUrl);
     const body = {
       to: [to],
       subject: template.subject.replace(/[\r\n]+/g, " ").trim(),
-      html: template.html,
-      text: htmlToText(template.html),
+      html,
+      text: `${htmlToText(html)}\n\nOpen entrance pass full size: ${imageUrl}`,
       attachments: [
         {
           filename: attachment.filename,
@@ -93,6 +94,37 @@ export class EmailService {
       threadId: typeof result.thread_id === "string" ? result.thread_id : undefined
     };
   }
+}
+
+export function addEntrancePassImage(templateHtml: string, imageUrl: string) {
+  const safeUrl = escapeHtmlAttribute(imageUrl);
+  const passBlock = `
+<div style="max-width:680px;margin:0 auto;padding:0 14px 24px;">
+  <div style="background:#fff;border:1px solid #d5dee2;padding:18px 12px 22px;border-radius:8px;text-align:center;">
+    <h2 style="margin:0 0 8px;font-family:Arial,Helvetica,sans-serif;color:#172026;font-size:22px;">Your entrance pass</h2>
+    <p style="margin:0 0 16px;font-family:Arial,Helvetica,sans-serif;color:#4b5563;font-size:15px;line-height:1.5;">Tap the image to open the sharp full-size version. The PNG is also attached.</p>
+    <a href="${safeUrl}" target="_blank" style="display:block;text-decoration:none;">
+      <img src="${safeUrl}" alt="Matina Enclaves entrance pass" width="430" style="display:block;width:100%;max-width:430px;height:auto;margin:0 auto;border:0;" />
+    </a>
+    <p style="margin:18px 0 0;">
+      <a href="${safeUrl}" target="_blank" style="display:inline-block;background:#0f766e;color:#fff;font-family:Arial,Helvetica,sans-serif;font-size:16px;font-weight:bold;line-height:1.2;text-decoration:none;padding:13px 20px;border-radius:6px;">Open entrance pass full size</a>
+    </p>
+  </div>
+</div>`;
+
+  if (/<\/body\s*>/i.test(templateHtml)) {
+    return templateHtml.replace(/<\/body\s*>/i, `${passBlock}\n</body>`);
+  }
+  return `${templateHtml}\n${passBlock}`;
+}
+
+function escapeHtmlAttribute(value: string) {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/"/g, "&quot;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/'/g, "&#39;");
 }
 
 function getAgentMailError(payload: unknown) {
