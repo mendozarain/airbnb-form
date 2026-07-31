@@ -7,6 +7,7 @@ import { StorageService } from "../storage/storage.service.js";
 import { SettingsService } from "../settings/settings.service.js";
 import { EmailService } from "./email.service.js";
 import { GoogleFormRunner, type GoogleFormFile, type GoogleFormSubmission } from "./google-form.runner.js";
+import { PassImageService } from "./pass-image.service.js";
 
 const EMAIL_SENDABLE_STATUSES: SubmissionStatus[] = [
   SubmissionStatus.SUBMITTED_EMAIL_FAILED,
@@ -23,7 +24,8 @@ export class AutomationService {
     private readonly storage: StorageService,
     private readonly runner: GoogleFormRunner,
     private readonly settings: SettingsService,
-    private readonly email: EmailService
+    private readonly email: EmailService,
+    private readonly passImages: PassImageService
   ) {}
 
   @Cron(CronExpression.EVERY_MINUTE)
@@ -100,7 +102,8 @@ export class AutomationService {
           contentType: "image/png",
           bytes: screenshot
         },
-        await this.settings.getEmailTemplate()
+        await this.settings.getEmailTemplate(),
+        this.passImages.createUrl(run.screenshotStorageKey)
       );
       await this.prisma.$transaction([
         this.prisma.automationRun.update({
@@ -151,7 +154,8 @@ export class AutomationService {
               contentType: "image/png",
               bytes: screenshot
             },
-            await this.settings.getEmailTemplate()
+            await this.settings.getEmailTemplate(),
+            this.passImages.createUrl(result.screenshotKey)
           );
           status = SubmissionStatus.SUBMITTED_EMAIL_SENT;
         } catch (error) {

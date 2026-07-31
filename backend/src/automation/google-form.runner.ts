@@ -6,10 +6,10 @@ import { requiredEnv } from "../config/env.js";
 import { StorageService } from "../storage/storage.service.js";
 import { GoogleSessionService } from "../settings/google-session.service.js";
 
-const AUTOMATION_VERSION = "google-form-numbered-guest-rows-v30";
+const AUTOMATION_VERSION = "google-form-compact-inline-pass-v31";
 
 export const ENTRANCE_PASS_CAPTURE_PROFILE = {
-  name: "mobile-430-dpr2-v1",
+  name: "mobile-430-dpr2-compact-v2",
   viewport: { width: 430, height: 932 },
   deviceScaleFactor: 2,
   expectedPixelWidth: 860
@@ -107,11 +107,13 @@ export class GoogleFormRunner {
       await closeUnexpectedTabs(page);
 
       await setGoogleFormSubmitControlsVisible(page, false);
+      await setUnusedGuestRowsVisible(page, false);
       let screenshot: Buffer;
       try {
         await prepareEntrancePassScreenshot(page);
         screenshot = await page.screenshot(ENTRANCE_PASS_SCREENSHOT_OPTIONS);
       } finally {
+        await setUnusedGuestRowsVisible(page, true);
         await setGoogleFormSubmitControlsVisible(page, true);
       }
 
@@ -174,6 +176,14 @@ async function prepareEntrancePassScreenshot(page: any) {
       requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
     });
   });
+}
+
+export function shouldHideUnusedGuestRow(questionText: string, textboxValues: string[]) {
+  return (
+    /^\s*(?:[2-9]|10)(?!\d)/.test(questionText) &&
+    textboxValues.length === 1 &&
+    textboxValues[0].trim() === ""
+  );
 }
 
 export function validateEntrancePassScreenshot(screenshot: Uint8Array): EntrancePassDimensions {
@@ -677,6 +687,44 @@ async function setGoogleFormSubmitControlsVisible(page: any, visible: boolean) {
         }
 
         (target as HTMLElement).style.visibility = "hidden";
+      }
+    }
+  }, visible);
+}
+
+async function setUnusedGuestRowsVisible(page: any, visible: boolean) {
+  await page.evaluate((visible: boolean) => {
+    const guestNumberPattern = /^\s*(?:[2-9]|10)(?!\d)/;
+    const questions = Array.from(document.querySelectorAll('div[role="listitem"]'));
+
+    for (const question of questions) {
+      const element = question as HTMLElement;
+
+      if (visible) {
+        const previousDisplay = element.dataset.cozyD714ScreenshotDisplay;
+        if (previousDisplay === undefined) continue;
+
+        if (previousDisplay === "") element.style.removeProperty("display");
+        else element.style.display = previousDisplay;
+        delete element.dataset.cozyD714ScreenshotDisplay;
+        continue;
+      }
+
+      const textboxes = Array.from(
+        question.querySelectorAll('input:not([type="hidden"]), textarea, [role="textbox"]')
+      ).filter((candidate, index, all) => all.indexOf(candidate) === index);
+      const values = textboxes.map((textbox) => {
+        if (textbox instanceof HTMLInputElement || textbox instanceof HTMLTextAreaElement) {
+          return textbox.value;
+        }
+        return textbox.textContent ?? "";
+      });
+      const shouldHide =
+        guestNumberPattern.test(question.textContent ?? "") && values.length === 1 && values[0].trim() === "";
+
+      if (shouldHide) {
+        element.dataset.cozyD714ScreenshotDisplay = element.style.display;
+        element.style.display = "none";
       }
     }
   }, visible);

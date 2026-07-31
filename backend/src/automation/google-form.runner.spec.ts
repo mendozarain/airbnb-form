@@ -2,6 +2,7 @@ import { jest } from "@jest/globals";
 import {
   ENTRANCE_PASS_CAPTURE_PROFILE,
   ENTRANCE_PASS_SCREENSHOT_OPTIONS,
+  shouldHideUnusedGuestRow,
   validateEntrancePassScreenshot,
   validatePersistAndSubmitEntrancePass
 } from "./google-form.runner.js";
@@ -9,7 +10,7 @@ import {
 describe("entrance pass screenshot capture", () => {
   it("uses the high-density mobile capture profile", () => {
     expect(ENTRANCE_PASS_CAPTURE_PROFILE).toEqual({
-      name: "mobile-430-dpr2-v1",
+      name: "mobile-430-dpr2-compact-v2",
       viewport: { width: 430, height: 932 },
       deviceScaleFactor: 2,
       expectedPixelWidth: 860
@@ -22,6 +23,15 @@ describe("entrance pass screenshot capture", () => {
       caret: "hide",
       timeout: 15_000
     });
+  });
+
+  it("hides only empty numbered guest rows after the first guest", () => {
+    expect(shouldHideUnusedGuestRow("2. Guest full name", [""])).toBe(true);
+    expect(shouldHideUnusedGuestRow("10. Guest full name", ["   "])).toBe(true);
+    expect(shouldHideUnusedGuestRow("1. Guest full name", [""])).toBe(false);
+    expect(shouldHideUnusedGuestRow("2. Guest full name", ["Second Guest"])).toBe(false);
+    expect(shouldHideUnusedGuestRow("2026 booking year", [""])).toBe(false);
+    expect(shouldHideUnusedGuestRow("2. Guest full name", ["", ""])).toBe(false);
   });
 
   it("accepts a mobile PNG with the expected pixel width", () => {
