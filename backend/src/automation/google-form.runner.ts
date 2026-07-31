@@ -6,12 +6,12 @@ import { requiredEnv } from "../config/env.js";
 import { StorageService } from "../storage/storage.service.js";
 import { GoogleSessionService } from "../settings/google-session.service.js";
 
-const AUTOMATION_VERSION = "google-form-purpose-email-text-redacted-v34";
+const AUTOMATION_VERSION = "google-form-purpose-account-ui-redacted-v35";
 const EMAIL_ADDRESS_PATTERN_SOURCE = String.raw`\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b`;
 const MINIMUM_VISIBLE_FORM_QUESTIONS = 5;
 
 export const ENTRANCE_PASS_CAPTURE_PROFILE = {
-  name: "mobile-430-dpr2-email-text-redacted-v5",
+  name: "mobile-430-dpr2-account-ui-redacted-v6",
   viewport: { width: 430, height: 932 },
   deviceScaleFactor: 2,
   expectedPixelWidth: 860
@@ -219,16 +219,27 @@ export function assertEntrancePassScreenshotPrivacy(visibleEmailCount: number) {
 export async function setGoogleEmailIdentityVisible(page: any, visible: boolean): Promise<number> {
   return page.evaluate(
     ({ show, emailPatternSource }: { show: boolean; emailPatternSource: string }) => {
-      const marker = "data-cozy-d714-email-redaction";
+      const hiddenMarker = "data-cozy-d714-privacy-hidden";
+      const displayMarker = "data-cozy-d714-privacy-display";
+      const textMarker = "data-cozy-d714-email-redaction";
 
       if (show) {
-        const redacted = Array.from(document.querySelectorAll<HTMLElement>(`span[${marker}]`));
+        const hidden = Array.from(document.querySelectorAll<HTMLElement>(`[${hiddenMarker}]`));
+        for (const element of hidden) {
+          const previousDisplay = element.getAttribute(displayMarker) ?? "";
+          element.style.removeProperty("display");
+          if (previousDisplay) element.style.display = previousDisplay;
+          element.removeAttribute(hiddenMarker);
+          element.removeAttribute(displayMarker);
+        }
+
+        const redacted = Array.from(document.querySelectorAll<HTMLElement>(`span[${textMarker}]`));
         for (const span of redacted) {
           const parent = span.parentNode;
           span.replaceWith(document.createTextNode(span.textContent ?? ""));
           parent?.normalize();
         }
-        return redacted.length;
+        return hidden.length + redacted.length;
       }
 
       const isVisible = (element: Element) => {
@@ -242,12 +253,97 @@ export async function setGoogleEmailIdentityVisible(page: any, visible: boolean)
           rect.height > 0
         );
       };
+
+      let redactionCount = 0;
+      const hide = (element: Element | null | undefined) => {
+        if (!(element instanceof HTMLElement) || !isVisible(element)) return;
+        if (element.closest(`[${hiddenMarker}]`)) return;
+        element.setAttribute(hiddenMarker, "");
+        element.setAttribute(displayMarker, element.style.display);
+        element.style.setProperty("display", "none", "important");
+        redactionCount += 1;
+      };
+
+      const normalizedText = (element: Element) => (element.textContent ?? "").replace(/\s+/g, " ").trim();
+      const visibleElements = Array.from(document.querySelectorAll<HTMLElement>("body *")).filter(isVisible);
+      const smallestMatch = (pattern: RegExp) =>
+        visibleElements.find(
+          (element) =>
+            pattern.test(normalizedText(element)) &&
+            !Array.from(element.children).some((child) => pattern.test(normalizedText(child)))
+        );
+
+      const receiptLabel = smallestMatch(/Record[\s\S]*as the email to be included with my response/i);
+      let receiptQuestion = receiptLabel;
+      for (let depth = 0; receiptQuestion?.parentElement && depth < 8; depth += 1) {
+        const parent = receiptQuestion.parentElement;
+        const parentText = normalizedText(parent);
+        if (parent.getAttribute("role") === "list" || parentText.length > 300) break;
+        receiptQuestion = parent;
+      }
+      hide(receiptQuestion);
+
+      const switchAccount = smallestMatch(/^Switch account$/i);
+      hide(switchAccount?.closest("a, button, [role='button'], [role='link']") ?? switchAccount);
+
+      const saving = smallestMatch(/^Saving(?:…|\.\.\.)?$/i);
+      if (saving) {
+        let savingContainer: HTMLElement = saving;
+        for (let depth = 0; depth < 3; depth += 1) {
+          const parent = savingContainer.parentElement;
+          const parentText = parent ? normalizedText(parent) : "";
+          if (!parent || parentText.length > 40 || !/Saving(?:…|\.\.\.)?/i.test(parentText)) break;
+          savingContainer = parent;
+        }
+        hide(savingContainer);
+      }
+
+      const accountNotice = smallestMatch(
+        /The name, email, and photo associated with your Google account will be recorded/i
+      );
+      hide(accountNotice);
+
+      const receiptCopy = smallestMatch(/A copy of your responses will be emailed to/i);
+      hide(receiptCopy);
+
+      const restoredProgress = smallestMatch(/Your progress has been restored/i);
+      if (restoredProgress) {
+        let progressContainer: HTMLElement = restoredProgress;
+        for (let depth = 0; depth < 4; depth += 1) {
+          const parent = progressContainer.parentElement;
+          const parentText = parent ? normalizedText(parent) : "";
+          if (!parent || parentText.length > 80 || !/Your progress has been restored/i.test(parentText)) {
+            break;
+          }
+          progressContainer = parent;
+        }
+        hide(progressContainer);
+      }
+
+      const emailPattern = new RegExp(emailPatternSource, "i");
+      const visibleEmailLeaf = visibleElements.find(
+        (element) =>
+          isVisible(element) &&
+          emailPattern.test(normalizedText(element)) &&
+          !Array.from(element.children).some((child) => emailPattern.test(normalizedText(child)))
+      );
+      if (visibleEmailLeaf) {
+        let accountRow: HTMLElement = visibleEmailLeaf;
+        for (let depth = 0; depth < 4; depth += 1) {
+          const parent = accountRow.parentElement;
+          if (!parent) break;
+          const text = normalizedText(parent);
+          if (text.length > 300 || !emailPattern.test(text)) break;
+          accountRow = parent;
+        }
+        hide(accountRow);
+      }
+
       const textNodes = Array.from(document.querySelectorAll<HTMLElement>("body *")).flatMap((element) =>
         isVisible(element)
           ? Array.from(element.childNodes).filter((node) => node.nodeType === Node.TEXT_NODE)
           : []
       );
-      let redactionCount = 0;
 
       for (const textNode of textNodes) {
         const value = textNode.nodeValue ?? "";
@@ -262,7 +358,7 @@ export async function setGoogleEmailIdentityVisible(page: any, visible: boolean)
           if (index > cursor) fragment.append(document.createTextNode(value.slice(cursor, index)));
 
           const span = document.createElement("span");
-          span.setAttribute(marker, "");
+          span.setAttribute(textMarker, "");
           span.setAttribute("aria-hidden", "true");
           span.textContent = match[0];
           span.style.setProperty("visibility", "hidden", "important");
