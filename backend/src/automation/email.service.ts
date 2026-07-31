@@ -17,8 +17,8 @@ export const DEFAULT_EMAIL_TEMPLATE: EmailTemplate = {
     <div style="display:none;max-height:0;overflow:hidden;opacity:0;">Everything you need for a smooth arrival at Cozy Davao D-714.</div>
     <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="width:100%;background:#f4efe7;">
       <tr>
-        <td align="center" style="padding:28px 12px 40px;">
-          <table role="presentation" width="680" cellpadding="0" cellspacing="0" border="0" style="width:100%;max-width:680px;">
+        <td align="center" valign="top" style="padding:28px 12px 40px;text-align:center;">
+          <table role="presentation" align="center" width="680" cellpadding="0" cellspacing="0" border="0" style="width:100%;max-width:680px;margin:0 auto;text-align:left;">
             <tr>
               <td style="background:#173d32;padding:42px 34px 38px;border-radius:22px 22px 0 0;color:#fff;">
                 <p style="margin:0 0 14px;color:#d9c49d;font-size:12px;font-weight:bold;letter-spacing:2px;text-transform:uppercase;">Matina Enclaves · Davao City</p>
@@ -142,8 +142,8 @@ export const DEFAULT_VISITOR_VIEWING_EMAIL_TEMPLATE: EmailTemplate = {
     <div style="display:none;max-height:0;overflow:hidden;opacity:0;">Your entrance pass and essential visit details for Cozy Davao D-714.</div>
     <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="width:100%;background:#f4efe7;">
       <tr>
-        <td align="center" style="padding:28px 12px 40px;">
-          <table role="presentation" width="680" cellpadding="0" cellspacing="0" border="0" style="width:100%;max-width:680px;">
+        <td align="center" valign="top" style="padding:28px 12px 40px;text-align:center;">
+          <table role="presentation" align="center" width="680" cellpadding="0" cellspacing="0" border="0" style="width:100%;max-width:680px;margin:0 auto;text-align:left;">
             <tr>
               <td style="background:#173d32;padding:42px 34px 38px;border-radius:22px 22px 0 0;color:#fff;">
                 <p style="margin:0 0 14px;color:#d9c49d;font-size:12px;font-weight:bold;letter-spacing:2px;text-transform:uppercase;">Matina Enclaves · Davao City</p>
