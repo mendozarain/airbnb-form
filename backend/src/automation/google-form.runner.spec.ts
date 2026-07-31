@@ -1,7 +1,11 @@
 import { jest } from "@jest/globals";
+import { chromium } from "playwright";
 import {
+  assertEntrancePassFormContentVisible,
   assertEntrancePassScreenshotPrivacy,
   containsEmailAddress,
+  countVisibleEmailAddresses,
+  countVisibleGoogleFormQuestions,
   ENTRANCE_PASS_CAPTURE_PROFILE,
   ENTRANCE_PASS_SCREENSHOT_OPTIONS,
   setGoogleEmailIdentityVisible,
@@ -13,7 +17,7 @@ import {
 describe("entrance pass screenshot capture", () => {
   it("uses the high-density mobile capture profile", () => {
     expect(ENTRANCE_PASS_CAPTURE_PROFILE).toEqual({
-      name: "mobile-430-dpr2-compact-redacted-v4",
+      name: "mobile-430-dpr2-email-text-redacted-v5",
       viewport: { width: 430, height: 932 },
       deviceScaleFactor: 2,
       expectedPixelWidth: 860
@@ -43,14 +47,50 @@ describe("entrance pass screenshot capture", () => {
   it("hides and restores all Google email identity shapes through the same capture gate", async () => {
     const page = {
       evaluate: jest
-        .fn<(callback: unknown, visible: boolean) => Promise<number>>()
+        .fn<(callback: unknown, options: { show: boolean }) => Promise<number>>()
         .mockResolvedValueOnce(3)
         .mockResolvedValueOnce(3)
     };
 
     await expect(setGoogleEmailIdentityVisible(page, false)).resolves.toBe(3);
     await expect(setGoogleEmailIdentityVisible(page, true)).resolves.toBe(3);
-    expect(page.evaluate.mock.calls.map((call) => call[1])).toEqual([false, true]);
+    expect(page.evaluate.mock.calls.map((call) => call[1].show)).toEqual([false, true]);
+  });
+
+  it("redacts only email text while keeping a wrapping Google Form label and its questions visible", async () => {
+    const browser = await chromium.launch({ headless: true });
+    const page = await browser.newPage();
+    try {
+      await page.setContent(`
+        <label id="receipt">
+          <div>Record <span>guest@example.com</span> as the email to be included with my response</div>
+          ${Array.from(
+            { length: 6 },
+            (_, index) => `<div role="listitem">Visible question ${index + 1}</div>`
+          ).join("")}
+        </label>
+        <div id="account">Signed in as guest@example.com · Switch account</div>
+      `);
+
+      await expect(setGoogleEmailIdentityVisible(page, false)).resolves.toBe(2);
+      await expect(countVisibleEmailAddresses(page)).resolves.toBe(0);
+      await expect(countVisibleGoogleFormQuestions(page)).resolves.toBe(6);
+      await expect(
+        page.locator("#receipt").evaluate((element) => getComputedStyle(element).display)
+      ).resolves.not.toBe("none");
+
+      await expect(setGoogleEmailIdentityVisible(page, true)).resolves.toBe(2);
+      await expect(countVisibleEmailAddresses(page)).resolves.toBe(2);
+      await expect(countVisibleGoogleFormQuestions(page)).resolves.toBe(6);
+    } finally {
+      await browser.close();
+    }
+  });
+
+  it("stops capture when the filled Google Form content is no longer visible", () => {
+    expect(() => assertEntrancePassFormContentVisible(0)).toThrow("expected at least 5");
+    expect(() => assertEntrancePassFormContentVisible(4)).toThrow("expected at least 5");
+    expect(() => assertEntrancePassFormContentVisible(5)).not.toThrow();
   });
 
   it("hides only empty numbered guest rows after the first guest", () => {

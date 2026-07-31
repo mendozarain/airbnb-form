@@ -114,7 +114,8 @@ describe("EmailService", () => {
     expect(DEFAULT_VISITOR_VIEWING_EMAIL_TEMPLATE.html).toContain(
       "max-width:680px;margin:0 auto;text-align:left;"
     );
-    expect(DEFAULT_VISITOR_VIEWING_EMAIL_TEMPLATE.html).toContain("Welcome to Building D Unit 714");
+    expect(DEFAULT_VISITOR_VIEWING_EMAIL_TEMPLATE.html).toContain("Your visit to Building D Unit 714");
+    expect(DEFAULT_VISITOR_VIEWING_EMAIL_TEMPLATE.html).not.toContain("Welcome to Building D Unit 714");
     expect(DEFAULT_VISITOR_VIEWING_EMAIL_TEMPLATE.html).toContain("Find Unit 714");
     expect(DEFAULT_VISITOR_VIEWING_EMAIL_TEMPLATE.html).not.toContain("Room 714");
     expect(DEFAULT_VISITOR_VIEWING_EMAIL_TEMPLATE.html).toContain("<!-- entrance-pass-slot -->");
