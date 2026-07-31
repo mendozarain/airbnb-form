@@ -6,10 +6,10 @@ import { requiredEnv } from "../config/env.js";
 import { StorageService } from "../storage/storage.service.js";
 import { GoogleSessionService } from "../settings/google-session.service.js";
 
-const AUTOMATION_VERSION = "google-form-purpose-email-redacted-v32";
+const AUTOMATION_VERSION = "google-form-purpose-email-redacted-v33";
 
 export const ENTRANCE_PASS_CAPTURE_PROFILE = {
-  name: "mobile-430-dpr2-compact-redacted-v3",
+  name: "mobile-430-dpr2-compact-redacted-v4",
   viewport: { width: 430, height: 932 },
   deviceScaleFactor: 2,
   expectedPixelWidth: 860
@@ -251,22 +251,21 @@ export async function setGoogleEmailIdentityVisible(page: any, visible: boolean)
     const targets: HTMLElement[] = [];
 
     for (const source of leafEmailElements) {
-      const listItem = source.closest<HTMLElement>("[role='listitem']");
-      if (listItem && /record[\s\S]*email/i.test(listItem.textContent ?? "")) {
-        targets.push(listItem);
+      const receiptLabel = source.closest<HTMLElement>("label");
+      if (receiptLabel && /record[\s\S]*email/i.test(receiptLabel.textContent ?? "")) {
+        targets.push(receiptLabel);
         continue;
       }
 
-      let target: HTMLElement = source;
+      let target: HTMLElement = source.parentElement ?? source;
       let ancestor = source.parentElement;
-      for (let depth = 0; ancestor && depth < 5; depth += 1, ancestor = ancestor.parentElement) {
+      for (let depth = 0; ancestor && depth < 2; depth += 1, ancestor = ancestor.parentElement) {
         if (ancestor.matches("form, body")) break;
         const text = ancestor.textContent ?? "";
-        if (/switch account/i.test(text) || /record[\s\S]*email/i.test(text)) {
+        if (/switch account/i.test(text)) {
           target = ancestor;
           break;
         }
-        if (depth === 0) target = ancestor;
       }
       targets.push(target);
     }
