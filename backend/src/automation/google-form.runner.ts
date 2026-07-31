@@ -6,7 +6,23 @@ import { requiredEnv } from "../config/env.js";
 import { StorageService } from "../storage/storage.service.js";
 import { GoogleSessionService } from "../settings/google-session.service.js";
 
-const AUTOMATION_VERSION = "google-form-numbered-guest-rows-v29";
+const AUTOMATION_VERSION = "google-form-numbered-guest-rows-v30";
+
+export const ENTRANCE_PASS_CAPTURE_PROFILE = {
+  name: "mobile-430-dpr2-v1",
+  viewport: { width: 430, height: 932 },
+  deviceScaleFactor: 2,
+  expectedPixelWidth: 860
+} as const;
+
+export const ENTRANCE_PASS_SCREENSHOT_OPTIONS = {
+  type: "png",
+  fullPage: true,
+  scale: "device",
+  animations: "disabled",
+  caret: "hide",
+  timeout: 15_000
+} as const;
 
 export type GoogleFormFile = {
   filename: string;
@@ -52,7 +68,11 @@ export class GoogleFormRunner {
     }
 
     const browser = await chromium.launch({ headless: true });
-    const context = await browser.newContext({ storageState: storageState as any });
+    const context = await browser.newContext({
+      storageState: storageState as any,
+      viewport: ENTRANCE_PASS_CAPTURE_PROFILE.viewport,
+      deviceScaleFactor: ENTRANCE_PASS_CAPTURE_PROFILE.deviceScaleFactor
+    });
     const page = await context.newPage();
 
     try {
@@ -87,15 +107,34 @@ export class GoogleFormRunner {
       await closeUnexpectedTabs(page);
 
       await setGoogleFormSubmitControlsVisible(page, false);
-      const screenshot = await page.screenshot({ type: "png", fullPage: true, timeout: 15_000 });
-      await setGoogleFormSubmitControlsVisible(page, true);
-      const screenshotKey = `automation/${crypto.randomUUID()}-entrance-pass-before-submit.png`;
-      await this.storage.put(screenshotKey, screenshot, {
-        contentType: "image/png"
-      });
+      let screenshot: Buffer;
+      try {
+        await prepareEntrancePassScreenshot(page);
+        screenshot = await page.screenshot(ENTRANCE_PASS_SCREENSHOT_OPTIONS);
+      } finally {
+        await setGoogleFormSubmitControlsVisible(page, true);
+      }
 
-      await page.getByRole("button", { name: /^Submit$/ }).click({ timeout: 20_000 });
-      await waitForGoogleFormSubmission(page);
+      const screenshotKey = `automation/${crypto.randomUUID()}-entrance-pass-before-submit.png`;
+      await validatePersistAndSubmitEntrancePass(screenshot, {
+        persist: async ({ width, height }) => {
+          await this.storage.put(screenshotKey, screenshot, {
+            contentType: "image/png",
+            metadata: {
+              captureProfile: ENTRANCE_PASS_CAPTURE_PROFILE.name,
+              viewportWidth: String(ENTRANCE_PASS_CAPTURE_PROFILE.viewport.width),
+              viewportHeight: String(ENTRANCE_PASS_CAPTURE_PROFILE.viewport.height),
+              deviceScaleFactor: String(ENTRANCE_PASS_CAPTURE_PROFILE.deviceScaleFactor),
+              pixelWidth: String(width),
+              pixelHeight: String(height)
+            }
+          });
+        },
+        submit: async () => {
+          await page.getByRole("button", { name: /^Submit$/ }).click({ timeout: 20_000 });
+          await waitForGoogleFormSubmission(page);
+        }
+      });
 
       const updatedStorageState = await context.storageState({ indexedDB: true });
       await this.storage.put("google/storage-state.json", JSON.stringify(updatedStorageState), {
@@ -115,6 +154,64 @@ export class GoogleFormRunner {
       await browser.close();
     }
   }
+}
+
+type EntrancePassDimensions = {
+  width: number;
+  height: number;
+};
+
+type EntrancePassActions = {
+  persist: (dimensions: EntrancePassDimensions) => Promise<void>;
+  submit: () => Promise<void>;
+};
+
+async function prepareEntrancePassScreenshot(page: any) {
+  await page.evaluate(async () => {
+    window.scrollTo(0, 0);
+    await document.fonts?.ready;
+    await new Promise<void>((resolve) => {
+      requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
+    });
+  });
+}
+
+export function validateEntrancePassScreenshot(screenshot: Uint8Array): EntrancePassDimensions {
+  const bytes = Buffer.from(screenshot);
+  const pngSignature = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+
+  if (
+    bytes.length < 24 ||
+    !bytes.subarray(0, pngSignature.length).equals(pngSignature) ||
+    bytes.subarray(12, 16).toString("ascii") !== "IHDR"
+  ) {
+    throw new Error("Entrance pass screenshot is not a valid PNG");
+  }
+
+  const width = bytes.readUInt32BE(16);
+  const height = bytes.readUInt32BE(20);
+
+  if (width !== ENTRANCE_PASS_CAPTURE_PROFILE.expectedPixelWidth) {
+    throw new Error(
+      `Entrance pass screenshot width is ${width}px; expected ${ENTRANCE_PASS_CAPTURE_PROFILE.expectedPixelWidth}px`
+    );
+  }
+
+  if (height < 1) {
+    throw new Error("Entrance pass screenshot height is invalid");
+  }
+
+  return { width, height };
+}
+
+export async function validatePersistAndSubmitEntrancePass(
+  screenshot: Uint8Array,
+  actions: EntrancePassActions
+) {
+  const dimensions = validateEntrancePassScreenshot(screenshot);
+  await actions.persist(dimensions);
+  await actions.submit();
+  return dimensions;
 }
 
 async function fillTextByLabel(page: any, label: string, value: string) {
