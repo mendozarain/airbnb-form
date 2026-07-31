@@ -29,11 +29,6 @@ describe("EmailService", () => {
     const result = await service.sendEntrancePass(
       "guest@example.com",
       {
-        filename: "entrance-pass.png",
-        contentType: "image/png",
-        bytes: Buffer.from("image bytes")
-      },
-      {
         subject: "Entrance pass\r\n",
         html: "<p>Hello &amp; welcome</p>"
       },
@@ -52,15 +47,9 @@ describe("EmailService", () => {
     expect(body).toMatchObject({
       to: ["guest@example.com"],
       reply_to: "replies@example.com",
-      subject: "Entrance pass",
-      attachments: [
-        {
-          filename: "entrance-pass.png",
-          content_type: "image/png",
-          content: Buffer.from("image bytes").toString("base64")
-        }
-      ]
+      subject: "Entrance pass"
     });
+    expect(body.attachments).toBeUndefined();
     expect(body.html).toContain("<p>Hello &amp; welcome</p>");
     expect(body.html).toContain('src="https://dev.example.com/api/entrance-pass/signed-token"');
     expect(body.html).toContain("Open entrance pass full size");
@@ -81,11 +70,6 @@ describe("EmailService", () => {
     await expect(
       service.sendEntrancePass(
         "guest@example.com",
-        {
-          filename: "entrance-pass.png",
-          contentType: "image/png",
-          bytes: Buffer.from("image bytes")
-        },
         { subject: "Entrance pass", html: "<p>Hello</p>" },
         "https://dev.example.com/api/entrance-pass/signed-token"
       )

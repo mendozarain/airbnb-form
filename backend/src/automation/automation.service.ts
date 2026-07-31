@@ -93,15 +93,10 @@ export class AutomationService {
     if (!claimed.count) throw new ConflictException("Email send is already running");
 
     try {
-      const screenshot = await this.storage.getBytes(run.screenshotStorageKey);
+      const screenshot = await this.storage.head(run.screenshotStorageKey);
       if (!screenshot) throw new Error("Entrance pass screenshot is missing from storage");
       await this.email.sendEntrancePass(
         submission.guestEmail,
-        {
-          filename: "matina-enclaves-entrance-pass.png",
-          contentType: "image/png",
-          bytes: screenshot
-        },
         await this.settings.getEmailTemplate(),
         this.passImages.createUrl(run.screenshotStorageKey)
       );
@@ -145,15 +140,10 @@ export class AutomationService {
 
       if (result.ok && result.screenshotKey) {
         try {
-          const screenshot = await this.storage.getBytes(result.screenshotKey);
+          const screenshot = await this.storage.head(result.screenshotKey);
           if (!screenshot) throw new Error("Entrance pass screenshot is missing from storage");
           await this.email.sendEntrancePass(
             submission.guestEmail,
-            {
-              filename: "matina-enclaves-entrance-pass.png",
-              contentType: "image/png",
-              bytes: screenshot
-            },
             await this.settings.getEmailTemplate(),
             this.passImages.createUrl(result.screenshotKey)
           );
