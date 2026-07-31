@@ -1,5 +1,5 @@
 import { jest } from "@jest/globals";
-import { EmailService } from "./email.service.js";
+import { DEFAULT_EMAIL_TEMPLATE, EmailService } from "./email.service.js";
 
 describe("EmailService", () => {
   const originalEnv = { ...process.env };
@@ -82,5 +82,13 @@ describe("EmailService", () => {
 
     delete process.env.AGENTMAIL_API_KEY;
     expect(service.configured()).toBe(false);
+  });
+
+  it("keeps the complete hospitality guide in the redesigned default template", () => {
+    expect(DEFAULT_EMAIL_TEMPLATE.html).toContain("How to check in");
+    expect(DEFAULT_EMAIL_TEMPLATE.html).toContain("Appliance guide");
+    expect(DEFAULT_EMAIL_TEMPLATE.html).toContain("Is there parking?");
+    expect(DEFAULT_EMAIL_TEMPLATE.html).toContain("Open location in Google Maps");
+    expect(DEFAULT_EMAIL_TEMPLATE.html).not.toMatch(/\battach(?:ed|ment)\b/i);
   });
 });
