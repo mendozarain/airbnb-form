@@ -4,7 +4,6 @@ import { AutomationService } from "./automation.service.js";
 
 describe("AutomationService", () => {
   it("resends an entrance pass after its email was already sent", async () => {
-    const screenshot = Buffer.from("entrance pass");
     const template = { subject: "Entrance pass", html: "<p>Attached</p>" };
     const prisma = {
       submission: {
@@ -21,15 +20,19 @@ describe("AutomationService", () => {
       },
       $transaction: jest.fn(async (operations: Promise<unknown>[]) => Promise.all(operations))
     };
-    const storage = { getBytes: resolved(screenshot) };
+    const storage = { head: resolved({ size: 1234, contentType: "image/png" }) };
     const email = { sendEntrancePass: resolved({ messageId: "message-1" }) };
     const settings = { getEmailTemplate: resolved(template) };
+    const passImages = {
+      createUrl: jest.fn(() => "https://dev.example.com/api/entrance-pass/signed-token")
+    };
     const service = new AutomationService(
       prisma as never,
       storage as never,
       {} as never,
       settings as never,
-      email as never
+      email as never,
+      passImages as never
     );
 
     await expect(service.retryEmail("submission-1")).resolves.toEqual({
@@ -47,12 +50,8 @@ describe("AutomationService", () => {
     });
     expect(email.sendEntrancePass).toHaveBeenCalledWith(
       "guest@example.com",
-      {
-        filename: "matina-enclaves-entrance-pass.png",
-        contentType: "image/png",
-        bytes: screenshot
-      },
-      template
+      template,
+      "https://dev.example.com/api/entrance-pass/signed-token"
     );
     expect(prisma.submission.update).toHaveBeenCalledWith({
       where: { id: "submission-1" },

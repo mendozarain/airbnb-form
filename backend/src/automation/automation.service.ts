@@ -7,6 +7,7 @@ import { StorageService } from "../storage/storage.service.js";
 import { SettingsService } from "../settings/settings.service.js";
 import { EmailService } from "./email.service.js";
 import { GoogleFormRunner, type GoogleFormFile, type GoogleFormSubmission } from "./google-form.runner.js";
+import { PassImageService } from "./pass-image.service.js";
 
 const EMAIL_SENDABLE_STATUSES: SubmissionStatus[] = [
   SubmissionStatus.SUBMITTED_EMAIL_FAILED,
@@ -23,7 +24,8 @@ export class AutomationService {
     private readonly storage: StorageService,
     private readonly runner: GoogleFormRunner,
     private readonly settings: SettingsService,
-    private readonly email: EmailService
+    private readonly email: EmailService,
+    private readonly passImages: PassImageService
   ) {}
 
   @Cron(CronExpression.EVERY_MINUTE)
@@ -91,16 +93,12 @@ export class AutomationService {
     if (!claimed.count) throw new ConflictException("Email send is already running");
 
     try {
-      const screenshot = await this.storage.getBytes(run.screenshotStorageKey);
+      const screenshot = await this.storage.head(run.screenshotStorageKey);
       if (!screenshot) throw new Error("Entrance pass screenshot is missing from storage");
       await this.email.sendEntrancePass(
         submission.guestEmail,
-        {
-          filename: "matina-enclaves-entrance-pass.png",
-          contentType: "image/png",
-          bytes: screenshot
-        },
-        await this.settings.getEmailTemplate()
+        await this.settings.getEmailTemplate(),
+        this.passImages.createUrl(run.screenshotStorageKey)
       );
       await this.prisma.$transaction([
         this.prisma.automationRun.update({
@@ -142,16 +140,12 @@ export class AutomationService {
 
       if (result.ok && result.screenshotKey) {
         try {
-          const screenshot = await this.storage.getBytes(result.screenshotKey);
+          const screenshot = await this.storage.head(result.screenshotKey);
           if (!screenshot) throw new Error("Entrance pass screenshot is missing from storage");
           await this.email.sendEntrancePass(
             submission.guestEmail,
-            {
-              filename: "matina-enclaves-entrance-pass.png",
-              contentType: "image/png",
-              bytes: screenshot
-            },
-            await this.settings.getEmailTemplate()
+            await this.settings.getEmailTemplate(),
+            this.passImages.createUrl(result.screenshotKey)
           );
           status = SubmissionStatus.SUBMITTED_EMAIL_SENT;
         } catch (error) {

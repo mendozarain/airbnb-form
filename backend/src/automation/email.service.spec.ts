@@ -1,5 +1,5 @@
 import { jest } from "@jest/globals";
-import { EmailService } from "./email.service.js";
+import { DEFAULT_EMAIL_TEMPLATE, EmailService } from "./email.service.js";
 
 describe("EmailService", () => {
   const originalEnv = { ...process.env };
@@ -29,14 +29,10 @@ describe("EmailService", () => {
     const result = await service.sendEntrancePass(
       "guest@example.com",
       {
-        filename: "entrance-pass.png",
-        contentType: "image/png",
-        bytes: Buffer.from("image bytes")
-      },
-      {
         subject: "Entrance pass\r\n",
         html: "<p>Hello &amp; welcome</p>"
-      }
+      },
+      "https://dev.example.com/api/entrance-pass/signed-token"
     );
 
     expect(fetchMock).toHaveBeenCalledTimes(1);
@@ -51,17 +47,15 @@ describe("EmailService", () => {
     expect(body).toMatchObject({
       to: ["guest@example.com"],
       reply_to: "replies@example.com",
-      subject: "Entrance pass",
-      html: "<p>Hello &amp; welcome</p>",
-      text: "Hello & welcome",
-      attachments: [
-        {
-          filename: "entrance-pass.png",
-          content_type: "image/png",
-          content: Buffer.from("image bytes").toString("base64")
-        }
-      ]
+      subject: "Entrance pass"
     });
+    expect(body.attachments).toBeUndefined();
+    expect(body.html).toContain("<p>Hello &amp; welcome</p>");
+    expect(body.html).toContain('src="https://dev.example.com/api/entrance-pass/signed-token"');
+    expect(body.html).toContain("Open entrance pass full size");
+    expect(body.text).toContain("Hello & welcome");
+    expect(body.text).toContain("Open entrance pass full size");
+    expect(body.text).toContain("https://dev.example.com/api/entrance-pass/signed-token");
   });
 
   it("returns a useful error when AgentMail rejects a message", async () => {
@@ -76,12 +70,8 @@ describe("EmailService", () => {
     await expect(
       service.sendEntrancePass(
         "guest@example.com",
-        {
-          filename: "entrance-pass.png",
-          contentType: "image/png",
-          bytes: Buffer.from("image bytes")
-        },
-        { subject: "Entrance pass", html: "<p>Hello</p>" }
+        { subject: "Entrance pass", html: "<p>Hello</p>" },
+        "https://dev.example.com/api/entrance-pass/signed-token"
       )
     ).rejects.toThrow("AgentMail API failed (403): Message rejected");
   });
@@ -92,5 +82,13 @@ describe("EmailService", () => {
 
     delete process.env.AGENTMAIL_API_KEY;
     expect(service.configured()).toBe(false);
+  });
+
+  it("keeps the complete hospitality guide in the redesigned default template", () => {
+    expect(DEFAULT_EMAIL_TEMPLATE.html).toContain("How to check in");
+    expect(DEFAULT_EMAIL_TEMPLATE.html).toContain("Appliance guide");
+    expect(DEFAULT_EMAIL_TEMPLATE.html).toContain("Is there parking?");
+    expect(DEFAULT_EMAIL_TEMPLATE.html).toContain("Open location in Google Maps");
+    expect(DEFAULT_EMAIL_TEMPLATE.html).not.toMatch(/\battach(?:ed|ment)\b/i);
   });
 });
