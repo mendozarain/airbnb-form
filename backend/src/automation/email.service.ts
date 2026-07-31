@@ -34,7 +34,7 @@ export const DEFAULT_EMAIL_TEMPLATE: EmailTemplate = {
                 <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="width:100%;border-collapse:separate;border-spacing:0 10px;">
                   <tr>
                     <td style="width:86px;padding:14px 16px;background:#f7f1e8;border-radius:12px 0 0 12px;color:#8b6238;font-size:11px;font-weight:bold;letter-spacing:1px;text-transform:uppercase;">Address</td>
-                    <td style="padding:14px 16px;background:#f7f1e8;border-radius:0 12px 12px 0;color:#26332e;font-size:15px;line-height:1.55;">Floor 7, Room 714, Matina Enclaves Building D, Genesis 88 Arcade, Eco West Drive, Talomo, Davao City 8000</td>
+                    <td style="padding:14px 16px;background:#f7f1e8;border-radius:0 12px 12px 0;color:#26332e;font-size:15px;line-height:1.55;">Floor 7, Unit 714, Matina Enclaves Building D, Genesis 88 Arcade, Eco West Drive, Talomo, Davao City 8000</td>
                   </tr>
                   <tr>
                     <td style="width:86px;padding:14px 16px;background:#f7f1e8;border-radius:12px 0 0 12px;color:#8b6238;font-size:11px;font-weight:bold;letter-spacing:1px;text-transform:uppercase;">WiFi</td>
@@ -113,13 +113,13 @@ export const DEFAULT_EMAIL_TEMPLATE: EmailTemplate = {
                 <p style="margin:0 0 8px;color:#9a6f3b;font-size:11px;font-weight:bold;letter-spacing:1.8px;text-transform:uppercase;">Good to know</p>
                 <h2 style="margin:0 0 20px;font-family:Georgia,'Times New Roman',serif;color:#173d32;font-size:29px;font-weight:normal;">Frequently asked</h2>
                 <p style="margin:0 0 8px;color:#173d32;font-size:16px;font-weight:bold;">Is there parking?</p>
-                <p style="margin:0 0 22px;color:#4f5c56;font-size:15px;line-height:1.7;">Yes. Free parking is outside the premises. Paid parking is ₱250 per night; please message the host if you would like to avail parking. If you availed parking, let the guard know the unit and building number: Room 714, Building D. They will assign your parking spot.</p>
+                <p style="margin:0 0 22px;color:#4f5c56;font-size:15px;line-height:1.7;">Yes. Free parking is outside the premises. Paid parking is ₱250 per night; please message the host if you would like to avail parking. If you availed parking, let the guard know the unit and building number: Unit 714, Building D. They will assign your parking spot.</p>
                 <p style="margin:0 0 8px;color:#173d32;font-size:16px;font-weight:bold;">Is early check-in possible?</p>
                 <p style="margin:0;color:#4f5c56;font-size:15px;line-height:1.7;">Yes, as long as the unit does not currently have a guest staying. Message the host for details.</p>
               </td>
             </tr>
             <tr>
-              <td align="center" style="padding:24px 20px 0;color:#7a817d;font-size:12px;line-height:1.6;">Cozy DAVAO Airbnb · Matina Enclaves<br />Room 714, Building D</td>
+              <td align="center" style="padding:24px 20px 0;color:#7a817d;font-size:12px;line-height:1.6;">Cozy DAVAO Airbnb · Matina Enclaves<br />Unit 714, Building D</td>
             </tr>
           </table>
         </td>
@@ -171,8 +171,8 @@ export const DEFAULT_VISITOR_VIEWING_EMAIL_TEMPLATE: EmailTemplate = {
             <tr>
               <td style="background:#edf1ec;padding:34px;border-left:1px solid #dce4dc;border-right:1px solid #dce4dc;">
                 <p style="margin:0 0 8px;color:#597066;font-size:11px;font-weight:bold;letter-spacing:1.8px;text-transform:uppercase;">Location</p>
-                <h2 style="margin:0 0 16px;font-family:Georgia,'Times New Roman',serif;color:#173d32;font-size:29px;font-weight:normal;">Find Room 714</h2>
-                <p style="margin:0;color:#26332e;font-size:15px;line-height:1.7;">Floor 7, Room 714, Matina Enclaves Building D, Genesis 88 Arcade, Eco West Drive, Talomo, Davao City 8000</p>
+                <h2 style="margin:0 0 16px;font-family:Georgia,'Times New Roman',serif;color:#173d32;font-size:29px;font-weight:normal;">Find Unit 714</h2>
+                <p style="margin:0;color:#26332e;font-size:15px;line-height:1.7;">Floor 7, Unit 714, Matina Enclaves Building D, Genesis 88 Arcade, Eco West Drive, Talomo, Davao City 8000</p>
                 <p style="margin:22px 0 0;">
                   <a href="https://www.google.com/maps/search/?api=1&amp;query=Matina%20Enclaves%20Building%20D%20Genesis%2088%20Arcade%20Eco%20West%20Drive%20Davao%20City" target="_blank" style="display:inline-block;background:#d3b078;color:#173d32;text-decoration:none;padding:13px 19px;border-radius:999px;font-size:14px;font-weight:bold;">Open location in Google Maps</a>
                 </p>
@@ -183,11 +183,11 @@ export const DEFAULT_VISITOR_VIEWING_EMAIL_TEMPLATE: EmailTemplate = {
                 <p style="margin:0 0 8px;color:#9a6f3b;font-size:11px;font-weight:bold;letter-spacing:1.8px;text-transform:uppercase;">Parking</p>
                 <h2 style="margin:0 0 16px;font-family:Georgia,'Times New Roman',serif;color:#173d32;font-size:29px;font-weight:normal;">Parking options</h2>
                 <p style="margin:0 0 14px;color:#4f5c56;font-size:15px;line-height:1.7;"><strong style="color:#173d32;">Free parking</strong> is available outside the premises.</p>
-                <p style="margin:0;color:#4f5c56;font-size:15px;line-height:1.7;"><strong style="color:#173d32;">Paid parking</strong> is ₱250 per night. Message the host if you would like to avail parking. If arranged, tell the guard <strong>Room 714, Building D</strong> so they can assign your parking spot.</p>
+                <p style="margin:0;color:#4f5c56;font-size:15px;line-height:1.7;"><strong style="color:#173d32;">Paid parking</strong> is ₱250 per night. Message the host if you would like to avail parking. If arranged, tell the guard <strong>Unit 714, Building D</strong> so they can assign your parking spot.</p>
               </td>
             </tr>
             <tr>
-              <td align="center" style="padding:24px 20px 0;color:#7a817d;font-size:12px;line-height:1.6;">Cozy DAVAO Airbnb · Matina Enclaves<br />Room 714, Building D</td>
+              <td align="center" style="padding:24px 20px 0;color:#7a817d;font-size:12px;line-height:1.6;">Cozy DAVAO Airbnb · Matina Enclaves<br />Unit 714, Building D</td>
             </tr>
           </table>
         </td>
