@@ -17,7 +17,9 @@
     "build": "npm run build --workspace shared && npm run build --workspace backend && npm run build --workspace frontend",
     "typecheck": "npm run typecheck --workspace shared && npm run typecheck --workspace backend && npm run typecheck --workspace frontend",
     "lint": "npm run lint --workspace backend && npm run lint --workspace frontend",
+    "pretest": "npm run build --workspace shared",
     "test": "npm run test --workspace backend",
+    "pretest:e2e": "npm run build --workspace shared",
     "test:e2e": "npm run test:e2e --workspace backend",
     "format": "npm run format --workspace backend && npm run format --workspace frontend",
     "migrate:legacy": "npm run migrate:legacy --workspace backend --"
