@@ -122,6 +122,74 @@ export const DEFAULT_EMAIL_TEMPLATE: EmailTemplate = {
 </html>`
 };
 
+export const DEFAULT_VISITOR_VIEWING_EMAIL_TEMPLATE: EmailTemplate = {
+  subject: "Your Cozy Davao D-714 entrance pass and visit details",
+  html: `<!doctype html>
+<html lang="en">
+  <head>
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <meta name="color-scheme" content="light" />
+    <title>Cozy Davao D-714 visit details</title>
+  </head>
+  <body style="margin:0;padding:0;background:#f4efe7;color:#26332e;font-family:Arial,Helvetica,sans-serif;">
+    <div style="display:none;max-height:0;overflow:hidden;opacity:0;">Your entrance pass and essential visit details for Cozy Davao D-714.</div>
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="width:100%;background:#f4efe7;">
+      <tr>
+        <td align="center" style="padding:28px 12px 40px;">
+          <table role="presentation" width="680" cellpadding="0" cellspacing="0" border="0" style="width:100%;max-width:680px;">
+            <tr>
+              <td style="background:#173d32;padding:42px 34px 38px;border-radius:22px 22px 0 0;color:#fff;">
+                <p style="margin:0 0 14px;color:#d9c49d;font-size:12px;font-weight:bold;letter-spacing:2px;text-transform:uppercase;">Matina Enclaves · Davao City</p>
+                <h1 style="margin:0;font-family:Georgia,'Times New Roman',serif;font-size:42px;line-height:1.08;font-weight:normal;">Your visit to Room 714</h1>
+                <p style="margin:18px 0 0;color:#e7efe9;font-size:17px;line-height:1.6;">Your entrance pass is shown below, followed by the essential details for a smooth visit.</p>
+              </td>
+            </tr>
+            <!-- entrance-pass-slot -->
+            <tr>
+              <td style="background:#fffdf9;padding:34px;border-left:1px solid #e7dccb;border-right:1px solid #e7dccb;">
+                <p style="margin:0 0 8px;color:#9a6f3b;font-size:11px;font-weight:bold;letter-spacing:1.8px;text-transform:uppercase;">Wi-Fi</p>
+                <h2 style="margin:0 0 22px;font-family:Georgia,'Times New Roman',serif;color:#173d32;font-size:29px;font-weight:normal;">Stay connected</h2>
+                <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="width:100%;border-collapse:separate;border-spacing:0 10px;">
+                  <tr>
+                    <td style="width:100px;padding:14px 16px;background:#f7f1e8;border-radius:12px 0 0 12px;color:#8b6238;font-size:11px;font-weight:bold;letter-spacing:1px;text-transform:uppercase;">Network</td>
+                    <td style="padding:14px 16px;background:#f7f1e8;border-radius:0 12px 12px 0;color:#26332e;font-size:15px;line-height:1.55;"><strong>Bldg.D_714</strong></td>
+                  </tr>
+                  <tr>
+                    <td style="width:100px;padding:14px 16px;background:#f7f1e8;border-radius:12px 0 0 12px;color:#8b6238;font-size:11px;font-weight:bold;letter-spacing:1px;text-transform:uppercase;">Password</td>
+                    <td style="padding:14px 16px;background:#f7f1e8;border-radius:0 12px 12px 0;color:#26332e;font-size:15px;line-height:1.55;"><strong>cloud@731</strong></td>
+                  </tr>
+                </table>
+              </td>
+            </tr>
+            <tr>
+              <td style="background:#edf1ec;padding:34px;border-left:1px solid #dce4dc;border-right:1px solid #dce4dc;">
+                <p style="margin:0 0 8px;color:#597066;font-size:11px;font-weight:bold;letter-spacing:1.8px;text-transform:uppercase;">Location</p>
+                <h2 style="margin:0 0 16px;font-family:Georgia,'Times New Roman',serif;color:#173d32;font-size:29px;font-weight:normal;">Find Room 714</h2>
+                <p style="margin:0;color:#26332e;font-size:15px;line-height:1.7;">Floor 7, Room 714, Matina Enclaves Building D, Genesis 88 Arcade, Eco West Drive, Talomo, Davao City 8000</p>
+                <p style="margin:22px 0 0;">
+                  <a href="https://www.google.com/maps/search/?api=1&amp;query=Matina%20Enclaves%20Building%20D%20Genesis%2088%20Arcade%20Eco%20West%20Drive%20Davao%20City" target="_blank" style="display:inline-block;background:#d3b078;color:#173d32;text-decoration:none;padding:13px 19px;border-radius:999px;font-size:14px;font-weight:bold;">Open location in Google Maps</a>
+                </p>
+              </td>
+            </tr>
+            <tr>
+              <td style="background:#fffdf9;padding:34px;border:1px solid #e7dccb;border-top:0;border-radius:0 0 22px 22px;">
+                <p style="margin:0 0 8px;color:#9a6f3b;font-size:11px;font-weight:bold;letter-spacing:1.8px;text-transform:uppercase;">Parking</p>
+                <h2 style="margin:0 0 16px;font-family:Georgia,'Times New Roman',serif;color:#173d32;font-size:29px;font-weight:normal;">Parking options</h2>
+                <p style="margin:0 0 14px;color:#4f5c56;font-size:15px;line-height:1.7;"><strong style="color:#173d32;">Free parking</strong> is available outside the premises.</p>
+                <p style="margin:0;color:#4f5c56;font-size:15px;line-height:1.7;"><strong style="color:#173d32;">Paid parking</strong> is ₱250 per night. Message the host if you would like to avail parking. If arranged, tell the guard <strong>Room 714, Building D</strong> so they can assign your parking spot.</p>
+              </td>
+            </tr>
+            <tr>
+              <td align="center" style="padding:24px 20px 0;color:#7a817d;font-size:12px;line-height:1.6;">Cozy DAVAO Airbnb · Matina Enclaves<br />Room 714, Building D</td>
+            </tr>
+          </table>
+        </td>
+      </tr>
+    </table>
+  </body>
+</html>`
+};
+
 @Injectable()
 export class EmailService {
   configured() {

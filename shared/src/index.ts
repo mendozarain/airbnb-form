@@ -108,6 +108,10 @@ export type EmailTemplate = {
   html: string;
 };
 
+export const EMAIL_TEMPLATE_KINDS = ["tenant", "visitorViewing"] as const;
+export type EmailTemplateKind = (typeof EMAIL_TEMPLATE_KINDS)[number];
+export type EmailTemplateSet = Record<EmailTemplateKind, EmailTemplate>;
+
 export type SettingsStatus = {
   connected: boolean;
   hasStorageState: boolean;

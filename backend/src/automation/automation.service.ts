@@ -68,6 +68,7 @@ export class AutomationService {
       where: { id: submissionId },
       select: {
         guestEmail: true,
+        purpose: true,
         status: true,
         runs: {
           orderBy: { createdAt: "desc" },
@@ -97,7 +98,7 @@ export class AutomationService {
       if (!screenshot) throw new Error("Entrance pass screenshot is missing from storage");
       await this.email.sendEntrancePass(
         submission.guestEmail,
-        await this.settings.getEmailTemplate(),
+        await this.settings.getEmailTemplate(parsePurpose(submission.purpose)),
         this.passImages.createUrl(run.screenshotStorageKey)
       );
       await this.prisma.$transaction([
@@ -144,7 +145,7 @@ export class AutomationService {
           if (!screenshot) throw new Error("Entrance pass screenshot is missing from storage");
           await this.email.sendEntrancePass(
             submission.guestEmail,
-            await this.settings.getEmailTemplate(),
+            await this.settings.getEmailTemplate(submission.purpose),
             this.passImages.createUrl(result.screenshotKey)
           );
           status = SubmissionStatus.SUBMITTED_EMAIL_SENT;
@@ -271,4 +272,9 @@ function toArrayBuffer(bytes: Buffer) {
   const copy = new Uint8Array(bytes.byteLength);
   copy.set(bytes);
   return copy.buffer;
+}
+
+function parsePurpose(value: string): Purpose {
+  if (PURPOSES.includes(value as Purpose)) return value as Purpose;
+  throw new Error("Invalid purpose");
 }

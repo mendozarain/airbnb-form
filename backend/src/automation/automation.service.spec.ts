@@ -9,6 +9,7 @@ describe("AutomationService", () => {
       submission: {
         findUnique: resolved({
           guestEmail: "guest@example.com",
+          purpose: "Viewing",
           status: SubmissionStatus.SUBMITTED_EMAIL_SENT,
           runs: [{ id: "run-1", screenshotStorageKey: "screenshots/pass.png" }]
         }),
@@ -53,6 +54,7 @@ describe("AutomationService", () => {
       template,
       "https://dev.example.com/api/entrance-pass/signed-token"
     );
+    expect(settings.getEmailTemplate).toHaveBeenCalledWith("Viewing");
     expect(prisma.submission.update).toHaveBeenCalledWith({
       where: { id: "submission-1" },
       data: { status: SubmissionStatus.SUBMITTED_EMAIL_SENT }

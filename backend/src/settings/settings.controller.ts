@@ -3,13 +3,15 @@ import {
   Body,
   Controller,
   Get,
+  Param,
   Post,
   UploadedFile,
   UseInterceptors
 } from "@nestjs/common";
 import { FileInterceptor } from "@nestjs/platform-express";
 import { Roles } from "@thallesp/nestjs-better-auth";
-import type { EmailTemplate } from "@cozy-d-714/shared";
+import { EMAIL_TEMPLATE_KINDS } from "@cozy-d-714/shared";
+import type { EmailTemplate, EmailTemplateKind } from "@cozy-d-714/shared";
 import { GoogleSessionService } from "./google-session.service.js";
 import { SettingsService } from "./settings.service.js";
 
@@ -31,9 +33,20 @@ export class SettingsController {
     return { template: await this.settings.getEmailTemplate() };
   }
 
+  @Get("email-templates")
+  async getTemplates() {
+    return { templates: await this.settings.getEmailTemplates() };
+  }
+
   @Post("email-template")
   async saveTemplate(@Body() body: EmailTemplate) {
     return { template: await this.settings.saveEmailTemplate(body) };
+  }
+
+  @Post("email-templates/:kind")
+  async saveTemplateForKind(@Param("kind") rawKind: string, @Body() body: EmailTemplate) {
+    const kind = parseEmailTemplateKind(rawKind);
+    return { template: await this.settings.saveEmailTemplateForKind(kind, body) };
   }
 
   @Post("google-session/upload")
@@ -47,4 +60,11 @@ export class SettingsController {
   check() {
     return this.google.check();
   }
+}
+
+function parseEmailTemplateKind(value: string): EmailTemplateKind {
+  if (EMAIL_TEMPLATE_KINDS.includes(value as EmailTemplateKind)) {
+    return value as EmailTemplateKind;
+  }
+  throw new BadRequestException("Unknown email template kind");
 }

@@ -1,6 +1,8 @@
 import type {
   CreateInviteInput,
   EmailTemplate,
+  EmailTemplateKind,
+  EmailTemplateSet,
   GuestSubmission,
   InviteSummary,
   PublicInvite,
@@ -47,9 +49,12 @@ export const api = {
   deleteSubmission: (id: string) =>
     request<{ ok: true }>(`/api/admin/submissions/${id}`, { method: "DELETE" }),
   getSettings: () => request<SettingsStatus>("/api/admin/settings/status"),
-  getEmailTemplate: () => request<{ template: EmailTemplate }>("/api/admin/settings/email-template"),
-  saveEmailTemplate: (body: EmailTemplate) =>
-    request<{ template: EmailTemplate }>("/api/admin/settings/email-template", { method: "POST", body }),
+  getEmailTemplates: () => request<{ templates: EmailTemplateSet }>("/api/admin/settings/email-templates"),
+  saveEmailTemplate: (kind: EmailTemplateKind, body: EmailTemplate) =>
+    request<{ template: EmailTemplate }>(`/api/admin/settings/email-templates/${kind}`, {
+      method: "POST",
+      body
+    }),
   checkGoogle: () =>
     request<SettingsStatus["lastCheck"]>("/api/admin/settings/google-session/check", { method: "POST" }),
   uploadFile: (token: string, file: File) =>
