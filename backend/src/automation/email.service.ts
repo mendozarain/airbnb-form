@@ -22,8 +22,8 @@ export const DEFAULT_EMAIL_TEMPLATE: EmailTemplate = {
             <tr>
               <td style="background:#173d32;padding:42px 34px 38px;border-radius:22px 22px 0 0;color:#fff;">
                 <p style="margin:0 0 14px;color:#d9c49d;font-size:12px;font-weight:bold;letter-spacing:2px;text-transform:uppercase;">Matina Enclaves · Davao City</p>
-                <h1 style="margin:0;font-family:Georgia,'Times New Roman',serif;font-size:42px;line-height:1.08;font-weight:normal;">Welcome to Building D Unit 714</h1>
-                <p style="margin:18px 0 0;color:#e7efe9;font-size:17px;line-height:1.6;">Your entrance pass is shown below, followed by a thoughtfully gathered guide for an easy arrival and a comfortable stay.</p>
+                <h1 style="margin:0;font-family:Georgia,'Times New Roman',serif;font-size:42px;line-height:1.08;font-weight:normal;">Your upcoming stay at Building D, Unit 714</h1>
+                <p style="margin:18px 0 0;color:#e7efe9;font-size:17px;line-height:1.6;">We’re looking forward to hosting you. Your entrance pass and complete arrival guide are below.</p>
               </td>
             </tr>
             <!-- entrance-pass-slot -->
@@ -147,8 +147,8 @@ export const DEFAULT_VISITOR_VIEWING_EMAIL_TEMPLATE: EmailTemplate = {
             <tr>
               <td style="background:#173d32;padding:42px 34px 38px;border-radius:22px 22px 0 0;color:#fff;">
                 <p style="margin:0 0 14px;color:#d9c49d;font-size:12px;font-weight:bold;letter-spacing:2px;text-transform:uppercase;">Matina Enclaves · Davao City</p>
-                <h1 style="margin:0;font-family:Georgia,'Times New Roman',serif;font-size:42px;line-height:1.08;font-weight:normal;">Your visit to Building D Unit 714</h1>
-                <p style="margin:18px 0 0;color:#e7efe9;font-size:17px;line-height:1.6;">Your entrance pass is shown below, followed by the essential details for your visit.</p>
+                <h1 style="margin:0;font-family:Georgia,'Times New Roman',serif;font-size:42px;line-height:1.08;font-weight:normal;">Your upcoming visit to Building D, Unit 714</h1>
+                <p style="margin:18px 0 0;color:#e7efe9;font-size:17px;line-height:1.6;">We’re looking forward to welcoming you. Your entrance pass and essential visit details are below.</p>
               </td>
             </tr>
             <!-- entrance-pass-slot -->
