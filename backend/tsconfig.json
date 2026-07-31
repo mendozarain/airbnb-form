@@ -1,7 +1,20 @@
 {
   "extends": "../tsconfig.base.json",
   "compilerOptions": {
-    "types": ["@cloudflare/workers-types", "node"]
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "target": "ES2023",
+    "declaration": true,
+    "removeComments": true,
+    "emitDecoratorMetadata": true,
+    "experimentalDecorators": true,
+    "outDir": "./dist",
+    "baseUrl": "./",
+    "incremental": true,
+    "sourceMap": true,
+    "noImplicitAny": true,
+    "isolatedModules": true
   },
-  "include": ["src", "wrangler.jsonc"]
+  "include": ["src", "scripts", "test", "prisma.config.ts"],
+  "exclude": ["node_modules", "dist"]
 }

@@ -1,21 +1,25 @@
 {
   "name": "cozy-d-714",
-  "version": "1.0.0",
+  "version": "2.0.0",
   "private": true,
+  "type": "module",
   "workspaces": [
-    "frontend",
     "backend",
+    "frontend",
     "shared"
   ],
-  "scripts": {
-    "dev": "bun --cwd frontend dev",
-    "dev:frontend": "bun --cwd frontend dev",
-    "dev:backend": "bun --cwd backend dev",
-    "capture:google": "bun scripts/capture-google-session.ts",
-    "build": "bun --cwd shared build && bun --cwd frontend build && bun --cwd backend build",
-    "typecheck": "bun --cwd shared typecheck && bun --cwd frontend typecheck && bun --cwd backend typecheck"
+  "engines": {
+    "node": "22.x"
   },
-  "devDependencies": {
-    "typescript": "^5.9.3"
+  "scripts": {
+    "dev:api": "npm --workspace backend run start:dev",
+    "dev:frontend": "npm --workspace frontend run dev",
+    "build": "npm run build --workspace shared && npm run build --workspace backend && npm run build --workspace frontend",
+    "typecheck": "npm run typecheck --workspace shared && npm run typecheck --workspace backend && npm run typecheck --workspace frontend",
+    "lint": "npm run lint --workspace backend && npm run lint --workspace frontend",
+    "test": "npm run test --workspace backend",
+    "test:e2e": "npm run test:e2e --workspace backend",
+    "format": "npm run format --workspace backend && npm run format --workspace frontend",
+    "migrate:legacy": "npm run migrate:legacy --workspace backend --"
   }
 }

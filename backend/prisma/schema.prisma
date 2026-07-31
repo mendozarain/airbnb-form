@@ -1,0 +1,185 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum InviteStatus {
+  OPEN      @map("open")
+  SUBMITTED @map("submitted")
+
+  @@map("invite_status")
+}
+
+enum SubmissionStatus {
+  READY_FOR_REVIEW       @map("ready_for_review")
+  QUEUED                 @map("queued")
+  SUBMITTING             @map("submitting")
+  FAILED                 @map("failed")
+  SUBMITTED_EMAIL_FAILED @map("submitted_email_failed")
+  REJECTED               @map("rejected")
+  SUBMITTED              @map("submitted")
+  SUBMITTED_EMAIL_SENT   @map("submitted_email_sent")
+
+  @@map("submission_status")
+}
+
+model User {
+  id            String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  name          String
+  email         String    @unique
+  emailVerified Boolean   @default(false)
+  image         String?
+  role          String?   @default("user")
+  banned        Boolean?  @default(false)
+  banReason     String?
+  banExpires    DateTime? @db.Timestamptz(3)
+  createdAt     DateTime  @default(now()) @db.Timestamptz(3)
+  updatedAt     DateTime  @updatedAt @db.Timestamptz(3)
+  sessions      Session[]
+  accounts      Account[]
+
+  @@map("auth_user")
+}
+
+model Session {
+  id             String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  expiresAt      DateTime @db.Timestamptz(3)
+  token          String   @unique
+  createdAt      DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt      DateTime @updatedAt @db.Timestamptz(3)
+  ipAddress      String?
+  userAgent      String?
+  impersonatedBy String?
+  userId         String   @db.Uuid
+  user           User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("auth_session")
+}
+
+model Account {
+  id                    String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  accountId             String
+  providerId            String
+  userId                String    @db.Uuid
+  accessToken           String?
+  refreshToken          String?
+  idToken               String?
+  accessTokenExpiresAt  DateTime? @db.Timestamptz(3)
+  refreshTokenExpiresAt DateTime? @db.Timestamptz(3)
+  scope                 String?
+  password              String?
+  createdAt             DateTime  @default(now()) @db.Timestamptz(3)
+  updatedAt             DateTime  @updatedAt @db.Timestamptz(3)
+  user                  User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([providerId, accountId])
+  @@index([userId])
+  @@map("auth_account")
+}
+
+model Verification {
+  id         String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  identifier String
+  value      String
+  expiresAt  DateTime @db.Timestamptz(3)
+  createdAt  DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt  DateTime @updatedAt @db.Timestamptz(3)
+
+  @@index([identifier])
+  @@map("auth_verification")
+}
+
+model Invite {
+  id          String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tokenHash   String       @unique @map("token_hash")
+  publicToken String?      @unique @map("public_token")
+  checkIn     DateTime     @map("check_in") @db.Date
+  checkOut    DateTime     @map("check_out") @db.Date
+  purpose     String
+  status      InviteStatus @default(OPEN)
+  expiresAt   DateTime     @map("expires_at") @db.Timestamptz(3)
+  submittedAt DateTime?    @map("submitted_at") @db.Timestamptz(3)
+  createdAt   DateTime     @default(now()) @map("created_at") @db.Timestamptz(3)
+  submission  Submission?
+
+  @@map("invites")
+}
+
+model Submission {
+  id           String           @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  inviteId     String           @unique @map("invite_id") @db.Uuid
+  guestEmail   String           @map("guest_email")
+  buildingCode String           @map("building_code")
+  unitNumber   String           @map("unit_number")
+  checkIn      DateTime         @map("check_in") @db.Date
+  checkOut     DateTime         @map("check_out") @db.Date
+  purpose      String
+  ownerName    String           @map("owner_name")
+  ownerContact String           @map("owner_contact")
+  status       SubmissionStatus @default(READY_FOR_REVIEW)
+  createdAt    DateTime         @default(now()) @map("created_at") @db.Timestamptz(3)
+  invite       Invite           @relation(fields: [inviteId], references: [id])
+  guests       Guest[]
+  runs         AutomationRun[]
+
+  @@index([status, createdAt])
+  @@map("submissions")
+}
+
+model Guest {
+  id           String      @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  submissionId String      @map("submission_id") @db.Uuid
+  fullName     String      @map("full_name")
+  age          Int
+  requiresId   Boolean     @map("requires_id")
+  createdAt    DateTime    @default(now()) @map("created_at") @db.Timestamptz(3)
+  submission   Submission  @relation(fields: [submissionId], references: [id], onDelete: Cascade)
+  files        GuestFile[]
+
+  @@index([submissionId])
+  @@map("guests")
+}
+
+model GuestFile {
+  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  guestId     String   @map("guest_id") @db.Uuid
+  storageKey  String   @unique @map("storage_key")
+  filename    String
+  contentType String   @map("content_type")
+  sizeBytes   Int      @map("size_bytes")
+  deleteAfter DateTime @map("delete_after") @db.Timestamptz(3)
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  guest       Guest    @relation(fields: [guestId], references: [id], onDelete: Cascade)
+
+  @@index([guestId])
+  @@index([deleteAfter])
+  @@map("guest_files")
+}
+
+model AutomationRun {
+  id                   String     @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  submissionId         String     @map("submission_id") @db.Uuid
+  status               String
+  errorMessage         String?    @map("error_message")
+  screenshotStorageKey String?    @map("screenshot_storage_key")
+  createdAt            DateTime   @default(now()) @map("created_at") @db.Timestamptz(3)
+  finishedAt           DateTime?  @map("finished_at") @db.Timestamptz(3)
+  submission           Submission @relation(fields: [submissionId], references: [id], onDelete: Cascade)
+
+  @@index([submissionId, createdAt])
+  @@index([createdAt])
+  @@map("automation_runs")
+}
+
+model AppSetting {
+  key       String   @id
+  value     Json
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  @@map("app_settings")
+}
