@@ -95,19 +95,30 @@ describe("HostexService", () => {
         checkIn: args.data.checkIn,
         checkOut: args.data.checkOut,
         expiresAt: args.data.expiresAt,
-        hostexDelivery: {
+        hostexAutomation: {
           id: "delivery-1",
           inviteId: "invite-1",
-          ...args.data.hostexDelivery.create,
+          ...args.data.hostexAutomation.create,
           attempts: 0
         }
       })
     );
     const prisma = {
-      hostexInviteDelivery: { findUnique: resolved(null) },
+      hostexBookingAutomation: { findUnique: resolved(null) },
+      booking: { upsert: resolved({ id: "booking-1" }) },
       invite: { create: inviteCreate }
     };
-    const client = { listReservations: resolved([reservation]) };
+    const client = {
+      listReservations: jest.fn((input: { status?: string; startCheckIn: string; endCheckIn: string }) =>
+        Promise.resolve(
+          input.status === "accepted" &&
+            input.startCheckIn <= reservation.check_in_date &&
+            input.endCheckIn >= reservation.check_in_date
+            ? [reservation]
+            : []
+        )
+      )
+    };
     const service = new HostexService(prisma as never, client as never);
 
     await expect(service.syncNow()).resolves.toEqual({ ok: true, found: 1, sent: 0 });
@@ -115,7 +126,7 @@ describe("HostexService", () => {
       expect.objectContaining({
         data: expect.objectContaining({
           purpose: "Tenant",
-          hostexDelivery: expect.objectContaining({
+          hostexAutomation: expect.objectContaining({
             create: expect.objectContaining({ stayCode: "stay-1" })
           })
         })
@@ -159,7 +170,7 @@ describe("HostexService", () => {
 
   it("requires explicit duplicate-risk confirmation for an unknown send", async () => {
     const prisma = {
-      hostexInviteDelivery: {
+      hostexBookingAutomation: {
         findUnique: resolved({ id: "delivery-1", status: HostexDeliveryStatus.UNKNOWN })
       }
     };
@@ -180,11 +191,16 @@ describe("HostexService", () => {
     const update = jest.fn<() => Promise<any>>().mockResolvedValue(delivery);
     const updateMany = resolved({ count: 1 });
     const inviteUpdate = resolved(delivery.invite);
+    const attemptCreate = resolved({ id: "attempt-1" });
+    const attemptUpdate = resolved({ id: "attempt-1" });
     const prisma = {
-      hostexInviteDelivery: { findUnique, update, updateMany },
-      invite: { update: inviteUpdate },
-      $transaction: jest.fn(async (operations: Promise<unknown>[]) => Promise.all(operations))
+      hostexBookingAutomation: { findUnique, update, updateMany },
+      hostexMessageDelivery: { create: attemptCreate, update: attemptUpdate },
+      booking: { upsert: resolved({ id: "booking-1" }) },
+      invite: { update: inviteUpdate, updateMany: resolved({ count: 1 }) },
+      $transaction: undefined as unknown
     };
+    prisma.$transaction = transactionMock(prisma);
     const sendMessage = jest
       .fn<() => Promise<{ requestId: string }>>()
       .mockResolvedValue({ requestId: "request-1" });
@@ -206,6 +222,14 @@ describe("HostexService", () => {
       "conversation-1",
       "Hi Alex, please complete the guest registration form for your upcoming stay at Cozy Davao D-714 before arrival: https://cozy.example.com/invite/public-token\n\nPlease include every guest and upload a valid ID for each guest aged 16 or older. Thank you!"
     );
+    expect(attemptCreate).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        inviteId: "invite-1",
+        bookingId: "booking-1",
+        kind: "AUTOMATED",
+        status: HostexDeliveryStatus.SENDING
+      })
+    });
     expect(update).toHaveBeenCalledWith(
       expect.objectContaining({
         where: { id: "delivery-1" },
@@ -223,11 +247,15 @@ describe("HostexService", () => {
       .mockResolvedValueOnce(delivery)
       .mockResolvedValueOnce(delivery);
     const update = jest.fn<() => Promise<any>>().mockResolvedValue(delivery);
+    const attemptUpdate = resolved({ id: "attempt-1" });
     const prisma = {
-      hostexInviteDelivery: { findUnique, update, updateMany: resolved({ count: 1 }) },
-      invite: { update: resolved(delivery.invite) },
-      $transaction: jest.fn(async (operations: Promise<unknown>[]) => Promise.all(operations))
+      hostexBookingAutomation: { findUnique, update, updateMany: resolved({ count: 1 }) },
+      hostexMessageDelivery: { create: resolved({ id: "attempt-1" }), update: attemptUpdate },
+      booking: { upsert: resolved({ id: "booking-1" }) },
+      invite: { update: resolved(delivery.invite), updateMany: resolved({ count: 1 }) },
+      $transaction: undefined as unknown
     };
+    prisma.$transaction = transactionMock(prisma);
     const client = {
       getReservation: resolved(acceptedReservation()),
       sendMessage: jest.fn<() => Promise<never>>().mockRejectedValue(new HostexUncertainSendError())
@@ -239,6 +267,12 @@ describe("HostexService", () => {
     expect(client.sendMessage).toHaveBeenCalledTimes(1);
     expect(update).toHaveBeenCalledWith(
       expect.objectContaining({
+        data: expect.objectContaining({ status: HostexDeliveryStatus.UNKNOWN })
+      })
+    );
+    expect(attemptUpdate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { id: "attempt-1" },
         data: expect.objectContaining({ status: HostexDeliveryStatus.UNKNOWN })
       })
     );
@@ -267,9 +301,13 @@ describe("HostexService", () => {
         updateMany: resolved({ count: 1 }),
         update: resolved({})
       },
-      hostexInviteDelivery: {
+      hostexBookingAutomation: {
         findUnique: resolved(scheduledDelivery()),
         update: deliveryUpdate
+      },
+      booking: {
+        findUnique: resolved({ id: "booking-1", stayCode: "stay-1" }),
+        update: resolved({})
       },
       invite: { updateMany: inviteUpdateMany },
       $transaction: jest.fn(async (operations: Promise<unknown>[]) => Promise.all(operations))
@@ -288,7 +326,7 @@ describe("HostexService", () => {
       }
     });
     expect(inviteUpdateMany).toHaveBeenCalledWith({
-      where: { id: "invite-1", status: InviteStatus.OPEN },
+      where: { bookingId: "booking-1", status: InviteStatus.OPEN },
       data: { expiresAt: expect.any(Date) }
     });
     expect(prisma.hostexWebhookEvent.update).toHaveBeenCalledWith(
@@ -317,6 +355,7 @@ function scheduledDelivery() {
   return {
     id: "delivery-1",
     inviteId: "invite-1",
+    bookingId: "booking-1",
     reservationCode: "reservation-1",
     stayCode: "stay-1",
     propertyId: 12684960,
@@ -344,4 +383,10 @@ function scheduledDelivery() {
 
 function resolved<T>(value: T) {
   return jest.fn<() => Promise<T>>().mockResolvedValue(value);
+}
+
+function transactionMock(prisma: object) {
+  return jest.fn(async (input: Promise<unknown>[] | ((transaction: object) => Promise<unknown>)) =>
+    typeof input === "function" ? input(prisma) : Promise.all(input)
+  );
 }

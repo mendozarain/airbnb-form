@@ -108,7 +108,9 @@ HOSTEX_WEBHOOK_BOOTSTRAP_TOKEN=<one-time high-entropy setup token>
 ENABLE_HOSTEX_INVITE_AUTOMATION=false
 ```
 
-Register `https://cozy-d714.up.railway.app/api/webhooks/hostex?setup=<bootstrap-token>` for `reservation_created`, `reservation_updated`, and `message_created`. The first authenticated callback stores only a SHA-256 digest of Hostex's assigned secret; later callbacks ignore the setup token and validate the pinned digest. Remove `HOSTEX_WEBHOOK_BOOTSTRAP_TOKEN` after the dashboard reports that the webhook is verified. Keep the automation flag disabled until an admin has synced a user-approved test reservation, used **Send now**, and confirmed the message in both Hostex and the booking platform. Network-timeout deliveries remain `unknown` until an admin reconciles or explicitly accepts the duplicate-message risk.
+Register `https://cozy-d714.up.railway.app/api/webhooks/hostex?setup=<bootstrap-token>` for `reservation_created`, `reservation_updated`, `message_created`, `property_availability_updated`, and `listing_calendar_updated`. The first authenticated callback stores only a SHA-256 digest of Hostex's assigned secret; later callbacks ignore the setup token and validate the pinned digest. Remove `HOSTEX_WEBHOOK_BOOTSTRAP_TOKEN` after the dashboard reports that the webhook is verified. Keep invite automation disabled until an admin has synced a user-approved test reservation, used **Send now**, and confirmed the message in both Hostex and the booking platform. Network-timeout deliveries remain `unknown` until an admin reconciles or explicitly accepts the duplicate-message risk.
+
+The integrated pricing scheduler uses `ENABLE_HOSTEX_PRICING_AUTOMATION=false` as its Railway master switch and an independent database pause control in **Pricing**. Leave the existing pricing cron active while comparing previews, then disable it before enabling the NestJS scheduler. Use `npm run backfill:bookings --workspace backend -- --dry-run` before applying the strict legacy booking assignment with `--apply`.
 
 ## Legacy Migration
 

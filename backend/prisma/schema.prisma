@@ -10,8 +10,34 @@ datasource db {
 enum InviteStatus {
   OPEN      @map("open")
   SUBMITTED @map("submitted")
+  REVOKED   @map("revoked")
 
   @@map("invite_status")
+}
+
+enum HostexDeliveryKind {
+  AUTOMATED @map("automated")
+  MANUAL    @map("manual")
+
+  @@map("hostex_delivery_kind")
+}
+
+enum PricingRunMode {
+  PREVIEW   @map("preview")
+  MANUAL    @map("manual")
+  AUTOMATIC @map("automatic")
+
+  @@map("pricing_run_mode")
+}
+
+enum PricingRunStatus {
+  RUNNING        @map("running")
+  PREVIEWED      @map("previewed")
+  SUBMITTED      @map("submitted")
+  PARTIAL_FAILED @map("partial_failed")
+  FAILED         @map("failed")
+
+  @@map("pricing_run_status")
 }
 
 enum SubmissionStatus {
@@ -118,27 +144,72 @@ model Verification {
 }
 
 model Invite {
-  id             String                @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  tokenHash      String                @unique @map("token_hash")
-  publicToken    String?               @unique @map("public_token")
-  checkIn        DateTime              @map("check_in") @db.Date
-  checkOut       DateTime              @map("check_out") @db.Date
-  purpose        String
-  status         InviteStatus          @default(OPEN)
-  expiresAt      DateTime              @map("expires_at") @db.Timestamptz(3)
-  submittedAt    DateTime?             @map("submitted_at") @db.Timestamptz(3)
-  createdAt      DateTime              @default(now()) @map("created_at") @db.Timestamptz(3)
-  submission     Submission?
-  hostexDelivery HostexInviteDelivery?
+  id                 String                   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tokenHash          String                   @unique @map("token_hash")
+  publicToken        String?                  @unique @map("public_token")
+  checkIn            DateTime                 @map("check_in") @db.Date
+  checkOut           DateTime                 @map("check_out") @db.Date
+  purpose            String
+  status             InviteStatus             @default(OPEN)
+  expiresAt          DateTime                 @map("expires_at") @db.Timestamptz(3)
+  submittedAt        DateTime?                @map("submitted_at") @db.Timestamptz(3)
+  revokedAt          DateTime?                @map("revoked_at") @db.Timestamptz(3)
+  revokedReason      String?                  @map("revoked_reason")
+  bookingId          String?                  @map("booking_id") @db.Uuid
+  parentInviteId     String?                  @map("parent_invite_id") @db.Uuid
+  createdAt          DateTime                 @default(now()) @map("created_at") @db.Timestamptz(3)
+  submission         Submission?
+  booking            Booking?                 @relation(fields: [bookingId], references: [id], onDelete: SetNull)
+  parentInvite       Invite?                  @relation("InviteRegeneration", fields: [parentInviteId], references: [id], onDelete: SetNull)
+  regeneratedInvites Invite[]                 @relation("InviteRegeneration")
+  hostexAutomation   HostexBookingAutomation?
+  hostexDeliveries   HostexMessageDelivery[]
 
+  @@index([bookingId, createdAt])
+  @@index([parentInviteId])
   @@map("invites")
 }
 
-model HostexInviteDelivery {
+model Booking {
+  id               String                   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  reservationCode  String                   @map("reservation_code")
+  stayCode         String                   @unique @map("stay_code")
+  propertyId       Int                      @map("property_id")
+  channelType      String                   @map("channel_type")
+  channelId        String?                  @map("channel_id")
+  listingId        String?                  @map("listing_id")
+  status           String
+  stayStatus       String?                  @map("stay_status")
+  guestName        String?                  @map("guest_name")
+  guestEmail       String?                  @map("guest_email")
+  guestPhone       String?                  @map("guest_phone")
+  numberOfGuests   Int?                     @map("number_of_guests")
+  numberOfAdults   Int?                     @map("number_of_adults")
+  numberOfChildren Int?                     @map("number_of_children")
+  conversationId   String?                  @map("conversation_id")
+  checkIn          DateTime                 @map("check_in") @db.Date
+  checkOut         DateTime                 @map("check_out") @db.Date
+  bookedAt         DateTime?                @map("booked_at") @db.Timestamptz(3)
+  cancelledAt      DateTime?                @map("cancelled_at") @db.Timestamptz(3)
+  lastSyncedAt     DateTime                 @default(now()) @map("last_synced_at") @db.Timestamptz(3)
+  createdAt        DateTime                 @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt        DateTime                 @updatedAt @map("updated_at") @db.Timestamptz(3)
+  invites          Invite[]
+  hostexAutomation HostexBookingAutomation?
+  hostexDeliveries HostexMessageDelivery[]
+
+  @@index([status, checkIn])
+  @@index([guestEmail])
+  @@index([reservationCode])
+  @@map("bookings")
+}
+
+model HostexBookingAutomation {
   id              String               @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   inviteId        String               @unique @map("invite_id") @db.Uuid
+  bookingId       String               @unique @map("booking_id") @db.Uuid
   reservationCode String               @map("reservation_code")
-  stayCode        String               @unique @map("stay_code")
+  stayCode        String               @map("stay_code")
   propertyId      Int                  @map("property_id")
   channelType     String               @map("channel_type")
   conversationId  String?              @map("conversation_id")
@@ -154,10 +225,37 @@ model HostexInviteDelivery {
   createdAt       DateTime             @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt       DateTime             @updatedAt @map("updated_at") @db.Timestamptz(3)
   invite          Invite               @relation(fields: [inviteId], references: [id], onDelete: Cascade)
+  booking         Booking              @relation(fields: [bookingId], references: [id], onDelete: Cascade)
 
   @@index([status, dueAt])
   @@index([conversationId])
-  @@map("hostex_invite_deliveries")
+  @@map("hostex_booking_automations")
+}
+
+model HostexMessageDelivery {
+  id             String               @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  inviteId       String               @map("invite_id") @db.Uuid
+  bookingId      String               @map("booking_id") @db.Uuid
+  kind           HostexDeliveryKind
+  conversationId String?              @map("conversation_id")
+  status         HostexDeliveryStatus @default(SCHEDULED)
+  attempts       Int                  @default(0)
+  nextAttemptAt  DateTime?            @map("next_attempt_at") @db.Timestamptz(3)
+  lastAttemptAt  DateTime?            @map("last_attempt_at") @db.Timestamptz(3)
+  sentAt         DateTime?            @map("sent_at") @db.Timestamptz(3)
+  confirmedAt    DateTime?            @map("confirmed_at") @db.Timestamptz(3)
+  requestId      String?              @map("request_id")
+  lastError      String?              @map("last_error")
+  createdAt      DateTime             @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt      DateTime             @updatedAt @map("updated_at") @db.Timestamptz(3)
+  invite         Invite               @relation(fields: [inviteId], references: [id], onDelete: Cascade)
+  booking        Booking              @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+
+  @@index([bookingId, createdAt])
+  @@index([inviteId, createdAt])
+  @@index([status, nextAttemptAt])
+  @@index([conversationId])
+  @@map("hostex_message_deliveries")
 }
 
 model HostexWebhookEvent {
@@ -261,4 +359,114 @@ model AppSetting {
   updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
 
   @@map("app_settings")
+}
+
+model AdminAuditEvent {
+  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  actorUserId String?  @map("actor_user_id") @db.Uuid
+  actorEmail  String?  @map("actor_email")
+  action      String
+  entityType  String   @map("entity_type")
+  entityId    String   @map("entity_id")
+  details     Json?
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  @@index([entityType, entityId, createdAt])
+  @@index([createdAt])
+  @@map("admin_audit_events")
+}
+
+model PricingSetting {
+  id           String                  @id @default("primary")
+  version      Int                     @default(1)
+  automationOn Boolean                 @default(false) @map("automation_on")
+  config       Json
+  updatedBy    String?                 @map("updated_by")
+  createdAt    DateTime                @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt    DateTime                @updatedAt @map("updated_at") @db.Timestamptz(3)
+  versions     PricingSettingVersion[]
+
+  @@map("pricing_settings")
+}
+
+model PricingSettingVersion {
+  id        String         @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  settingId String         @map("setting_id")
+  version   Int
+  config    Json
+  changedBy String?        @map("changed_by")
+  createdAt DateTime       @default(now()) @map("created_at") @db.Timestamptz(3)
+  setting   PricingSetting @relation(fields: [settingId], references: [id], onDelete: Cascade)
+
+  @@unique([settingId, version])
+  @@index([createdAt])
+  @@map("pricing_setting_versions")
+}
+
+model PricingRun {
+  id              String              @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  runKey          String?             @unique @map("run_key")
+  mode            PricingRunMode
+  status          PricingRunStatus    @default(RUNNING)
+  settingsVersion Int                 @map("settings_version")
+  configSnapshot  Json                @map("config_snapshot")
+  occupancy       Json?
+  initiatedBy     String?             @map("initiated_by")
+  errorMessage    String?             @map("error_message")
+  startedAt       DateTime            @default(now()) @map("started_at") @db.Timestamptz(3)
+  finishedAt      DateTime?           @map("finished_at") @db.Timestamptz(3)
+  days            PricingDay[]
+  submissions     PricingSubmission[]
+
+  @@index([startedAt])
+  @@map("pricing_runs")
+}
+
+model PricingDay {
+  id             String     @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  runId          String     @map("run_id") @db.Uuid
+  date           DateTime   @db.Date
+  airbnbPrice    Int        @map("airbnb_price")
+  available      Boolean
+  occupancyRatio Float      @map("occupancy_ratio")
+  event          String?
+  reasons        Json
+  run            PricingRun @relation(fields: [runId], references: [id], onDelete: Cascade)
+
+  @@unique([runId, date])
+  @@index([date])
+  @@map("pricing_days")
+}
+
+model PricingSubmission {
+  id          String     @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  runId       String     @map("run_id") @db.Uuid
+  channelType String     @map("channel_type")
+  listingId   String     @map("listing_id")
+  ratio       Float
+  attempt     Int        @default(1)
+  rangeCount  Int        @map("range_count")
+  requestId   String?    @map("request_id")
+  status      String
+  error       String?
+  createdAt   DateTime   @default(now()) @map("created_at") @db.Timestamptz(3)
+  run         PricingRun @relation(fields: [runId], references: [id], onDelete: Cascade)
+
+  @@unique([runId, channelType, listingId, attempt])
+  @@map("pricing_submissions")
+}
+
+model HostexCalendarDay {
+  id           String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  channelType  String   @map("channel_type")
+  listingId    String   @map("listing_id")
+  date         DateTime @db.Date
+  price        Int?
+  inventory    Int?
+  restrictions Json?
+  syncedAt     DateTime @default(now()) @map("synced_at") @db.Timestamptz(3)
+
+  @@unique([channelType, listingId, date])
+  @@index([date])
+  @@map("hostex_calendar_days")
 }

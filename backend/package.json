@@ -17,6 +17,7 @@
     "migrate:dev": "prisma migrate dev",
     "migrate:deploy": "prisma migrate deploy",
     "migrate:legacy": "tsx scripts/migrate-legacy.ts",
+    "backfill:bookings": "tsx scripts/backfill-bookings.ts",
     "capture:google": "tsx scripts/capture-google-session.ts"
   },
   "dependencies": {

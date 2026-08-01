@@ -22,6 +22,7 @@
     "pretest:e2e": "npm run build --workspace shared",
     "test:e2e": "npm run test:e2e --workspace backend",
     "format": "npm run format --workspace backend && npm run format --workspace frontend",
-    "migrate:legacy": "npm run migrate:legacy --workspace backend --"
+    "migrate:legacy": "npm run migrate:legacy --workspace backend --",
+    "backfill:bookings": "npm run backfill:bookings --workspace backend --"
   }
 }

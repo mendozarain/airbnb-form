@@ -21,7 +21,26 @@ export type HostexReservation = {
   check_out_date: string;
   status: string;
   guest_name?: string | null;
+  guest_email?: string | null;
+  guest_phone?: string | null;
+  channel_id?: string | null;
+  listing_id?: string | null;
+  stay_status?: string | null;
+  number_of_guests?: number | null;
+  number_of_adults?: number | null;
+  number_of_children?: number | null;
+  booked_at?: string | null;
+  cancelled_at?: string | null;
   conversation_id?: string | null;
+};
+
+export type HostexAvailability = { date: string; available: boolean };
+export type HostexListing = { channelType: string; listingId: string };
+export type HostexListingCalendarDay = {
+  date: string;
+  price?: number | null;
+  inventory?: number | null;
+  restrictions?: unknown;
 };
 
 export type HostexConversation = {
@@ -123,6 +142,46 @@ export class HostexClient {
       if (error instanceof HostexApiError) throw error;
       throw new HostexUncertainSendError(error);
     }
+  }
+
+  async getAvailabilities(propertyId: number, startDate: string, endDate: string) {
+    const payload = await this.request<{ properties?: Array<{ availabilities?: HostexAvailability[] }> }>(
+      "GET",
+      "/availabilities",
+      { query: { property_ids: propertyId, start_date: startDate, end_date: endDate } }
+    );
+    return payload.data?.properties?.[0]?.availabilities ?? [];
+  }
+
+  async getListingCalendars(startDate: string, endDate: string, listings: HostexListing[]) {
+    const payload = await this.request<{
+      listings?: Array<{
+        channel_type: string;
+        listing_id: string;
+        calendar?: HostexListingCalendarDay[];
+      }>;
+    }>("POST", "/listings/calendar", {
+      body: {
+        start_date: startDate,
+        end_date: endDate,
+        listings: listings.map((listing) => ({
+          channel_type: listing.channelType,
+          listing_id: listing.listingId
+        }))
+      }
+    });
+    return payload.data?.listings ?? [];
+  }
+
+  async submitPrices(
+    channelType: string,
+    listingId: string,
+    prices: Array<{ start_date: string; end_date: string; price: number }>
+  ) {
+    const payload = await this.request<never>("POST", "/listings/prices", {
+      body: { channel_type: channelType, listing_id: listingId, prices }
+    });
+    return { requestId: payload.request_id ?? null };
   }
 
   private async request<T>(
