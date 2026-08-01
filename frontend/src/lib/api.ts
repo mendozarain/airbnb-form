@@ -1,4 +1,8 @@
 import type {
+  BookingDetail,
+  BookingSummary,
+  CalendarMonth,
+  CreateBookingInviteInput,
   CreateInviteInput,
   EmailTemplate,
   EmailTemplateKind,
@@ -6,6 +10,10 @@ import type {
   GuestSubmission,
   HostexAutomationStatus,
   InviteSummary,
+  PricingConfig,
+  PricingPreview,
+  PricingRun,
+  PricingSettings,
   PublicInvite,
   SettingsStatus,
   SubmissionDetail,
@@ -21,6 +29,42 @@ export const api = {
     }),
   listInvites: () => request<{ invites: InviteSummary[] }>("/api/admin/invites"),
   deleteInvite: (id: string) => request<{ ok: true }>(`/api/admin/invites/${id}`, { method: "DELETE" }),
+  updateInvite: (id: string, body: { purpose?: string; expiresAt?: string }) =>
+    request<{ ok: true }>(`/api/admin/invites/${id}`, { method: "PATCH", body }),
+  regenerateInvite: (id: string, expiresAt?: string) =>
+    request<{ id: string; guestUrl: string; expiresAt: string }>(`/api/admin/invites/${id}/regenerate`, {
+      method: "POST",
+      body: { expiresAt }
+    }),
+  assignInviteBooking: (id: string, bookingId: string | null) =>
+    request<{ ok: true }>(`/api/admin/invites/${id}/booking`, { method: "PATCH", body: { bookingId } }),
+  listBookings: (params: { start?: string; end?: string; status?: string; query?: string } = {}) =>
+    request<{ bookings: BookingSummary[] }>(`/api/admin/bookings${queryString(params)}`),
+  getBooking: (id: string) => request<{ booking: BookingDetail }>(`/api/admin/bookings/${id}`),
+  listUncategorizedRegistrations: () =>
+    request<{ registrations: Array<{ invite: InviteSummary; submission?: SubmissionSummary | null }> }>(
+      "/api/admin/bookings/uncategorized/list"
+    ),
+  syncBookings: () =>
+    request<{ ok: true; found?: number; sent?: number }>("/api/admin/bookings/sync", { method: "POST" }),
+  createBookingInvite: (bookingId: string, body: CreateBookingInviteInput) =>
+    request<{ inviteId: string; guestUrl: string; expiresAt: string }>(
+      `/api/admin/bookings/${bookingId}/invites`,
+      {
+        method: "POST",
+        body
+      }
+    ),
+  sendBookingInvite: (inviteId: string, allowUnknownDuplicate = false) =>
+    request<{ status: string }>(`/api/admin/bookings/invites/${inviteId}/send`, {
+      method: "POST",
+      body: { allowUnknownDuplicate }
+    }),
+  reconcileBookingInvite: (inviteId: string) =>
+    request<{ ok: true; confirmed: boolean; status: string }>(
+      `/api/admin/bookings/invites/${inviteId}/reconcile`,
+      { method: "POST" }
+    ),
   syncHostex: () =>
     request<{ ok: true; found?: number; sent?: number; alreadyRunning?: boolean }>("/api/admin/hostex/sync", {
       method: "POST"
@@ -49,6 +93,14 @@ export const api = {
     request<{ submission: SubmissionDetail & { latestError?: string | null } }>(
       `/api/admin/submissions/${id}`
     ),
+  updateSubmission: (id: string, body: unknown) =>
+    request<{ ok: true; status: string }>(`/api/admin/submissions/${id}`, { method: "PATCH", body }),
+  uploadSubmissionEditFile: (id: string, file: File) =>
+    upload<{ key: string; filename: string; size: number }>(
+      `/api/admin/submissions/${id}/files`,
+      "file",
+      file
+    ),
   confirmSubmission: (id: string) =>
     request<{ status: string; alreadyRunning?: boolean }>(`/api/admin/submissions/${id}/confirm`, {
       method: "POST"
@@ -75,8 +127,38 @@ export const api = {
   uploadFile: (token: string, file: File) =>
     upload<{ key: string; filename: string; size: number }>(`/api/invites/${token}/files`, "file", file),
   uploadGoogleState: (file: File) =>
-    upload<{ connected: boolean }>("/api/admin/settings/google-session/upload", "storageState", file)
+    upload<{ connected: boolean }>("/api/admin/settings/google-session/upload", "storageState", file),
+  getCalendar: (start: string, end: string) =>
+    request<CalendarMonth>(
+      `/api/admin/calendar?start=${encodeURIComponent(start)}&end=${encodeURIComponent(end)}`
+    ),
+  syncCalendar: (start: string, end: string) =>
+    request<{ ok: true; days: number; syncedAt: string }>("/api/admin/calendar/sync", {
+      method: "POST",
+      body: { start, end }
+    }),
+  getPricingSettings: () => request<PricingSettings>("/api/admin/pricing/settings"),
+  updatePricingSettings: (version: number, config: PricingConfig) =>
+    request<PricingSettings>("/api/admin/pricing/settings", { method: "PUT", body: { version, config } }),
+  setPricingAutomation: (enabled: boolean) =>
+    request<PricingSettings>("/api/admin/pricing/automation", { method: "POST", body: { enabled } }),
+  previewPricing: () => request<PricingPreview>("/api/admin/pricing/preview", { method: "POST" }),
+  applyPricing: (id: string) =>
+    request<{ run: PricingPreview }>(`/api/admin/pricing/runs/${id}/apply`, { method: "POST" }),
+  retryPricingListing: (runId: string, submissionId: string) =>
+    request<{ run: PricingRun }>(`/api/admin/pricing/runs/${runId}/submissions/${submissionId}/retry`, {
+      method: "POST",
+      body: { confirm: true }
+    }),
+  listPricingRuns: () => request<{ runs: PricingRun[] }>("/api/admin/pricing/runs")
 };
+
+function queryString(params: Record<string, string | undefined>) {
+  const query = new URLSearchParams();
+  for (const [key, value] of Object.entries(params)) if (value) query.set(key, value);
+  const result = query.toString();
+  return result ? `?${result}` : "";
+}
 
 async function request<T>(path: string, options: { method?: string; body?: unknown } = {}): Promise<T> {
   const response = await fetch(path, {

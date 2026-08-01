@@ -3,11 +3,14 @@ import { ConfigModule } from "@nestjs/config";
 import { ScheduleModule } from "@nestjs/schedule";
 import { AuthModule } from "@thallesp/nestjs-better-auth";
 import { auth } from "./auth/auth.js";
+import { AuditModule } from "./audit/audit.module.js";
 import { AutomationModule } from "./automation/automation.module.js";
+import { BookingsModule } from "./bookings/bookings.module.js";
 import { HealthModule } from "./health/health.module.js";
 import { HostexModule } from "./hostex/hostex.module.js";
 import { InvitesModule } from "./invites/invites.module.js";
 import { PrismaModule } from "./prisma/prisma.module.js";
+import { PricingModule } from "./pricing/pricing.module.js";
 import { StorageModule } from "./storage/storage.module.js";
 import { SubmissionsModule } from "./submissions/submissions.module.js";
 import { SettingsModule } from "./settings/settings.module.js";
@@ -17,6 +20,7 @@ import { SettingsModule } from "./settings/settings.module.js";
     ConfigModule.forRoot({ isGlobal: true, envFilePath: [".env.local", ".env"] }),
     ScheduleModule.forRoot(),
     PrismaModule,
+    AuditModule,
     StorageModule,
     AuthModule.forRoot({
       auth,
@@ -27,6 +31,8 @@ import { SettingsModule } from "./settings/settings.module.js";
     }),
     HealthModule,
     HostexModule,
+    BookingsModule,
+    PricingModule,
     InvitesModule,
     SubmissionsModule,
     SettingsModule,

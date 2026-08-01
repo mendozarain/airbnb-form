@@ -2,7 +2,12 @@ import { ConflictException, Injectable, NotFoundException } from "@nestjs/common
 import { Cron, CronExpression } from "@nestjs/schedule";
 import { createHash, timingSafeEqual } from "node:crypto";
 import { nanoid } from "nanoid";
-import { HostexDeliveryStatus, HostexWebhookStatus, InviteStatus } from "../generated/prisma/enums.js";
+import {
+  HostexDeliveryKind,
+  HostexDeliveryStatus,
+  HostexWebhookStatus,
+  InviteStatus
+} from "../generated/prisma/enums.js";
 import { PrismaService } from "../prisma/prisma.service.js";
 import {
   HostexApiError,
@@ -92,7 +97,16 @@ export class HostexService {
 
   async enqueueWebhook(payload: HostexWebhookPayload) {
     const event = stringValue(payload.event);
-    if (!event || !["reservation_created", "reservation_updated", "message_created"].includes(event)) {
+    if (
+      !event ||
+      ![
+        "reservation_created",
+        "reservation_updated",
+        "message_created",
+        "property_availability_updated",
+        "listing_calendar_updated"
+      ].includes(event)
+    ) {
       return { ok: true, ignored: true };
     }
 
@@ -121,7 +135,7 @@ export class HostexService {
 
   @Cron(CronExpression.EVERY_MINUTE)
   async processWebhookEvents() {
-    if (this.processingWebhooks || !this.automationEnabled()) return;
+    if (this.processingWebhooks) return;
     this.processingWebhooks = true;
     try {
       await this.prisma.hostexWebhookEvent.updateMany({
@@ -140,11 +154,13 @@ export class HostexService {
         const event = await this.claimWebhookEvent();
         if (!event) break;
         try {
-          if (event.event === "message_created" && event.conversationId) {
+          if (["property_availability_updated", "listing_calendar_updated"].includes(event.event)) {
+            await this.prisma.hostexCalendarDay.deleteMany();
+          } else if (event.event === "message_created" && event.conversationId) {
             await this.reconcileConversation(event.conversationId);
           } else if (event.reservationCode && event.stayCode) {
             const reservation = await this.client.getReservation(event.reservationCode, event.stayCode);
-            if (reservation) await this.syncReservation(reservation, true);
+            if (reservation) await this.syncReservation(reservation, this.automationEnabled());
             else await this.cancelDelivery(event.stayCode, "Reservation is no longer available in Hostex");
           }
           await this.prisma.hostexWebhookEvent.update({
@@ -185,7 +201,7 @@ export class HostexService {
     this.processingDeliveries = true;
     try {
       await this.recoverStaleSending();
-      const retries = await this.prisma.hostexInviteDelivery.findMany({
+      const retries = await this.prisma.hostexBookingAutomation.findMany({
         where: {
           status: HostexDeliveryStatus.RETRY_WAIT,
           attempts: { lt: 5 },
@@ -202,11 +218,36 @@ export class HostexService {
   }
 
   async syncNow() {
-    return this.syncUpcoming(false);
+    if (this.syncingReservations) return { ok: true, alreadyRunning: true };
+    this.syncingReservations = true;
+    try {
+      const today = localDate(new Date(), this.timeZone());
+      const start = addDaysToDateOnly(today, -730);
+      const end = addDaysToDateOnly(today, 365);
+      let found = 0;
+      for (const status of ["accepted", "cancelled"]) {
+        let cursor = start;
+        while (cursor <= end) {
+          const chunkEnd = minDate(addDaysToDateOnly(cursor, 179), end);
+          const reservations = await this.client.listReservations({
+            propertyId: this.propertyId(),
+            status,
+            startCheckIn: cursor,
+            endCheckIn: chunkEnd
+          });
+          found += reservations.length;
+          for (const reservation of reservations) await this.syncReservation(reservation, false);
+          cursor = addDaysToDateOnly(chunkEnd, 1);
+        }
+      }
+      return { ok: true, found, sent: 0 };
+    } finally {
+      this.syncingReservations = false;
+    }
   }
 
   async sendNow(inviteId: string, allowUnknownDuplicate = false) {
-    const delivery = await this.prisma.hostexInviteDelivery.findUnique({ where: { inviteId } });
+    const delivery = await this.prisma.hostexBookingAutomation.findUnique({ where: { inviteId } });
     if (!delivery) throw new NotFoundException("Hostex invite delivery not found");
     if (delivery.status === HostexDeliveryStatus.UNKNOWN && !allowUnknownDuplicate) {
       throw new ConflictException("Delivery outcome is unknown; confirm duplicate risk before retrying");
@@ -215,10 +256,10 @@ export class HostexService {
   }
 
   async reconcileInvite(inviteId: string) {
-    const delivery = await this.prisma.hostexInviteDelivery.findUnique({ where: { inviteId } });
+    const delivery = await this.prisma.hostexBookingAutomation.findUnique({ where: { inviteId } });
     if (!delivery) throw new NotFoundException("Hostex invite delivery not found");
     const confirmed = await this.reconcileDelivery(delivery.id, false);
-    const current = await this.prisma.hostexInviteDelivery.findUnique({ where: { id: delivery.id } });
+    const current = await this.prisma.hostexBookingAutomation.findUnique({ where: { id: delivery.id } });
     return { ok: true, confirmed, status: current?.status.toLowerCase() };
   }
 
@@ -264,8 +305,13 @@ export class HostexService {
     const expiresAt = new Date(dueAt.getTime() + 7 * 86_400_000);
     const checkIn = dateOnlyValue(reservation.check_in_date);
     const checkOut = dateOnlyValue(reservation.check_out_date);
-    const existing = await this.prisma.hostexInviteDelivery.findUnique({
+    const booking = await this.prisma.booking.upsert({
       where: { stayCode: reservation.stay_code },
+      create: bookingValues(reservation, checkIn, checkOut),
+      update: bookingValues(reservation, checkIn, checkOut)
+    });
+    const existing = await this.prisma.hostexBookingAutomation.findUnique({
+      where: { bookingId: booking.id },
       include: { invite: true }
     });
 
@@ -282,7 +328,7 @@ export class HostexService {
             : HostexDeliveryStatus.BLOCKED
           : existing.status;
       const [updated] = await this.prisma.$transaction([
-        this.prisma.hostexInviteDelivery.update({
+        this.prisma.hostexBookingAutomation.update({
           where: { id: existing.id },
           data: {
             reservationCode: reservation.reservation_code,
@@ -301,8 +347,8 @@ export class HostexService {
           },
           include: { invite: true }
         }),
-        this.prisma.invite.update({
-          where: { id: existing.inviteId },
+        this.prisma.invite.updateMany({
+          where: { id: existing.inviteId, status: InviteStatus.OPEN },
           data: { checkIn, checkOut, expiresAt }
         })
       ]);
@@ -319,8 +365,10 @@ export class HostexService {
           checkOut,
           purpose: "Tenant",
           expiresAt,
-          hostexDelivery: {
+          bookingId: booking.id,
+          hostexAutomation: {
             create: {
+              bookingId: booking.id,
               reservationCode: reservation.reservation_code,
               stayCode: reservation.stay_code,
               propertyId: reservation.property_id,
@@ -334,13 +382,13 @@ export class HostexService {
             }
           }
         },
-        include: { hostexDelivery: true }
+        include: { hostexAutomation: true }
       });
-      return { ...invite.hostexDelivery!, invite };
+      return { ...invite.hostexAutomation!, invite };
     } catch (error) {
       if (!isUniqueConstraint(error)) throw error;
-      const raced = await this.prisma.hostexInviteDelivery.findUnique({
-        where: { stayCode: reservation.stay_code },
+      const raced = await this.prisma.hostexBookingAutomation.findUnique({
+        where: { bookingId: booking.id },
         include: { invite: true }
       });
       if (!raced) throw error;
@@ -349,7 +397,7 @@ export class HostexService {
   }
 
   private async sendDelivery(id: string, force: boolean, allowUnknownDuplicate: boolean) {
-    let delivery = await this.prisma.hostexInviteDelivery.findUnique({
+    let delivery = await this.prisma.hostexBookingAutomation.findUnique({
       where: { id },
       include: { invite: true }
     });
@@ -361,24 +409,24 @@ export class HostexService {
     const reservation = await this.client.getReservation(delivery.reservationCode, delivery.stayCode);
     if (!reservation || reservation.status !== "accepted") {
       await this.cancelDelivery(delivery.stayCode, "Reservation is not accepted in Hostex");
-      return this.prisma.hostexInviteDelivery.findUnique({ where: { id } });
+      return this.prisma.hostexBookingAutomation.findUnique({ where: { id } });
     }
     await this.upsertAcceptedReservation(reservation);
-    delivery = await this.prisma.hostexInviteDelivery.findUnique({
+    delivery = await this.prisma.hostexBookingAutomation.findUnique({
       where: { id },
       include: { invite: true }
     });
     if (!delivery) throw new NotFoundException("Hostex invite delivery not found");
 
     if (delivery.invite.status === InviteStatus.SUBMITTED) {
-      return this.prisma.hostexInviteDelivery.update({
+      return this.prisma.hostexBookingAutomation.update({
         where: { id },
         data: { status: HostexDeliveryStatus.SKIPPED_SUBMITTED, lastError: null }
       });
     }
     if (!force && !isDeliveryDue(delivery.invite.checkIn, delivery.dueAt, this.timeZone())) return delivery;
     if (!delivery.conversationId) {
-      return this.prisma.hostexInviteDelivery.update({
+      return this.prisma.hostexBookingAutomation.update({
         where: { id },
         data: { status: HostexDeliveryStatus.BLOCKED, lastError: "Hostex reservation has no conversation" }
       });
@@ -387,22 +435,37 @@ export class HostexService {
     const allowed = [...AUTOMATIC_SENDABLE];
     if (force) allowed.push(HostexDeliveryStatus.BLOCKED);
     if (allowUnknownDuplicate) allowed.push(HostexDeliveryStatus.UNKNOWN);
-    const claimed = await this.prisma.hostexInviteDelivery.updateMany({
-      where: {
-        id,
-        status: { in: allowed },
-        ...(force ? {} : { attempts: { lt: 5 } })
-      },
-      data: {
-        status: HostexDeliveryStatus.SENDING,
-        attempts: { increment: 1 },
-        lastAttemptAt: new Date(),
-        nextAttemptAt: null,
-        lastError: null
-      }
+    const attemptStartedAt = new Date();
+    const attempt = await this.prisma.$transaction(async (transaction) => {
+      const claimed = await transaction.hostexBookingAutomation.updateMany({
+        where: {
+          id,
+          status: { in: allowed },
+          ...(force ? {} : { attempts: { lt: 5 } })
+        },
+        data: {
+          status: HostexDeliveryStatus.SENDING,
+          attempts: { increment: 1 },
+          lastAttemptAt: attemptStartedAt,
+          nextAttemptAt: null,
+          lastError: null
+        }
+      });
+      if (!claimed.count) return null;
+      return transaction.hostexMessageDelivery.create({
+        data: {
+          inviteId: delivery.inviteId,
+          bookingId: delivery.bookingId,
+          kind: HostexDeliveryKind.AUTOMATED,
+          conversationId: delivery.conversationId,
+          status: HostexDeliveryStatus.SENDING,
+          attempts: 1,
+          lastAttemptAt: attemptStartedAt
+        }
+      });
     });
-    if (!claimed.count) {
-      return this.prisma.hostexInviteDelivery.findUnique({ where: { id } });
+    if (!attempt) {
+      return this.prisma.hostexBookingAutomation.findUnique({ where: { id } });
     }
 
     const guestUrl = this.guestUrl(delivery.invite.publicToken);
@@ -412,24 +475,44 @@ export class HostexService {
         delivery.conversationId,
         DELIVERY_MESSAGE(firstName, guestUrl)
       );
-      return this.prisma.hostexInviteDelivery.update({
-        where: { id },
-        data: {
-          status: HostexDeliveryStatus.SENT,
-          sentAt: new Date(),
-          requestId: result.requestId,
-          lastError: null
-        }
-      });
+      const sentAt = new Date();
+      const [updated] = await this.prisma.$transaction([
+        this.prisma.hostexBookingAutomation.update({
+          where: { id },
+          data: {
+            status: HostexDeliveryStatus.SENT,
+            sentAt,
+            requestId: result.requestId,
+            lastError: null
+          }
+        }),
+        this.prisma.hostexMessageDelivery.update({
+          where: { id: attempt.id },
+          data: {
+            status: HostexDeliveryStatus.SENT,
+            sentAt,
+            requestId: result.requestId,
+            lastError: null
+          }
+        })
+      ]);
+      return updated;
     } catch (error) {
       if (error instanceof HostexUncertainSendError) {
-        return this.prisma.hostexInviteDelivery.update({
-          where: { id },
-          data: { status: HostexDeliveryStatus.UNKNOWN, lastError: error.message }
-        });
+        const [updated] = await this.prisma.$transaction([
+          this.prisma.hostexBookingAutomation.update({
+            where: { id },
+            data: { status: HostexDeliveryStatus.UNKNOWN, lastError: error.message }
+          }),
+          this.prisma.hostexMessageDelivery.update({
+            where: { id: attempt.id },
+            data: { status: HostexDeliveryStatus.UNKNOWN, lastError: error.message }
+          })
+        ]);
+        return updated;
       }
       if (error instanceof HostexApiError && isRetryable(error)) {
-        const current = await this.prisma.hostexInviteDelivery.findUnique({
+        const current = await this.prisma.hostexBookingAutomation.findUnique({
           where: { id },
           include: { invite: true }
         });
@@ -437,29 +520,47 @@ export class HostexService {
         const retryAllowed =
           (current?.attempts ?? 5) < 5 &&
           retryAt < endOfCheckInDay(dateOnly(current!.invite.checkIn), this.timeZone());
-        return this.prisma.hostexInviteDelivery.update({
-          where: { id },
-          data: {
-            status: retryAllowed ? HostexDeliveryStatus.RETRY_WAIT : HostexDeliveryStatus.BLOCKED,
-            nextAttemptAt: retryAllowed ? retryAt : null,
-            requestId: error.requestId,
-            lastError: error.message
-          }
-        });
+        const status = retryAllowed ? HostexDeliveryStatus.RETRY_WAIT : HostexDeliveryStatus.BLOCKED;
+        const [updated] = await this.prisma.$transaction([
+          this.prisma.hostexBookingAutomation.update({
+            where: { id },
+            data: {
+              status,
+              nextAttemptAt: retryAllowed ? retryAt : null,
+              requestId: error.requestId,
+              lastError: error.message
+            }
+          }),
+          this.prisma.hostexMessageDelivery.update({
+            where: { id: attempt.id },
+            data: {
+              status,
+              nextAttemptAt: retryAllowed ? retryAt : null,
+              requestId: error.requestId,
+              lastError: error.message
+            }
+          })
+        ]);
+        return updated;
       }
-      return this.prisma.hostexInviteDelivery.update({
-        where: { id },
-        data: {
-          status: HostexDeliveryStatus.BLOCKED,
-          requestId: error instanceof HostexApiError ? error.requestId : null,
-          lastError: safeError(error)
-        }
-      });
+      const requestId = error instanceof HostexApiError ? error.requestId : null;
+      const lastError = safeError(error);
+      const [updated] = await this.prisma.$transaction([
+        this.prisma.hostexBookingAutomation.update({
+          where: { id },
+          data: { status: HostexDeliveryStatus.BLOCKED, requestId, lastError }
+        }),
+        this.prisma.hostexMessageDelivery.update({
+          where: { id: attempt.id },
+          data: { status: HostexDeliveryStatus.BLOCKED, requestId, lastError }
+        })
+      ]);
+      return updated;
     }
   }
 
   private async reconcileConversation(conversationId: string) {
-    const deliveries = await this.prisma.hostexInviteDelivery.findMany({
+    const deliveries = await this.prisma.hostexBookingAutomation.findMany({
       where: {
         conversationId,
         status: {
@@ -472,7 +573,7 @@ export class HostexService {
   }
 
   private async reconcileDelivery(id: string, markUnknownWhenMissing: boolean) {
-    const delivery = await this.prisma.hostexInviteDelivery.findUnique({
+    const delivery = await this.prisma.hostexBookingAutomation.findUnique({
       where: { id },
       include: { invite: true }
     });
@@ -483,29 +584,76 @@ export class HostexService {
       (message) => message.sender_role === "host" && message.content?.includes(guestUrl)
     );
     if (found) {
-      await this.prisma.hostexInviteDelivery.update({
-        where: { id },
-        data: {
-          status: HostexDeliveryStatus.CONFIRMED,
-          confirmedAt: new Date(),
-          lastError: null
-        }
+      const confirmedAt = new Date();
+      const latestAttempt = await this.prisma.hostexMessageDelivery.findFirst({
+        where: {
+          inviteId: delivery.inviteId,
+          kind: HostexDeliveryKind.AUTOMATED,
+          status: {
+            in: [
+              HostexDeliveryStatus.SENDING,
+              HostexDeliveryStatus.SENT,
+              HostexDeliveryStatus.UNKNOWN
+            ]
+          }
+        },
+        orderBy: { createdAt: "desc" },
+        select: { id: true }
       });
+      await this.prisma.$transaction([
+        this.prisma.hostexBookingAutomation.update({
+          where: { id },
+          data: {
+            status: HostexDeliveryStatus.CONFIRMED,
+            confirmedAt,
+            lastError: null
+          }
+        }),
+        ...(latestAttempt
+          ? [
+              this.prisma.hostexMessageDelivery.update({
+                where: { id: latestAttempt.id },
+                data: {
+                  status: HostexDeliveryStatus.CONFIRMED,
+                  confirmedAt,
+                  lastError: null
+                }
+              })
+            ]
+          : [])
+      ]);
     } else if (markUnknownWhenMissing && delivery.status === HostexDeliveryStatus.SENDING) {
-      await this.prisma.hostexInviteDelivery.update({
-        where: { id },
-        data: {
-          status: HostexDeliveryStatus.UNKNOWN,
-          lastError: "Hostex send was interrupted before its outcome was recorded"
-        }
+      const lastError = "Hostex send was interrupted before its outcome was recorded";
+      const latestAttempt = await this.prisma.hostexMessageDelivery.findFirst({
+        where: {
+          inviteId: delivery.inviteId,
+          kind: HostexDeliveryKind.AUTOMATED,
+          status: HostexDeliveryStatus.SENDING
+        },
+        orderBy: { createdAt: "desc" },
+        select: { id: true }
       });
+      await this.prisma.$transaction([
+        this.prisma.hostexBookingAutomation.update({
+          where: { id },
+          data: { status: HostexDeliveryStatus.UNKNOWN, lastError }
+        }),
+        ...(latestAttempt
+          ? [
+              this.prisma.hostexMessageDelivery.update({
+                where: { id: latestAttempt.id },
+                data: { status: HostexDeliveryStatus.UNKNOWN, lastError }
+              })
+            ]
+          : [])
+      ]);
     }
     return found;
   }
 
   private async recoverStaleSending() {
     const staleBefore = new Date(Date.now() - 10 * 60_000);
-    const stale = await this.prisma.hostexInviteDelivery.findMany({
+    const stale = await this.prisma.hostexBookingAutomation.findMany({
       where: { status: HostexDeliveryStatus.SENDING, lastAttemptAt: { lt: staleBefore } },
       take: 10,
       select: { id: true }
@@ -514,18 +662,27 @@ export class HostexService {
   }
 
   private async cancelDelivery(stayCode: string, reason: string) {
-    const delivery = await this.prisma.hostexInviteDelivery.findUnique({
-      where: { stayCode },
+    const booking = await this.prisma.booking.findUnique({ where: { stayCode } });
+    if (!booking) return;
+    const delivery = await this.prisma.hostexBookingAutomation.findUnique({
+      where: { bookingId: booking.id },
       include: { invite: true }
     });
-    if (!delivery) return;
     await this.prisma.$transaction([
-      this.prisma.hostexInviteDelivery.update({
-        where: { id: delivery.id },
-        data: { status: HostexDeliveryStatus.CANCELLED, nextAttemptAt: null, lastError: reason }
+      this.prisma.booking.update({
+        where: { id: booking.id },
+        data: { status: "cancelled", cancelledAt: new Date(), lastSyncedAt: new Date() }
       }),
+      ...(delivery
+        ? [
+            this.prisma.hostexBookingAutomation.update({
+              where: { id: delivery.id },
+              data: { status: HostexDeliveryStatus.CANCELLED, nextAttemptAt: null, lastError: reason }
+            })
+          ]
+        : []),
       this.prisma.invite.updateMany({
-        where: { id: delivery.inviteId, status: InviteStatus.OPEN },
+        where: { bookingId: booking.id, status: InviteStatus.OPEN },
         data: { expiresAt: new Date() }
       })
     ]);
@@ -585,6 +742,41 @@ function isDeliveryDue(checkIn: Date, dueAt: Date, timeZone: string) {
 
 function dateOnlyValue(value: string) {
   return new Date(`${value}T00:00:00.000Z`);
+}
+
+function bookingValues(reservation: HostexReservation, checkIn: Date, checkOut: Date) {
+  return {
+    reservationCode: reservation.reservation_code,
+    propertyId: reservation.property_id,
+    channelType: reservation.channel_type,
+    channelId: reservation.channel_id ?? null,
+    listingId: reservation.listing_id ?? null,
+    status: reservation.status,
+    stayStatus: reservation.stay_status ?? null,
+    guestName: reservation.guest_name ?? null,
+    guestEmail: reservation.guest_email ?? null,
+    guestPhone: reservation.guest_phone ?? null,
+    numberOfGuests: reservation.number_of_guests ?? null,
+    numberOfAdults: reservation.number_of_adults ?? null,
+    numberOfChildren: reservation.number_of_children ?? null,
+    conversationId: reservation.conversation_id ?? null,
+    checkIn,
+    checkOut,
+    bookedAt: optionalDate(reservation.booked_at),
+    cancelledAt: optionalDate(reservation.cancelled_at),
+    lastSyncedAt: new Date(),
+    stayCode: reservation.stay_code
+  };
+}
+
+function optionalDate(value: string | null | undefined) {
+  if (!value) return null;
+  const parsed = new Date(value);
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
+}
+
+function minDate(first: string, second: string) {
+  return first < second ? first : second;
 }
 
 function dateOnly(value: Date) {

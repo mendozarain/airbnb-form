@@ -6,6 +6,6 @@ import { HostexService } from "./hostex.service.js";
 @Module({
   controllers: [HostexWebhookController, HostexAdminController],
   providers: [HostexClient, HostexService],
-  exports: [HostexService]
+  exports: [HostexService, HostexClient]
 })
 export class HostexModule {}

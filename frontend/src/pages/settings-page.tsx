@@ -1,7 +1,14 @@
 import { CheckCircle2, Loader2, RefreshCw, Upload, XCircle } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
-import type { EmailTemplate, EmailTemplateKind, EmailTemplateSet, SettingsStatus } from "@cozy-d-714/shared";
+import type {
+  EmailTemplate,
+  EmailTemplateKind,
+  EmailTemplateSet,
+  HostexAutomationStatus,
+  PricingSettings,
+  SettingsStatus
+} from "@cozy-d-714/shared";
 import { PageHeader } from "@/components/page-header";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -19,6 +26,8 @@ const EMPTY_TEMPLATES: EmailTemplateSet = {
 
 export function SettingsPage() {
   const [status, setStatus] = useState<SettingsStatus | null>(null);
+  const [hostex, setHostex] = useState<HostexAutomationStatus | null>(null);
+  const [pricing, setPricing] = useState<PricingSettings | null>(null);
   const [templates, setTemplates] = useState<EmailTemplateSet>(EMPTY_TEMPLATES);
   const [savedTemplates, setSavedTemplates] = useState<EmailTemplateSet>(EMPTY_TEMPLATES);
   const [activeTemplate, setActiveTemplate] = useState<EmailTemplateKind>("tenant");
@@ -28,8 +37,15 @@ export function SettingsPage() {
   const refresh = useCallback(async () => {
     setLoading(true);
     try {
-      const [nextStatus, email] = await Promise.all([api.getSettings(), api.getEmailTemplates()]);
+      const [nextStatus, email, nextHostex, nextPricing] = await Promise.all([
+        api.getSettings(),
+        api.getEmailTemplates(),
+        api.getHostexStatus(),
+        api.getPricingSettings()
+      ]);
       setStatus(nextStatus);
+      setHostex(nextHostex);
+      setPricing(nextPricing);
       setTemplates(email.templates);
       setSavedTemplates(email.templates);
     } catch (error) {
@@ -95,7 +111,7 @@ export function SettingsPage() {
     <div className="space-y-8">
       <PageHeader
         title="Settings"
-        description="Manage the Google browser session and the email sent after PMO submission."
+        description="Connections, safety switches, and the email sent after PMO submission."
         actions={
           <Button variant="secondary" onClick={() => void refresh()}>
             <RefreshCw className="size-4" />
@@ -107,11 +123,9 @@ export function SettingsPage() {
       <section className="space-y-4">
         <div>
           <h2 className="text-lg font-semibold">Connections</h2>
-          <p className="text-sm text-slate-500">
-            These services are used only after you confirm a registration.
-          </p>
+          <p className="text-sm text-slate-500">Live connection health without exposing credentials.</p>
         </div>
-        <div className="grid gap-4 sm:grid-cols-2">
+        <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
           <Connection
             title="Google session"
             connected={Boolean(status?.connected)}
@@ -126,6 +140,34 @@ export function SettingsPage() {
                 : "AgentMail API configuration is missing."
             }
           />
+          <Connection
+            title="Hostex webhook"
+            connected={Boolean(hostex?.webhookVerified)}
+            detail={
+              hostex?.webhookVerified
+                ? `Verified${hostex.webhookVerifiedAt ? ` ${new Date(hostex.webhookVerifiedAt).toLocaleString()}` : ""}.`
+                : "Waiting for the first verified Hostex event."
+            }
+          />
+          <Connection
+            title="Pricing scheduler"
+            connected={Boolean(pricing?.automationAvailable && pricing.automationOn)}
+            detail={
+              !pricing?.automationAvailable
+                ? "Railway master switch is off."
+                : pricing.automationOn
+                  ? "Daily 8:00 AM Manila run is enabled."
+                  : "Available but paused in the database."
+            }
+          />
+        </div>
+        <div className="flex flex-wrap gap-2 text-xs text-slate-500">
+          <Badge className="border border-slate-200 bg-white text-slate-600">
+            Guest messages: {hostex?.automationEnabled ? "enabled" : "off"}
+          </Badge>
+          <Badge className="border border-slate-200 bg-white text-slate-600">
+            Pricing rules: v{pricing?.version ?? "—"}
+          </Badge>
         </div>
         <div className="flex flex-wrap gap-2">
           <label className="inline-flex">
