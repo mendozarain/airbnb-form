@@ -39,6 +39,7 @@ export class InvitesService {
   async list() {
     const invites = await this.prisma.invite.findMany({
       where: { status: InviteStatus.OPEN },
+      include: { hostexDelivery: true },
       orderBy: { createdAt: "desc" },
       take: 50
     });
@@ -53,14 +54,31 @@ export class InvitesService {
         purpose: invite.purpose,
         status: invite.expiresAt < new Date() ? "expired" : "open",
         expiresAt: invite.expiresAt.toISOString(),
-        createdAt: invite.createdAt.toISOString()
+        createdAt: invite.createdAt.toISOString(),
+        hostex: invite.hostexDelivery
+          ? {
+              channelType: invite.hostexDelivery.channelType,
+              status: invite.hostexDelivery.status.toLowerCase(),
+              dueAt: invite.hostexDelivery.dueAt.toISOString(),
+              attempts: invite.hostexDelivery.attempts,
+              sentAt: invite.hostexDelivery.sentAt?.toISOString() ?? null,
+              confirmedAt: invite.hostexDelivery.confirmedAt?.toISOString() ?? null,
+              lastError: invite.hostexDelivery.lastError
+            }
+          : undefined
       }))
     };
   }
 
   async remove(id: string) {
-    const result = await this.prisma.invite.deleteMany({ where: { id, status: InviteStatus.OPEN } });
-    if (!result.count) throw new ConflictException("Only open invites can be deleted");
+    const invite = await this.prisma.invite.findUnique({
+      where: { id },
+      select: { status: true, hostexDelivery: { select: { id: true } } }
+    });
+    if (!invite) throw new NotFoundException("Invite not found");
+    if (invite.hostexDelivery) throw new ConflictException("Hostex-managed invites cannot be deleted");
+    if (invite.status !== InviteStatus.OPEN) throw new ConflictException("Only open invites can be deleted");
+    await this.prisma.invite.delete({ where: { id } });
     return { ok: true };
   }
 

@@ -5,6 +5,7 @@ import { AuthModule } from "@thallesp/nestjs-better-auth";
 import { auth } from "./auth/auth.js";
 import { AutomationModule } from "./automation/automation.module.js";
 import { HealthModule } from "./health/health.module.js";
+import { HostexModule } from "./hostex/hostex.module.js";
 import { InvitesModule } from "./invites/invites.module.js";
 import { PrismaModule } from "./prisma/prisma.module.js";
 import { StorageModule } from "./storage/storage.module.js";
@@ -25,6 +26,7 @@ import { SettingsModule } from "./settings/settings.module.js";
       }
     }),
     HealthModule,
+    HostexModule,
     InvitesModule,
     SubmissionsModule,
     SettingsModule,

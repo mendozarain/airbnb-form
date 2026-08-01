@@ -95,6 +95,21 @@ Railway injects the frontend `PORT`; Caddy listens on it automatically.
 
 API variables are listed in `backend/.env.example`. In production, set `BETTER_AUTH_URL`, `PUBLIC_APP_URL`, and `TRUSTED_ORIGINS` to the public frontend URL. The API listens on port 3000 and does not need a public domain.
 
+### Hostex tenant invite automation
+
+The API can create `Tenant` registration links for accepted Hostex reservations and send them through the reservation conversation at 2 PM on the day before check-in. Configure:
+
+```text
+HOSTEX_ACCESS_TOKEN=${{hostex-pricing.HOSTEX_ACCESS_TOKEN}}
+HOSTEX_PROPERTY_ID=12684960
+HOSTEX_TIMEZONE=Asia/Manila
+HOSTEX_WEBHOOK_SECRET=<optional explicit secret override>
+HOSTEX_WEBHOOK_BOOTSTRAP_TOKEN=<one-time high-entropy setup token>
+ENABLE_HOSTEX_INVITE_AUTOMATION=false
+```
+
+Register `https://cozy-d714.up.railway.app/api/webhooks/hostex?setup=<bootstrap-token>` for `reservation_created`, `reservation_updated`, and `message_created`. The first authenticated callback stores only a SHA-256 digest of Hostex's assigned secret; later callbacks ignore the setup token and validate the pinned digest. Remove `HOSTEX_WEBHOOK_BOOTSTRAP_TOKEN` after the dashboard reports that the webhook is verified. Keep the automation flag disabled until an admin has synced a user-approved test reservation, used **Send now**, and confirmed the message in both Hostex and the booking platform. Network-timeout deliveries remain `unknown` until an admin reconciles or explicitly accepts the duplicate-message risk.
+
 ## Legacy Migration
 
 Authenticate and link the Railway CLI first:
