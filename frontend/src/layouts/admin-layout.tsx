@@ -24,101 +24,85 @@ export function AdminLayout() {
     );
   if (!session.data) return <Navigate to="/sign-in" replace state={{ from: location.pathname }} />;
 
-  return (
-    <div className="min-h-screen bg-slate-50 lg:grid lg:grid-cols-[240px_1fr]">
-      <aside className="hidden border-r border-slate-200 bg-slate-950 text-white lg:sticky lg:top-0 lg:flex lg:h-screen lg:flex-col">
-        <Link to="/admin" className="border-b border-white/10 px-6 py-6">
-          <p className="text-lg font-semibold tracking-tight">Cozy Davao</p>
-          <p className="mt-1 text-xs text-slate-400">D-714 Operations</p>
-        </Link>
-        <nav className="flex-1 space-y-1 p-3">
-          {navigation.map((item) => {
-            const active = isActive(item, location.pathname);
-            const Icon = item.icon;
-            return (
-              <Link
-                key={item.to}
-                to={item.to}
-                className={cn(
-                  "flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium text-slate-300 transition hover:bg-white/10 hover:text-white",
-                  active && "bg-emerald-500/15 text-emerald-300"
-                )}
-              >
-                <Icon className="size-4" />
-                {item.label}
-              </Link>
-            );
-          })}
-        </nav>
-        <div className="border-t border-white/10 p-3">
-          <button
-            className="flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-sm text-slate-400 transition hover:bg-white/10 hover:text-white"
-            onClick={() =>
-              authClient.signOut({
-                fetchOptions: {
-                  onSuccess: () => {
-                    window.location.href = "/sign-in";
-                  }
-                }
-              })
-            }
-          >
-            <LogOut className="size-4" />
-            Sign out
-          </button>
-        </div>
-      </aside>
+  const signOut = () =>
+    authClient.signOut({
+      fetchOptions: {
+        onSuccess: () => {
+          window.location.href = "/sign-in";
+        }
+      }
+    });
 
-      <div className="min-w-0">
-        <header className="sticky top-0 z-20 border-b border-slate-200 bg-white/95 backdrop-blur lg:hidden">
-          <div className="flex h-16 items-center gap-3 px-4">
-            <Link to="/admin" className="min-w-0 flex-1">
-              <p className="truncate text-sm font-semibold text-slate-950">Cozy Davao D-714</p>
-              <p className="truncate text-xs text-slate-500">Operations</p>
-            </Link>
+  return (
+    <div className="min-h-screen bg-slate-50">
+      <header className="sticky top-0 z-30 border-b border-slate-200 bg-white/90 backdrop-blur-xl">
+        <div className="mx-auto flex h-16 max-w-7xl items-center gap-4 px-4 sm:px-6 lg:h-20 lg:px-8">
+          <Link to="/admin" className="min-w-0 shrink-0 lg:mr-4">
+            <p className="truncate text-sm font-semibold tracking-tight text-slate-950 lg:text-base">
+              Cozy Davao D-714
+            </p>
+            <p className="truncate text-xs text-slate-500">Operations</p>
+          </Link>
+
+          <nav className="hidden flex-1 items-center justify-center lg:flex">
+            <div className="flex items-center gap-1 rounded-xl bg-slate-100 p-1">
+              {navigation.map((item) => {
+                const active = isActive(item, location.pathname);
+                const Icon = item.icon;
+                return (
+                  <Link
+                    key={item.to}
+                    to={item.to}
+                    className={cn(
+                      "flex items-center gap-2 rounded-lg px-3.5 py-2 text-sm font-medium text-slate-600 transition hover:bg-white/70 hover:text-slate-950",
+                      active && "bg-white text-emerald-700 shadow-sm ring-1 ring-slate-200"
+                    )}
+                  >
+                    <Icon className="size-4" />
+                    {item.label}
+                  </Link>
+                );
+              })}
+            </div>
+          </nav>
+
+          <div className="ml-auto lg:ml-4">
             <Button
               variant="ghost"
-              size="icon"
+              size="sm"
               aria-label="Sign out"
-              onClick={() =>
-                authClient.signOut({
-                  fetchOptions: {
-                    onSuccess: () => {
-                      window.location.href = "/sign-in";
-                    }
-                  }
-                })
-              }
+              onClick={signOut}
             >
               <LogOut className="size-4" />
+              <span className="hidden lg:inline">Sign out</span>
             </Button>
           </div>
-        </header>
+        </div>
+      </header>
 
-        <main className="mx-auto max-w-7xl px-4 py-6 pb-24 sm:px-6 lg:px-8 lg:py-8 lg:pb-8">
-          <Outlet />
-        </main>
+      <main className="mx-auto max-w-7xl px-4 py-6 pb-24 sm:px-6 lg:px-8 lg:py-8 lg:pb-8">
+        <Outlet />
+      </main>
 
-        <nav className="fixed inset-x-0 bottom-0 z-30 grid grid-cols-5 border-t border-slate-200 bg-white px-1 pb-[max(.35rem,env(safe-area-inset-bottom))] pt-1 lg:hidden">
-          {navigation.map((item) => {
-            const active = isActive(item, location.pathname);
-            const Icon = item.icon;
-            return (
-              <Link
-                key={item.to}
-                to={item.to}
-                className={cn(
-                  "flex min-w-0 flex-col items-center gap-1 rounded-md px-1 py-2 text-[10px] font-medium text-slate-500",
-                  active && "bg-emerald-50 text-emerald-700"
-                )}
-              >
-                <Icon className="size-4" />
-                <span className="truncate">{item.label}</span>
-              </Link>
-            );
-          })}
-        </nav>
-      </div>
+      <nav className="fixed inset-x-0 bottom-0 z-30 grid grid-cols-5 border-t border-slate-200 bg-white px-1 pb-[max(.35rem,env(safe-area-inset-bottom))] pt-1 lg:hidden">
+        {navigation.map((item) => {
+          const active = isActive(item, location.pathname);
+          const Icon = item.icon;
+          return (
+            <Link
+              key={item.to}
+              to={item.to}
+              className={cn(
+                "flex min-w-0 flex-col items-center gap-1 rounded-md px-1 py-2 text-[10px] font-medium text-slate-500",
+                active && "bg-emerald-50 text-emerald-700"
+              )}
+            >
+              <Icon className="size-4" />
+              <span className="truncate">{item.label}</span>
+            </Link>
+          );
+        })}
+      </nav>
     </div>
   );
 }
