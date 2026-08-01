@@ -1,5 +1,5 @@
 import { zodResolver } from "@hookform/resolvers/zod";
-import { CalendarDays, Copy, Loader2, Plus, RefreshCw, Trash2 } from "lucide-react";
+import { CalendarDays, Copy, Loader2, MessageCircle, Plus, RefreshCw, Send, Trash2 } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import { useForm } from "react-hook-form";
 import { Link } from "react-router-dom";
@@ -8,6 +8,7 @@ import {
   PURPOSES,
   createInviteSchema,
   type CreateInviteInput,
+  type HostexAutomationStatus,
   type InviteSummary,
   type SubmissionSummary
 } from "@cozy-d-714/shared";
@@ -38,6 +39,8 @@ export function DashboardPage() {
   const [submissions, setSubmissions] = useState<SubmissionSummary[]>([]);
   const [loading, setLoading] = useState(true);
   const [guestUrl, setGuestUrl] = useState("");
+  const [syncingHostex, setSyncingHostex] = useState(false);
+  const [hostexStatus, setHostexStatus] = useState<HostexAutomationStatus | null>(null);
   const form = useForm<CreateInviteInput>({
     resolver: zodResolver(createInviteSchema),
     defaultValues: { checkIn: "", checkOut: "", purpose: undefined }
@@ -47,7 +50,9 @@ export function DashboardPage() {
     setLoading(true);
     try {
       if (tab === "pending") {
-        setInvites((await api.listInvites()).invites);
+        const [inviteResult, status] = await Promise.all([api.listInvites(), api.getHostexStatus()]);
+        setInvites(inviteResult.invites);
+        setHostexStatus(status);
         setSubmissions([]);
       } else {
         setSubmissions((await api.listSubmissions(tab)).submissions);
@@ -161,9 +166,53 @@ export function DashboardPage() {
               <TabsTrigger value="rejected">Rejected</TabsTrigger>
             </TabsList>
           </Tabs>
-          <Button size="icon" variant="ghost" aria-label="Refresh" onClick={() => void refresh()}>
-            <RefreshCw className="size-4" />
-          </Button>
+          <div className="flex items-center gap-1">
+            {tab === "pending" && (
+              <>
+                {hostexStatus && (
+                  <div className="hidden items-center gap-1 lg:flex">
+                    <Badge
+                      className={
+                        hostexStatus.webhookVerified
+                          ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+                          : "border-amber-200 bg-amber-50 text-amber-700"
+                      }
+                    >
+                      Webhook {hostexStatus.webhookVerified ? "verified" : "pending"}
+                    </Badge>
+                    <Badge>{hostexStatus.automationEnabled ? "Automation on" : "Automation off"}</Badge>
+                  </div>
+                )}
+                <Button
+                  size="sm"
+                  variant="secondary"
+                  disabled={syncingHostex}
+                  onClick={async () => {
+                    setSyncingHostex(true);
+                    try {
+                      const result = await api.syncHostex();
+                      toast.success(
+                        result.alreadyRunning
+                          ? "Hostex sync is already running"
+                          : `Hostex sync found ${result.found ?? 0} upcoming reservation(s)`
+                      );
+                      await refresh();
+                    } catch (error) {
+                      toast.error(error instanceof Error ? error.message : "Could not sync Hostex");
+                    } finally {
+                      setSyncingHostex(false);
+                    }
+                  }}
+                >
+                  <MessageCircle className="size-4" />
+                  <span className="hidden sm:inline">Sync Hostex</span>
+                </Button>
+              </>
+            )}
+            <Button size="icon" variant="ghost" aria-label="Refresh" onClick={() => void refresh()}>
+              <RefreshCw className="size-4" />
+            </Button>
+          </div>
         </div>
 
         <div className="mt-4 overflow-hidden rounded-lg border border-slate-200 bg-white">
@@ -190,6 +239,21 @@ export function DashboardPage() {
 }
 
 function InviteRow({ invite, onDelete }: { invite: InviteSummary; onDelete: () => Promise<void> }) {
+  const [acting, setActing] = useState(false);
+
+  async function hostexAction(action: () => Promise<unknown>, success: string) {
+    setActing(true);
+    try {
+      await action();
+      toast.success(success);
+      await onDelete();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Hostex action failed");
+    } finally {
+      setActing(false);
+    }
+  }
+
   return (
     <div className="flex flex-col gap-3 border-b border-slate-100 p-4 last:border-0 sm:flex-row sm:items-center">
       <div className="min-w-0 flex-1">
@@ -201,9 +265,16 @@ function InviteRow({ invite, onDelete }: { invite: InviteSummary; onDelete: () =
         </div>
         <p className="mt-1 text-sm font-medium text-slate-700">{invite.purpose}</p>
         <p className="mt-1 truncate text-sm text-slate-500">{invite.guestUrl}</p>
+        {invite.hostex && (
+          <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-slate-500">
+            <span>{channelLabel(invite.hostex.channelType)}</span>
+            <span>Scheduled {formatDateTime(invite.hostex.dueAt)}</span>
+            {invite.hostex.lastError && <span className="text-red-600">{invite.hostex.lastError}</span>}
+          </div>
+        )}
       </div>
       <div className="flex items-center gap-1 self-end sm:self-auto">
-        <Badge>{invite.status}</Badge>
+        <Badge>{invite.hostex ? labelStatus(invite.hostex.status) : invite.status}</Badge>
         {invite.guestUrl && (
           <Button
             size="icon"
@@ -214,31 +285,103 @@ function InviteRow({ invite, onDelete }: { invite: InviteSummary; onDelete: () =
             <Copy className="size-4" />
           </Button>
         )}
-        <AlertDialog>
-          <AlertDialogTrigger asChild>
-            <Button size="icon" variant="ghost" aria-label="Delete link">
-              <Trash2 className="size-4 text-red-600" />
-            </Button>
-          </AlertDialogTrigger>
-          <AlertDialogContent>
-            <AlertDialogTitle>Delete this guest link?</AlertDialogTitle>
-            <AlertDialogDescription>
-              This link will stop working immediately. This cannot be undone.
-            </AlertDialogDescription>
-            <AlertDialogFooter>
-              <AlertDialogCancel>Cancel</AlertDialogCancel>
-              <AlertDialogAction
-                onClick={async () => {
-                  await api.deleteInvite(invite.id);
-                  toast.success("Invite deleted");
-                  await onDelete();
-                }}
+        {invite.hostex && ["sent", "sending", "unknown"].includes(invite.hostex.status) && (
+          <Button
+            size="icon"
+            variant="ghost"
+            aria-label="Reconcile Hostex message"
+            disabled={acting}
+            onClick={() =>
+              void hostexAction(() => api.reconcileHostexInvite(invite.id), "Hostex conversation checked")
+            }
+          >
+            <RefreshCw className="size-4" />
+          </Button>
+        )}
+        {invite.hostex &&
+          invite.hostex.status !== "unknown" &&
+          !["sent", "confirmed", "cancelled", "skipped_submitted"].includes(invite.hostex.status) && (
+            <AlertDialog>
+              <AlertDialogTrigger asChild>
+                <Button size="icon" variant="ghost" aria-label="Send Hostex message now" disabled={acting}>
+                  <Send className="size-4 text-brand-700" />
+                </Button>
+              </AlertDialogTrigger>
+              <AlertDialogContent>
+                <AlertDialogTitle>Send this link through Hostex now?</AlertDialogTitle>
+                <AlertDialogDescription>
+                  This sends a real message to the guest on {channelLabel(invite.hostex.channelType)}.
+                </AlertDialogDescription>
+                <AlertDialogFooter>
+                  <AlertDialogCancel>Cancel</AlertDialogCancel>
+                  <AlertDialogAction
+                    onClick={() =>
+                      void hostexAction(() => api.sendHostexInvite(invite.id), "Hostex message submitted")
+                    }
+                  >
+                    Send now
+                  </AlertDialogAction>
+                </AlertDialogFooter>
+              </AlertDialogContent>
+            </AlertDialog>
+          )}
+        {invite.hostex?.status === "unknown" && (
+          <AlertDialog>
+            <AlertDialogTrigger asChild>
+              <Button
+                size="icon"
+                variant="ghost"
+                aria-label="Retry uncertain Hostex message"
+                disabled={acting}
               >
-                Delete
-              </AlertDialogAction>
-            </AlertDialogFooter>
-          </AlertDialogContent>
-        </AlertDialog>
+                <Send className="size-4 text-amber-600" />
+              </Button>
+            </AlertDialogTrigger>
+            <AlertDialogContent>
+              <AlertDialogTitle>Retry an uncertain delivery?</AlertDialogTitle>
+              <AlertDialogDescription>
+                Hostex did not confirm the previous request. Retrying may send the guest a duplicate message.
+              </AlertDialogDescription>
+              <AlertDialogFooter>
+                <AlertDialogCancel>Cancel</AlertDialogCancel>
+                <AlertDialogAction
+                  onClick={() =>
+                    void hostexAction(() => api.sendHostexInvite(invite.id, true), "Hostex retry submitted")
+                  }
+                >
+                  Accept risk and retry
+                </AlertDialogAction>
+              </AlertDialogFooter>
+            </AlertDialogContent>
+          </AlertDialog>
+        )}
+        {!invite.hostex && (
+          <AlertDialog>
+            <AlertDialogTrigger asChild>
+              <Button size="icon" variant="ghost" aria-label="Delete link">
+                <Trash2 className="size-4 text-red-600" />
+              </Button>
+            </AlertDialogTrigger>
+            <AlertDialogContent>
+              <AlertDialogTitle>Delete this guest link?</AlertDialogTitle>
+              <AlertDialogDescription>
+                This link will stop working immediately. This cannot be undone.
+              </AlertDialogDescription>
+              <AlertDialogFooter>
+                <AlertDialogCancel>Cancel</AlertDialogCancel>
+                <AlertDialogAction
+                  onClick={async () => {
+                    await api.deleteInvite(invite.id);
+                    toast.success("Invite deleted");
+                    await onDelete();
+                  }}
+                >
+                  Delete
+                </AlertDialogAction>
+              </AlertDialogFooter>
+            </AlertDialogContent>
+          </AlertDialog>
+        )}
       </div>
     </div>
   );
@@ -272,6 +415,23 @@ function formatDate(value: string) {
     year: "numeric",
     timeZone: "UTC"
   }).format(new Date(value));
+}
+
+function formatDateTime(value: string) {
+  return new Intl.DateTimeFormat("en-AU", {
+    day: "numeric",
+    month: "short",
+    hour: "numeric",
+    minute: "2-digit",
+    timeZone: "Asia/Manila"
+  }).format(new Date(value));
+}
+
+function channelLabel(value: string) {
+  if (value === "airbnb") return "Airbnb";
+  if (value === "booking.com") return "Booking.com";
+  if (value === "agoda") return "Agoda";
+  return value.replaceAll("_", " ").replace(/^./, (letter) => letter.toUpperCase());
 }
 
 function labelStatus(value: string) {

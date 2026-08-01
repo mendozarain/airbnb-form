@@ -4,6 +4,7 @@ import type {
   EmailTemplateKind,
   EmailTemplateSet,
   GuestSubmission,
+  HostexAutomationStatus,
   InviteSummary,
   PublicInvite,
   SettingsStatus,
@@ -20,6 +21,20 @@ export const api = {
     }),
   listInvites: () => request<{ invites: InviteSummary[] }>("/api/admin/invites"),
   deleteInvite: (id: string) => request<{ ok: true }>(`/api/admin/invites/${id}`, { method: "DELETE" }),
+  syncHostex: () =>
+    request<{ ok: true; found?: number; sent?: number; alreadyRunning?: boolean }>("/api/admin/hostex/sync", {
+      method: "POST"
+    }),
+  getHostexStatus: () => request<HostexAutomationStatus>("/api/admin/hostex/status"),
+  sendHostexInvite: (id: string, allowUnknownDuplicate = false) =>
+    request<{ status?: string }>(`/api/admin/hostex/invites/${id}/send`, {
+      method: "POST",
+      body: { allowUnknownDuplicate }
+    }),
+  reconcileHostexInvite: (id: string) =>
+    request<{ ok: true; confirmed: boolean; status?: string }>(`/api/admin/hostex/invites/${id}/reconcile`, {
+      method: "POST"
+    }),
   getInvite: (token: string) => request<PublicInvite>(`/api/invites/${token}`),
   submitGuest: (token: string, body: GuestSubmission) =>
     request<{ submissionId: string; status: string }>(`/api/invites/${token}/submission`, {

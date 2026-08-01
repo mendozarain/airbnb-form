@@ -69,6 +69,30 @@ export type InviteSummary = {
   status: InviteStatus | "expired";
   expiresAt: string;
   createdAt: string;
+  hostex?: {
+    channelType: string;
+    status:
+      | "scheduled"
+      | "sending"
+      | "sent"
+      | "confirmed"
+      | "retry_wait"
+      | "blocked"
+      | "unknown"
+      | "cancelled"
+      | "skipped_submitted";
+    dueAt: string;
+    attempts: number;
+    sentAt?: string | null;
+    confirmedAt?: string | null;
+    lastError?: string | null;
+  };
+};
+
+export type HostexAutomationStatus = {
+  webhookVerified: boolean;
+  webhookVerifiedAt: string | null;
+  automationEnabled: boolean;
 };
 
 export type SubmissionSummary = {
