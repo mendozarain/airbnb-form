@@ -205,6 +205,7 @@ export type CalendarMonth = {
   start: string;
   end: string;
   syncedAt?: string | null;
+  warning?: string | null;
   bookings: CalendarBooking[];
   days: CalendarDay[];
 };
