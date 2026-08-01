@@ -4,6 +4,7 @@ import { requiredEnv } from "../config/env.js";
 import { HostexDeliveryKind, HostexDeliveryStatus, InviteStatus } from "../generated/prisma/enums.js";
 import { HostexApiError, HostexClient, HostexUncertainSendError } from "../hostex/hostex.client.js";
 import { PrismaService } from "../prisma/prisma.service.js";
+import { bookingRegistrationStatus } from "./registration-status.js";
 
 const MESSAGE = (firstName: string, guestUrl: string) =>
   `Hi ${firstName}, please complete the guest registration form for your upcoming stay at Cozy Davao D-714 before arrival: ${guestUrl}\n\n` +
@@ -287,41 +288,9 @@ function bookingSummary(booking: {
     checkIn: dateOnly(booking.checkIn),
     checkOut: dateOnly(booking.checkOut),
     lastSyncedAt: booking.lastSyncedAt.toISOString(),
-    registrationStatus: registrationStatus(booking.invites),
+    registrationStatus: bookingRegistrationStatus(booking.invites, booking.checkOut),
     registrationCount: booking.invites.length
   };
-}
-
-function registrationStatus(
-  invites: Array<{
-    status: InviteStatus;
-    expiresAt: Date;
-    revokedAt: Date | null;
-    submission: { status: string } | null;
-  }>
-) {
-  const statuses = invites.flatMap((invite) =>
-    invite.submission ? [String(invite.submission.status).toLowerCase()] : []
-  );
-  if (
-    statuses.some((status) =>
-      ["submitted", "submitted_email_failed", "submitted_email_sent"].includes(status)
-    )
-  ) {
-    return "done" as const;
-  }
-  if (statuses.some((status) => ["ready_for_review", "queued", "submitting", "failed"].includes(status))) {
-    return "review" as const;
-  }
-  if (statuses.includes("rejected")) return "rejected" as const;
-  if (
-    invites.some(
-      (invite) => invite.status === InviteStatus.OPEN && !invite.revokedAt && invite.expiresAt > new Date()
-    )
-  ) {
-    return "pending" as const;
-  }
-  return "needs_registration" as const;
 }
 
 function inviteSummary(

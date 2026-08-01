@@ -1,6 +1,7 @@
-import { Injectable } from "@nestjs/common";
+import { Injectable, Logger } from "@nestjs/common";
 import { Cron } from "@nestjs/schedule";
 import { pricingConfigSchema } from "@cozy-d-714/shared";
+import { bookingRegistrationStatus } from "../bookings/registration-status.js";
 import { HostexClient } from "../hostex/hostex.client.js";
 import { localDate } from "../hostex/hostex.time.js";
 import { PrismaService } from "../prisma/prisma.service.js";
@@ -8,6 +9,8 @@ import { addDays } from "./pricing.engine.js";
 
 @Injectable()
 export class CalendarService {
+  private readonly logger = new Logger(CalendarService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly hostex: HostexClient
@@ -17,11 +20,20 @@ export class CalendarService {
     const staleBefore = new Date(Date.now() - 60 * 60_000);
     const setting = await this.prisma.pricingSetting.findUnique({ where: { id: "primary" } });
     if (!setting) throw new Error("Pricing settings are missing");
-    const expectedDays = datesInRange(start, end).length * pricingConfigSchema.parse(setting.config).listings.length;
+    const expectedDays =
+      datesInRange(start, end).length * pricingConfigSchema.parse(setting.config).listings.length;
     const cached = await this.prisma.hostexCalendarDay.count({
       where: { date: { gte: dateValue(start), lte: dateValue(end) }, syncedAt: { gte: staleBefore } }
     });
-    if (cached < expectedDays) await this.sync(start, end);
+    let warning: string | null = null;
+    if (cached < expectedDays) {
+      try {
+        await this.sync(start, end);
+      } catch {
+        this.logger.warn("Hostex calendar refresh failed; returning saved booking data");
+        warning = "Live Hostex calendar data could not be refreshed. Showing saved booking data.";
+      }
+    }
 
     const [bookings, calendarDays, latestRun] = await Promise.all([
       this.prisma.booking.findMany({
@@ -49,6 +61,7 @@ export class CalendarService {
     return {
       start,
       end,
+      warning,
       syncedAt:
         calendarDays
           .reduce<Date | null>(
@@ -63,7 +76,7 @@ export class CalendarService {
         status: booking.status,
         checkIn: dateOnly(booking.checkIn),
         checkOut: dateOnly(booking.checkOut),
-        registrationStatus: registrationStatus(booking.invites)
+        registrationStatus: bookingRegistrationStatus(booking.invites, booking.checkOut)
       })),
       days: dates.map((date) => {
         const channels = byDate.get(date) ?? [];
@@ -135,33 +148,6 @@ export class CalendarService {
     const today = localDate(new Date(), "Asia/Manila");
     await this.sync(today, addDays(today, 90));
   }
-}
-
-function registrationStatus(
-  invites: Array<{
-    status: string;
-    expiresAt: Date;
-    revokedAt: Date | null;
-    submission: { status: string } | null;
-  }>
-) {
-  const statuses = invites.flatMap((invite) =>
-    invite.submission ? [String(invite.submission.status).toLowerCase()] : []
-  );
-  if (
-    statuses.some((status) =>
-      ["submitted", "submitted_email_failed", "submitted_email_sent"].includes(status)
-    )
-  )
-    return "done";
-  if (statuses.some((status) => ["ready_for_review", "queued", "submitting", "failed"].includes(status)))
-    return "review";
-  if (statuses.includes("rejected")) return "rejected";
-  if (
-    invites.some((invite) => invite.status === "OPEN" && !invite.revokedAt && invite.expiresAt > new Date())
-  )
-    return "pending";
-  return "needs_registration";
 }
 
 function dateOnly(value: Date) {

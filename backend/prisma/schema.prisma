@@ -461,7 +461,7 @@ model HostexCalendarDay {
   channelType  String   @map("channel_type")
   listingId    String   @map("listing_id")
   date         DateTime @db.Date
-  price        Int?
+  price        Float?
   inventory    Int?
   restrictions Json?
   syncedAt     DateTime @default(now()) @map("synced_at") @db.Timestamptz(3)

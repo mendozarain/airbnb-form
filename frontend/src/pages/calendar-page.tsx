@@ -1,4 +1,4 @@
-import { ChevronLeft, ChevronRight, RefreshCw } from "lucide-react";
+import { AlertTriangle, ChevronLeft, ChevronRight, RefreshCw } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import type { CalendarDay, CalendarMonth } from "@cozy-d-714/shared";
@@ -13,16 +13,20 @@ export function CalendarPage() {
   const [data, setData] = useState<CalendarMonth | null>(null);
   const [selected, setSelected] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const range = useMemo(() => calendarRange(month), [month]);
 
   const load = useCallback(
     async (force = false) => {
       setLoading(true);
+      setError(null);
       try {
         if (force) await api.syncCalendar(range.start, range.end);
         const result = await api.getCalendar(range.start, range.end);
         setData(result);
         setSelected((current) => current ?? result.days.find((day) => day.date >= month)?.date ?? null);
+      } catch (loadError) {
+        setError(loadError instanceof Error ? loadError.message : "Calendar could not be loaded");
       } finally {
         setLoading(false);
       }
@@ -87,6 +91,20 @@ export function CalendarPage() {
             </div>
           ))}
         </div>
+        {(error || data?.warning) && (
+          <div className="flex items-center justify-between gap-4 border-b border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+            <div className="flex items-center gap-2">
+              <AlertTriangle className="size-4 shrink-0" />
+              <span>{error ?? data?.warning}</span>
+            </div>
+            <Button size="sm" variant="secondary" disabled={loading} onClick={() => void load()}>
+              Retry
+            </Button>
+          </div>
+        )}
+        {loading && !data && !error && (
+          <div className="p-10 text-center text-sm text-slate-500">Loading calendar…</div>
+        )}
         <div className="hidden grid-cols-7 sm:grid">
           {data?.days.map((day) => {
             const bookings = data.bookings.filter(

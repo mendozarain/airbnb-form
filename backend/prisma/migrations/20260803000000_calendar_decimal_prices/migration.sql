@@ -1,0 +1,3 @@
+ALTER TABLE "hostex_calendar_days"
+ALTER COLUMN "price" TYPE DOUBLE PRECISION
+USING "price"::DOUBLE PRECISION;
