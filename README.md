@@ -59,10 +59,10 @@ npm run build
 Capture a fresh Google browser session:
 
 ```bash
-npm run capture:google --workspace backend
+GOOGLE_FORM_URL='https://docs.google.com/forms/d/e/your-form-id/viewform' GOOGLE_CHROME_PROFILE='Default' npm run capture:google --workspace backend
 ```
 
-Upload the resulting `backend/google-storage-state.json` from Admin Settings.
+Open the PMO form in that everyday Chrome profile first, fully quit Chrome with `Cmd+Q`, then run the command. Upload the resulting `backend/google-storage-state.json` from Admin Settings.
 
 ## Authentication
 

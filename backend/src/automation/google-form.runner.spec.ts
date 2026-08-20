@@ -8,6 +8,7 @@ import {
   countVisibleGoogleFormQuestions,
   ENTRANCE_PASS_CAPTURE_PROFILE,
   ENTRANCE_PASS_SCREENSHOT_OPTIONS,
+  selectBuildingCode,
   setGoogleEmailIdentityVisible,
   shouldHideUnusedGuestRow,
   validateEntrancePassScreenshot,
@@ -15,6 +16,44 @@ import {
 } from "./google-form.runner.js";
 
 describe("entrance pass screenshot capture", () => {
+  it("selects only the requested Building Code option", async () => {
+    const browser = await chromium.launch({ headless: true });
+    const page = await browser.newPage();
+    try {
+      await page.setContent(`
+        <div role="listitem">
+          <div role="heading"><span>Building Code</span></div>
+          <div role="checkbox" aria-label="A" aria-checked="true" style="width:20px;height:20px"></div>
+          <div role="checkbox" aria-label="B" aria-checked="false" style="width:20px;height:20px"></div>
+          <div role="checkbox" aria-label="C" aria-checked="false" style="width:20px;height:20px"></div>
+          <div role="checkbox" aria-label="D" aria-checked="false" style="width:20px;height:20px"></div>
+          <div role="checkbox" aria-label="E" aria-checked="false" style="width:20px;height:20px"></div>
+        </div>
+      `);
+      await page.locator('[role="checkbox"]').evaluateAll((options) => {
+        for (const option of options) {
+          option.addEventListener("click", () => {
+            option.setAttribute(
+              "aria-checked",
+              option.getAttribute("aria-checked") === "true" ? "false" : "true"
+            );
+          });
+        }
+      });
+
+      await selectBuildingCode(page, "D");
+
+      await expect(page.getByRole("checkbox", { name: "A" }).getAttribute("aria-checked")).resolves.toBe(
+        "false"
+      );
+      await expect(page.getByRole("checkbox", { name: "D" }).getAttribute("aria-checked")).resolves.toBe(
+        "true"
+      );
+    } finally {
+      await browser.close();
+    }
+  });
+
   it("uses the high-density mobile capture profile", () => {
     expect(ENTRANCE_PASS_CAPTURE_PROFILE).toEqual({
       name: "mobile-430-dpr2-account-ui-redacted-v6",

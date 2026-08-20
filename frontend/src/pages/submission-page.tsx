@@ -477,7 +477,7 @@ function Info({ label, value }: { label: string; value: string }) {
 
 function ActionBar({ children }: { children: React.ReactNode }) {
   return (
-    <div className="fixed inset-x-0 bottom-0 z-20 flex justify-end gap-2 border-t border-slate-200 bg-white p-3 sm:static sm:border-0 sm:bg-transparent sm:p-0">
+    <div className="fixed inset-x-0 bottom-[calc(3.625rem+env(safe-area-inset-bottom))] z-40 grid grid-flow-col auto-cols-fr gap-2 border-t border-slate-200 bg-white p-3 shadow-[0_-8px_24px_rgba(15,23,42,0.08)] [&_button]:min-w-0 [&_button]:gap-1 [&_button]:px-2 [&_svg]:hidden sm:static sm:flex sm:justify-end sm:border-0 sm:bg-transparent sm:p-0 sm:shadow-none sm:[&_button]:gap-2 sm:[&_button]:px-4 sm:[&_svg]:block">
       {children}
     </div>
   );

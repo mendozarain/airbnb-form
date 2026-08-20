@@ -86,6 +86,8 @@ describe("PricingService", () => {
   });
 
   it("claims the run before reading Hostex and records a durable preview", async () => {
+    jest.useFakeTimers();
+    jest.setSystemTime(new Date("2026-08-01T00:00:00.000Z"));
     const runCreate = resolved({ id: "run-1" });
     const availability = resolved([
       { date: "2026-08-01", available: true },
@@ -111,12 +113,16 @@ describe("PricingService", () => {
     const hostex = { getAvailabilities: availability };
     const service = new PricingService(prisma as never, hostex as never, { record: resolved({}) } as never);
 
-    await service.preview();
+    try {
+      await service.preview();
 
-    expect(runCreate.mock.invocationCallOrder[0]).toBeLessThan(availability.mock.invocationCallOrder[0]);
-    expect(runUpdate).toHaveBeenCalledWith(
-      expect.objectContaining({ data: expect.objectContaining({ status: PricingRunStatus.PREVIEWED }) })
-    );
+      expect(runCreate.mock.invocationCallOrder[0]).toBeLessThan(availability.mock.invocationCallOrder[0]);
+      expect(runUpdate).toHaveBeenCalledWith(
+        expect.objectContaining({ data: expect.objectContaining({ status: PricingRunStatus.PREVIEWED }) })
+      );
+    } finally {
+      jest.useRealTimers();
+    }
   });
 
   it("records partial listing failures without treating Hostex acceptance as confirmation", async () => {
