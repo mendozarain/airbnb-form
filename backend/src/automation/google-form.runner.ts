@@ -6,7 +6,7 @@ import { requiredEnv } from "../config/env.js";
 import { StorageService } from "../storage/storage.service.js";
 import { GoogleSessionService } from "../settings/google-session.service.js";
 
-const AUTOMATION_VERSION = "google-form-purpose-account-ui-redacted-v35";
+const AUTOMATION_VERSION = "google-form-purpose-account-ui-redacted-v36";
 const EMAIL_ADDRESS_PATTERN_SOURCE = String.raw`\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b`;
 const MINIMUM_VISIBLE_FORM_QUESTIONS = 5;
 
@@ -90,7 +90,7 @@ export class GoogleFormRunner {
       await fillDateByLabel(page, "Date Check out", submission.checkOut);
       await fillTextByLabel(page, "Name of Owner", submission.ownerName);
       await fillTextByLabel(page, "Contact Number of Owner/Representative", submission.ownerContact);
-      await fillTextByLabel(page, "Building Code", submission.buildingCode);
+      await selectBuildingCode(page, submission.buildingCode);
       await clickText(page, submission.purpose);
 
       const names = submission.guests.map((guest) => guest.fullName).slice(0, 10);
@@ -468,6 +468,29 @@ async function fillTextByLabel(page: any, label: string, value: string) {
     .getByRole("textbox")
     .first();
   await field.fill(value);
+}
+
+export async function selectBuildingCode(page: any, value: BuildingCode) {
+  const question = page
+    .getByText("Building Code", { exact: true })
+    .first()
+    .locator("xpath=ancestor::div[@role='listitem'][1]");
+  await question.scrollIntoViewIfNeeded({ timeout: 5_000 });
+
+  const options = question.getByRole("checkbox");
+  const optionCount = await options.count();
+  let matched = false;
+  for (let index = 0; index < optionCount; index += 1) {
+    const option = options.nth(index);
+    const optionValue = (await option.getAttribute("aria-label"))?.trim();
+    const shouldBeChecked = optionValue === value;
+    if (shouldBeChecked) matched = true;
+    if ((await isChecked(option)) !== shouldBeChecked) {
+      await option.click({ force: true, timeout: 10_000 });
+    }
+  }
+
+  if (!matched) throw new Error(`Building Code option ${value} is not available in the Google Form`);
 }
 
 async function fillNthShortAnswer(page: any, questionNumber: number, value: string) {
