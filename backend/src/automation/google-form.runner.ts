@@ -6,7 +6,7 @@ import { requiredEnv } from "../config/env.js";
 import { StorageService } from "../storage/storage.service.js";
 import { GoogleSessionService } from "../settings/google-session.service.js";
 
-const AUTOMATION_VERSION = "google-form-purpose-account-ui-redacted-v36";
+const AUTOMATION_VERSION = "google-form-purpose-account-ui-redacted-v37";
 const EMAIL_ADDRESS_PATTERN_SOURCE = String.raw`\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b`;
 const MINIMUM_VISIBLE_FORM_QUESTIONS = 5;
 
@@ -151,8 +151,7 @@ export class GoogleFormRunner {
           });
         },
         submit: async () => {
-          await page.getByRole("button", { name: /^Submit$/ }).click({ timeout: 20_000 });
-          await waitForGoogleFormSubmission(page);
+          await submitGoogleForm(page);
         }
       });
 
@@ -1034,7 +1033,15 @@ async function waitForGoogleFormSubmission(page: any) {
     await page.waitForTimeout(1_000);
   }
 
-  throw new Error("Google Form submit did not reach the receipt page within 90 seconds.");
+  throw new Error("Google Form submit did not reach the receipt page within 60 seconds.");
+}
+
+export async function submitGoogleForm(page: any) {
+  await page.getByRole("button", { name: /^Submit$/ }).click({
+    timeout: 20_000,
+    noWaitAfter: true
+  });
+  await waitForGoogleFormSubmission(page);
 }
 
 async function clickEmailReceiptCheckbox(page: any) {

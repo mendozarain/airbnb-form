@@ -11,11 +11,32 @@ import {
   selectBuildingCode,
   setGoogleEmailIdentityVisible,
   shouldHideUnusedGuestRow,
+  submitGoogleForm,
   validateEntrancePassScreenshot,
   validatePersistAndSubmitEntrancePass
 } from "./google-form.runner.js";
 
 describe("entrance pass screenshot capture", () => {
+  it("verifies Google's receipt without waiting for click navigation", async () => {
+    const click = jest.fn<() => Promise<void>>().mockResolvedValue(undefined);
+    const page = {
+      getByRole: jest.fn(() => ({ click })),
+      waitForLoadState: jest.fn<() => Promise<void>>().mockResolvedValue(undefined),
+      evaluate: jest.fn<() => Promise<{ href: string; bodyText: string; requiredErrors: string[] }>>()
+        .mockResolvedValue({
+          href: "https://docs.google.com/forms/d/e/form-id/formResponse",
+          bodyText: "Your response has been recorded",
+          requiredErrors: []
+        }),
+      url: jest.fn(() => "https://docs.google.com/forms/d/e/form-id/formResponse"),
+      waitForTimeout: jest.fn<() => Promise<void>>().mockResolvedValue(undefined)
+    };
+
+    await expect(submitGoogleForm(page)).resolves.toBeUndefined();
+    expect(page.getByRole).toHaveBeenCalledWith("button", { name: /^Submit$/ });
+    expect(click).toHaveBeenCalledWith({ timeout: 20_000, noWaitAfter: true });
+  });
+
   it("selects only the requested Building Code option", async () => {
     const browser = await chromium.launch({ headless: true });
     const page = await browser.newPage();
