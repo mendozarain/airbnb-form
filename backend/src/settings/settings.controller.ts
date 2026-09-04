@@ -28,6 +28,22 @@ export class SettingsController {
     return this.settings.status();
   }
 
+  @Post("auto-queue")
+  setAutoQueue(@Body() body: { enabled?: unknown }) {
+    if (typeof body.enabled !== "boolean") {
+      throw new BadRequestException("Auto queue setting must be true or false");
+    }
+    return this.settings.setAutoQueue(body.enabled);
+  }
+
+  @Post("ai-id-check")
+  setAiIdCheck(@Body() body: { enabled?: unknown; reviewEmail?: unknown }) {
+    if (typeof body.enabled !== "boolean" || typeof body.reviewEmail !== "string") {
+      throw new BadRequestException("AI ID check setting and review email are required");
+    }
+    return this.settings.setAiIdCheck(body.enabled, body.reviewEmail);
+  }
+
   @Get("email-template")
   async getTemplate() {
     return { template: await this.settings.getEmailTemplate() };

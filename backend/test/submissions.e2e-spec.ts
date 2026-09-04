@@ -1,6 +1,7 @@
 import { jest } from "@jest/globals";
 import { Test } from "@nestjs/testing";
 import request from "supertest";
+import { AiReviewService } from "../src/ai-review/ai-review.service.js";
 import { AutomationService } from "../src/automation/automation.service.js";
 import { StorageService } from "../src/storage/storage.service.js";
 import { SubmissionsController } from "../src/submissions/submissions.controller.js";
@@ -16,7 +17,8 @@ describe("submission email endpoint", () => {
       providers: [
         { provide: SubmissionsService, useValue: {} },
         { provide: StorageService, useValue: {} },
-        { provide: AutomationService, useValue: { retryEmail } }
+        { provide: AutomationService, useValue: { retryEmail } },
+        { provide: AiReviewService, useValue: {} }
       ]
     }).compile();
     const app = module.createNestApplication();

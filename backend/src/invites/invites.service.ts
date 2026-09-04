@@ -8,10 +8,11 @@ import type {
   RegenerateInviteInput,
   UpdateInviteInput
 } from "@cozy-d-714/shared";
-import { MINOR_ID_CUTOFF } from "@cozy-d-714/shared";
+import { MINOR_ID_CUTOFF, SENIOR_ID_CUTOFF, requiresGuestId } from "@cozy-d-714/shared";
 import { AuditService, type AuditActor } from "../audit/audit.service.js";
-import { HostexDeliveryStatus, InviteStatus } from "../generated/prisma/enums.js";
+import { HostexDeliveryStatus, InviteStatus, SubmissionStatus } from "../generated/prisma/enums.js";
 import { PrismaService } from "../prisma/prisma.service.js";
+import { SettingsService } from "../settings/settings.service.js";
 import { StorageService } from "../storage/storage.service.js";
 import { requiredEnv } from "../config/env.js";
 
@@ -20,7 +21,8 @@ export class InvitesService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly storage: StorageService,
-    private readonly audit: AuditService
+    private readonly audit: AuditService,
+    private readonly settings: SettingsService
   ) {}
 
   async create(input: CreateInviteInput) {
@@ -267,7 +269,8 @@ export class InvitesService {
       purpose: invite.purpose,
       ownerName: requiredEnv("OWNER_NAME"),
       ownerContact: requiredEnv("OWNER_CONTACT"),
-      minorIdCutoff: Number(process.env.MINOR_ID_CUTOFF ?? MINOR_ID_CUTOFF)
+      minorIdCutoff: Number(process.env.MINOR_ID_CUTOFF ?? MINOR_ID_CUTOFF),
+      seniorIdCutoff: Number(process.env.SENIOR_ID_CUTOFF ?? SENIOR_ID_CUTOFF)
     };
   }
 
@@ -287,10 +290,22 @@ export class InvitesService {
 
   async submit(token: string, input: GuestSubmission) {
     const invite = await this.findOpen(token);
-    const cutoff = Number(process.env.MINOR_ID_CUTOFF ?? MINOR_ID_CUTOFF);
+    const [autoQueue, aiIdCheck] = await Promise.all([
+      this.settings.isAutoQueueEnabled(),
+      this.settings.isAiIdCheckEnabled()
+    ]);
+    const lowerCutoff = Number(process.env.MINOR_ID_CUTOFF ?? MINOR_ID_CUTOFF);
+    const upperCutoff = Number(process.env.SENIOR_ID_CUTOFF ?? SENIOR_ID_CUTOFF);
+    const needsAiCheck =
+      aiIdCheck && input.guests.some((guest) => requiresGuestId(guest.age, lowerCutoff, upperCutoff));
+    const initialStatus = needsAiCheck
+      ? SubmissionStatus.AI_CHECK_PENDING
+      : autoQueue
+        ? SubmissionStatus.QUEUED
+        : SubmissionStatus.READY_FOR_REVIEW;
 
     for (const guest of input.guests) {
-      if (guest.age >= cutoff && !guest.idFileKey) {
+      if (requiresGuestId(guest.age, lowerCutoff, upperCutoff) && !guest.idFileKey) {
         throw new ConflictException(`Valid ID is required for ${guest.fullName}`);
       }
     }
@@ -298,7 +313,9 @@ export class InvitesService {
     const files = new Map<string, Awaited<ReturnType<StorageService["head"]>>>();
     for (const key of input.guests.flatMap((guest) => (guest.idFileKey ? [guest.idFileKey] : []))) {
       const object = await this.storage.head(key);
-      if (!object) throw new ConflictException("An uploaded ID file is missing");
+      if (!object || !key.startsWith(`ids/${invite.id}/`)) {
+        throw new ConflictException("An uploaded ID file is missing");
+      }
       files.set(key, object);
     }
 
@@ -313,9 +330,24 @@ export class InvitesService {
           checkOut: invite.checkOut,
           purpose: invite.purpose,
           ownerName: requiredEnv("OWNER_NAME"),
-          ownerContact: requiredEnv("OWNER_CONTACT")
+          ownerContact: requiredEnv("OWNER_CONTACT"),
+          status: initialStatus
         }
       });
+
+      if (needsAiCheck) {
+        await tx.submissionAiReview.create({
+          data: {
+            submissionId: created.id,
+            status: "PENDING",
+            model: "google/gemini-2.5-flash-lite"
+          }
+        });
+      } else if (autoQueue) {
+        await tx.automationRun.create({
+          data: { submissionId: created.id, status: "queued" }
+        });
+      }
 
       for (const guest of input.guests) {
         const createdGuest = await tx.guest.create({
@@ -323,7 +355,7 @@ export class InvitesService {
             submissionId: created.id,
             fullName: guest.fullName,
             age: guest.age,
-            requiresId: guest.age >= cutoff
+            requiresId: requiresGuestId(guest.age, lowerCutoff, upperCutoff)
           }
         });
 
@@ -349,7 +381,7 @@ export class InvitesService {
       return created;
     });
 
-    return { submissionId: submission.id, status: "ready_for_review" };
+    return { submissionId: submission.id, status: initialStatus.toLowerCase() };
   }
 
   private async findOpen(token: string) {

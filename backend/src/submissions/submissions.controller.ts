@@ -17,6 +17,7 @@ import { Roles, Session, type UserSession } from "@thallesp/nestjs-better-auth";
 import { updateSubmissionSchema, type UpdateSubmissionInput } from "@cozy-d-714/shared";
 import type { Response } from "express";
 import { AutomationService } from "../automation/automation.service.js";
+import { AiReviewService } from "../ai-review/ai-review.service.js";
 import { ZodValidationPipe } from "../common/zod-validation.pipe.js";
 import { StorageService } from "../storage/storage.service.js";
 import { SubmissionsService } from "./submissions.service.js";
@@ -27,7 +28,8 @@ export class SubmissionsController {
   constructor(
     private readonly submissions: SubmissionsService,
     private readonly storage: StorageService,
-    private readonly automation: AutomationService
+    private readonly automation: AutomationService,
+    private readonly aiReview: AiReviewService
   ) {}
 
   @Get("me")
@@ -48,6 +50,21 @@ export class SubmissionsController {
   @Post("submissions/:id/confirm")
   confirm(@Param("id") id: string) {
     return this.submissions.confirm(id);
+  }
+
+  @Post("submissions/:id/ai-review/approve")
+  approveAiReview(@Param("id") id: string, @Session() session: UserSession) {
+    return this.aiReview.approveAndQueue(id, session.user);
+  }
+
+  @Post("submissions/:id/ai-review/retry")
+  retryAiReview(@Param("id") id: string, @Session() session: UserSession) {
+    return this.aiReview.retry(id, session.user);
+  }
+
+  @Post("submissions/:id/ai-review/notify")
+  retryAiReviewNotification(@Param("id") id: string, @Session() session: UserSession) {
+    return this.aiReview.retryNotification(id, session.user);
   }
 
   @Post("submissions/:id/retry-email")

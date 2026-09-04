@@ -204,14 +204,23 @@ export class EmailService {
   }
 
   async sendEntrancePass(to: string, template: EmailTemplate, imageUrl: string) {
+    const html = addEntrancePassImage(template.html, imageUrl);
+    return this.sendMessage({
+      to,
+      subject: template.subject,
+      html,
+      text: `${htmlToText(html)}\n\nOpen entrance pass full size: ${imageUrl}`
+    });
+  }
+
+  async sendMessage(input: { to: string; subject: string; html: string; text?: string }) {
     const inboxId = requiredEnv("AGENTMAIL_INBOX_ID");
     const replyTo = process.env.EMAIL_REPLY_TO?.trim();
-    const html = addEntrancePassImage(template.html, imageUrl);
     const body = {
-      to: [to],
-      subject: template.subject.replace(/[\r\n]+/g, " ").trim(),
-      html,
-      text: `${htmlToText(html)}\n\nOpen entrance pass full size: ${imageUrl}`,
+      to: [input.to],
+      subject: input.subject.replace(/[\r\n]+/g, " ").trim(),
+      html: input.html,
+      text: input.text ?? htmlToText(input.html),
       ...(replyTo ? { reply_to: replyTo } : {})
     };
 

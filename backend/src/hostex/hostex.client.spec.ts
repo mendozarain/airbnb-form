@@ -86,6 +86,55 @@ describe("HostexClient", () => {
     expect(options?.method).toBe("POST");
     expect(options?.body).toBe(JSON.stringify({ message: "Guest form URL" }));
   });
+
+  it("reads Airbnb price and rules in real time for the configured listing", async () => {
+    const fetchMock = jest.fn<typeof fetch>().mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          error_code: 200,
+          data: { listing_currency: "PHP", long_term_discount: [{ days: 7, discount: 20 }] }
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } }
+      )
+    );
+    global.fetch = fetchMock;
+
+    await expect(new HostexClient().getAirbnbPriceAndRules("listing/1")).resolves.toMatchObject({
+      listing_currency: "PHP"
+    });
+
+    const [url, options] = fetchMock.mock.calls[0];
+    expect(requestUrl(url)).toBe(
+      "https://api.hostex.io/v3/listings/airbnb/price_and_rules?listing_id=listing%2F1"
+    );
+    expect(options?.method).toBe("GET");
+  });
+
+  it("patches only the supplied Airbnb price and rules fields", async () => {
+    const fetchMock = jest.fn<typeof fetch>().mockResolvedValue(
+      new Response(JSON.stringify({ error_code: 200, request_id: "request-3" }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" }
+      })
+    );
+    global.fetch = fetchMock;
+
+    await expect(
+      new HostexClient().updateAirbnbPriceAndRules("listing-1", {
+        high_rated_guest_discount: true
+      })
+    ).resolves.toEqual({ requestId: "request-3" });
+
+    const [url, options] = fetchMock.mock.calls[0];
+    expect(requestUrl(url)).toBe("https://api.hostex.io/v3/listings/airbnb/price_and_rules");
+    expect(options?.method).toBe("POST");
+    expect(options?.body).toBe(
+      JSON.stringify({
+        listing_id: "listing-1",
+        settings: { high_rated_guest_discount: true }
+      })
+    );
+  });
 });
 
 function requestUrl(value: string | URL | Request) {

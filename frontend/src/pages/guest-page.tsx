@@ -3,7 +3,7 @@ import { useEffect, useState } from "react";
 import { useFieldArray, useForm } from "react-hook-form";
 import { useParams } from "react-router-dom";
 import { toast } from "sonner";
-import { guestSubmissionSchema, type PublicInvite } from "@cozy-d-714/shared";
+import { guestSubmissionSchema, requiresGuestId, type PublicInvite } from "@cozy-d-714/shared";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
@@ -22,9 +22,9 @@ export function GuestPage() {
   const [invite, setInvite] = useState<PublicInvite | null>(null);
   const [step, setStep] = useState(0);
   const [loading, setLoading] = useState(true);
-  const [complete, setComplete] = useState(false);
+  const [completedStatus, setCompletedStatus] = useState<string | null>(null);
   const [uploading, setUploading] = useState("");
-  const [previews, setPreviews] = useState<Record<number, { url: string; name: string }>>({});
+  const [previews, setPreviews] = useState<Record<number, { url: string; name: string; image: boolean }>>({});
   const form = useForm<FormValues>({
     defaultValues: {
       guestEmail: "",
@@ -54,7 +54,9 @@ export function GuestPage() {
     if (step === 1 && invite) {
       const missing = values.guests.find(
         (guest) =>
-          !guest.fullName.trim() || guest.age < 0 || (guest.age >= invite.minorIdCutoff && !guest.idFileKey)
+          !guest.fullName.trim() ||
+          guest.age < 0 ||
+          (requiresGuestId(guest.age, invite.minorIdCutoff, invite.seniorIdCutoff) && !guest.idFileKey)
       );
       if (missing) {
         toast.error("Complete each guest and upload IDs for guests who require one");
@@ -69,7 +71,10 @@ export function GuestPage() {
     try {
       const result = await api.uploadFile(token, file);
       form.setValue(`guests.${index}.idFileKey`, result.key, { shouldDirty: true });
-      setPreviews((value) => ({ ...value, [index]: { url: URL.createObjectURL(file), name: file.name } }));
+      setPreviews((value) => ({
+        ...value,
+        [index]: { url: URL.createObjectURL(file), name: file.name, image: file.type.startsWith("image/") }
+      }));
       toast.success("ID uploaded");
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Upload failed");
@@ -85,8 +90,8 @@ export function GuestPage() {
       return;
     }
     try {
-      await api.submitGuest(token, parsed.data);
-      setComplete(true);
+      const result = await api.submitGuest(token, parsed.data);
+      setCompletedStatus(result.status);
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Could not submit registration");
     }
@@ -101,11 +106,17 @@ export function GuestPage() {
     );
   if (!invite)
     return <Centered title="Invite unavailable" body="This link may have expired or already been used." />;
-  if (complete)
+  if (completedStatus)
     return (
       <Centered
         title="Registration received"
-        body="Your host will review it before submitting it to building management."
+        body={
+          completedStatus === "queued"
+            ? "Your registration has been queued for submission to building management."
+            : completedStatus === "ai_check_pending"
+              ? "Your registration was received and the required IDs are being checked before it is queued."
+              : "Your host will review it before submitting it to building management."
+        }
         success
       />
     );
@@ -163,7 +174,8 @@ export function GuestPage() {
             <div>
               <h2 className="text-lg font-semibold">Who is staying?</h2>
               <p className="text-sm text-slate-500">
-                Guests aged {invite.minorIdCutoff} or older need a valid ID.
+                Guests aged {invite.minorIdCutoff}–{invite.seniorIdCutoff - 1} need a valid ID. Guests aged{" "}
+                {invite.seniorIdCutoff} or older do not need one.
               </p>
             </div>
             {guests.fields.map((field, index) => {
@@ -205,16 +217,22 @@ export function GuestPage() {
                       />
                     </div>
                   </div>
-                  {age >= invite.minorIdCutoff && (
+                  {requiresGuestId(age, invite.minorIdCutoff, invite.seniorIdCutoff) && (
                     <div className="mt-4">
                       <Label>Valid ID</Label>
                       {previews[index] ? (
                         <div className="mt-2 flex items-center gap-3 rounded-md border border-emerald-200 bg-emerald-50 p-3">
-                          <img
-                            src={previews[index].url}
-                            alt="ID preview"
-                            className="size-14 rounded object-cover"
-                          />
+                          {previews[index].image ? (
+                            <img
+                              src={previews[index].url}
+                              alt="ID preview"
+                              className="size-14 rounded object-cover"
+                            />
+                          ) : (
+                            <div className="flex size-14 items-center justify-center rounded bg-white text-xs font-medium text-emerald-700">
+                              PDF
+                            </div>
+                          )}
                           <span className="min-w-0 flex-1 truncate text-sm text-emerald-800">
                             {previews[index].name}
                           </span>

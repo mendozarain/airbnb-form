@@ -1,17 +1,24 @@
 import { ConflictException, Injectable, NotFoundException } from "@nestjs/common";
 import { randomUUID } from "node:crypto";
-import { MINOR_ID_CUTOFF, type UpdateSubmissionInput } from "@cozy-d-714/shared";
+import {
+  MINOR_ID_CUTOFF,
+  SENIOR_ID_CUTOFF,
+  requiresGuestId,
+  type UpdateSubmissionInput
+} from "@cozy-d-714/shared";
 import { AuditService, type AuditActor } from "../audit/audit.service.js";
 import { SubmissionStatus } from "../generated/prisma/enums.js";
 import { PrismaService } from "../prisma/prisma.service.js";
 import { StorageService } from "../storage/storage.service.js";
+import { SettingsService } from "../settings/settings.service.js";
 
 @Injectable()
 export class SubmissionsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly storage: StorageService,
-    private readonly audit: AuditService
+    private readonly audit: AuditService,
+    private readonly settings: SettingsService
   ) {}
 
   async list(filter?: string) {
@@ -42,7 +49,8 @@ export class SubmissionsService {
           orderBy: { createdAt: "asc" },
           include: { files: { orderBy: { createdAt: "asc" } } }
         },
-        runs: { orderBy: { createdAt: "desc" }, take: 1 }
+        runs: { orderBy: { createdAt: "desc" }, take: 1 },
+        aiReview: true
       }
     });
     if (!submission) throw new NotFoundException("Submission not found");
@@ -61,6 +69,17 @@ export class SubmissionsService {
         status: submission.status.toLowerCase(),
         createdAt: submission.createdAt.toISOString(),
         latestError: submission.runs[0]?.errorMessage ?? null,
+        aiReview: submission.aiReview
+          ? {
+              status: submission.aiReview.status.toLowerCase(),
+              model: submission.aiReview.model,
+              checkedAt: submission.aiReview.checkedAt?.toISOString() ?? null,
+              notificationSentAt: submission.aiReview.notificationSentAt?.toISOString() ?? null,
+              notificationError: submission.aiReview.notificationError,
+              error: submission.aiReview.error,
+              results: readAiResults(submission.aiReview.results)
+            }
+          : null,
         guests: submission.guests.map((guest) => ({
           id: guest.id,
           fullName: guest.fullName,
@@ -102,7 +121,11 @@ export class SubmissionsService {
     if (!submission) throw new NotFoundException("Submission not found");
     ensureEditable(submission.status);
 
-    const cutoff = Number(process.env.MINOR_ID_CUTOFF ?? MINOR_ID_CUTOFF);
+    const lowerCutoff = Number(process.env.MINOR_ID_CUTOFF ?? MINOR_ID_CUTOFF);
+    const upperCutoff = Number(process.env.SENIOR_ID_CUTOFF ?? SENIOR_ID_CUTOFF);
+    const aiIdCheck = await this.settings.isAiIdCheckEnabled();
+    const needsAiCheck =
+      aiIdCheck && input.guests.some((guest) => requiresGuestId(guest.age, lowerCutoff, upperCutoff));
     const existingGuests = new Map(submission.guests.map((guest) => [guest.id, guest]));
     const retainedIds = new Set(input.guests.flatMap((guest) => guest.retainFileIds));
     const existingFiles = new Map(
@@ -124,7 +147,11 @@ export class SubmissionsService {
     for (const guest of input.guests) {
       if (guest.id && !existingGuests.has(guest.id))
         throw new ConflictException("A guest does not belong to this registration");
-      if (guest.age >= cutoff && guest.retainFileIds.length === 0 && !guest.idFileKey) {
+      if (
+        requiresGuestId(guest.age, lowerCutoff, upperCutoff) &&
+        guest.retainFileIds.length === 0 &&
+        !guest.idFileKey
+      ) {
         throw new ConflictException(`Valid ID is required for ${guest.fullName}`);
       }
     }
@@ -136,7 +163,7 @@ export class SubmissionsService {
         data: {
           guestEmail: input.guestEmail,
           purpose: input.purpose,
-          status: "READY_FOR_REVIEW"
+          status: needsAiCheck ? "AI_CHECK_PENDING" : "READY_FOR_REVIEW"
         }
       });
       await tx.invite.update({ where: { id: submission.inviteId }, data: { purpose: input.purpose } });
@@ -147,7 +174,7 @@ export class SubmissionsService {
             submissionId: id,
             fullName: guest.fullName,
             age: guest.age,
-            requiresId: guest.age >= cutoff
+            requiresId: requiresGuestId(guest.age, lowerCutoff, upperCutoff)
           }
         });
         for (const fileId of guest.retainFileIds) {
@@ -177,6 +204,28 @@ export class SubmissionsService {
           });
         }
       }
+
+      if (needsAiCheck) {
+        await tx.submissionAiReview.upsert({
+          where: { submissionId: id },
+          create: {
+            submissionId: id,
+            status: "PENDING",
+            model: "google/gemini-2.5-flash-lite"
+          },
+          update: {
+            status: "PENDING",
+            model: "google/gemini-2.5-flash-lite",
+            results: [],
+            error: null,
+            checkedAt: null,
+            notificationSentAt: null,
+            notificationError: null
+          }
+        });
+      } else {
+        await tx.submissionAiReview.deleteMany({ where: { submissionId: id } });
+      }
     });
 
     const removedKeys = submission.guests
@@ -188,9 +237,9 @@ export class SubmissionsService {
       guestCount: input.guests.length,
       purpose: input.purpose,
       previousStatus: submission.status.toLowerCase(),
-      status: "ready_for_review"
+      status: needsAiCheck ? "ai_check_pending" : "ready_for_review"
     });
-    return { ok: true, status: "ready_for_review" };
+    return { ok: true, status: needsAiCheck ? "ai_check_pending" : "ready_for_review" };
   }
 
   async confirm(id: string) {
@@ -278,7 +327,9 @@ function ensureEditable(status: SubmissionStatus) {
   if (
     status !== SubmissionStatus.READY_FOR_REVIEW &&
     status !== SubmissionStatus.FAILED &&
-    status !== SubmissionStatus.REJECTED
+    status !== SubmissionStatus.REJECTED &&
+    status !== SubmissionStatus.AI_REVIEW_REQUIRED &&
+    status !== SubmissionStatus.AI_CHECK_PENDING
   ) {
     throw new ConflictException("Registration can no longer be edited after PMO processing begins");
   }
@@ -287,6 +338,9 @@ function ensureEditable(status: SubmissionStatus) {
 function statusesFor(filter?: string): SubmissionStatus[] {
   if (filter === "ready_for_review") {
     return [
+      SubmissionStatus.AI_CHECK_PENDING,
+      SubmissionStatus.AI_CHECKING,
+      SubmissionStatus.AI_REVIEW_REQUIRED,
       SubmissionStatus.READY_FOR_REVIEW,
       SubmissionStatus.QUEUED,
       SubmissionStatus.SUBMITTING,
@@ -301,4 +355,8 @@ function statusesFor(filter?: string): SubmissionStatus[] {
 
 function dateOnly(value: Date) {
   return value.toISOString().slice(0, 10);
+}
+
+function readAiResults(value: unknown) {
+  return Array.isArray(value) ? value : [];
 }

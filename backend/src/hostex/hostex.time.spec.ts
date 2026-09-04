@@ -7,8 +7,8 @@ import {
 } from "./hostex.time.js";
 
 describe("Hostex Manila scheduling", () => {
-  it("schedules 2 PM Manila on the day before check-in", () => {
-    expect(deliveryDueAt("2026-08-02", "Asia/Manila").toISOString()).toBe("2026-08-01T06:00:00.000Z");
+  it("schedules 7 AM Manila on the day before check-in", () => {
+    expect(deliveryDueAt("2026-08-02", "Asia/Manila").toISOString()).toBe("2026-07-31T23:00:00.000Z");
   });
 
   it("keeps same-day catch-up open until midnight after the check-in date", () => {

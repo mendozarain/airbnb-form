@@ -27,7 +27,19 @@ export function bookingRegistrationStatus(
   ) {
     return "done";
   }
-  if (statuses.some((status) => ["ready_for_review", "queued", "submitting", "failed"].includes(status))) {
+  if (
+    statuses.some((status) =>
+      [
+        "ai_check_pending",
+        "ai_checking",
+        "ai_review_required",
+        "ready_for_review",
+        "queued",
+        "submitting",
+        "failed"
+      ].includes(status)
+    )
+  ) {
     return "review";
   }
   if (statuses.includes("rejected")) return "rejected";

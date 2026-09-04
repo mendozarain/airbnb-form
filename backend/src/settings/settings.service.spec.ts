@@ -7,6 +7,42 @@ import {
 import { emailTemplateKindForPurpose, SettingsService } from "./settings.service.js";
 
 describe("SettingsService email templates", () => {
+  it("defaults auto queue to on and preserves an explicit off setting", async () => {
+    await expect(createService({}).isAutoQueueEnabled()).resolves.toBe(true);
+    await expect(createService({ auto_queue: false }).isAutoQueueEnabled()).resolves.toBe(false);
+  });
+
+  it("saves the auto queue setting", async () => {
+    const { service, upsert } = createServiceWithMocks({});
+
+    await expect(service.setAutoQueue(false)).resolves.toEqual({ autoQueue: false });
+    expect(upsert).toHaveBeenCalledWith({
+      where: { key: "auto_queue" },
+      create: { key: "auto_queue", value: false },
+      update: { value: false }
+    });
+  });
+
+  it("defaults AI ID checks and review email, then saves both settings", async () => {
+    const { service, upsert } = createServiceWithMocks({});
+    await expect(service.isAiIdCheckEnabled()).resolves.toBe(true);
+    await expect(service.getAiReviewEmail()).resolves.toBe("mendozarhainne@gmail.com");
+    await expect(service.setAiIdCheck(false, " Review@Example.com ")).resolves.toMatchObject({
+      enabled: false,
+      reviewEmail: "review@example.com"
+    });
+    expect(upsert).toHaveBeenCalledWith({
+      where: { key: "ai_id_check_enabled" },
+      create: { key: "ai_id_check_enabled", value: false },
+      update: { value: false }
+    });
+    expect(upsert).toHaveBeenCalledWith({
+      where: { key: "ai_review_email" },
+      create: { key: "ai_review_email", value: "review@example.com" },
+      update: { value: "review@example.com" }
+    });
+  });
+
   it("maps Tenant separately and shares Visitor of Tenant with Viewing", () => {
     expect(emailTemplateKindForPurpose("Tenant")).toBe("tenant");
     expect(emailTemplateKindForPurpose("Visitor of Tenant")).toBe("visitorViewing");
@@ -72,7 +108,10 @@ function createServiceWithMocks(values: Record<string, unknown>) {
     return Promise.resolve(value === undefined ? null : { key: where.key, value });
   });
   const upsert = jest.fn(() => Promise.resolve({}));
-  const prisma = { appSetting: { findUnique, upsert } };
+  const prisma = {
+    appSetting: { findUnique, upsert },
+    $transaction: jest.fn((operations: Promise<unknown>[]) => Promise.all(operations))
+  };
   const service = new SettingsService(prisma as never, {} as never, {} as never);
   return { service, findUnique, upsert };
 }

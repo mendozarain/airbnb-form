@@ -1,9 +1,13 @@
-import { ConflictException, Injectable, NotFoundException } from "@nestjs/common";
+import { BadRequestException, ConflictException, Injectable, NotFoundException } from "@nestjs/common";
 import { Cron } from "@nestjs/schedule";
-import { pricingConfigSchema, type PricingConfig } from "@cozy-d-714/shared";
+import { pricingConfigSchema, type AirbnbPricingRulesPatch, type PricingConfig } from "@cozy-d-714/shared";
 import { AuditService, type AuditActor } from "../audit/audit.service.js";
 import { PricingRunMode, PricingRunStatus } from "../generated/prisma/enums.js";
-import { HostexClient } from "../hostex/hostex.client.js";
+import {
+  HostexClient,
+  type HostexAirbnbPriceRules,
+  type HostexDiscountRule
+} from "../hostex/hostex.client.js";
 import { localDate } from "../hostex/hostex.time.js";
 import { PrismaService } from "../prisma/prisma.service.js";
 import { addDays, calculatePricing, compressPrices, type CalculatedPricingDay } from "./pricing.engine.js";
@@ -79,6 +83,24 @@ export class PricingService {
       "primary"
     );
     return this.settings();
+  }
+
+  async airbnbSettings() {
+    const listingId = await this.airbnbListingId();
+    const settings = await this.hostex.getAirbnbPriceAndRules(listingId);
+    return airbnbRulesView(listingId, settings);
+  }
+
+  async updateAirbnbSettings(patch: AirbnbPricingRulesPatch, actor?: AuditActor) {
+    const listingId = await this.airbnbListingId();
+    const current = await this.hostex.getAirbnbPriceAndRules(listingId);
+    const settings = airbnbRulesPatch(patch, current);
+    const result = await this.hostex.updateAirbnbPriceAndRules(listingId, settings);
+    await this.audit.record(actor, "pricing.airbnb_settings_updated", "airbnb_listing", listingId, {
+      fields: Object.keys(patch),
+      requestId: result.requestId
+    });
+    return this.airbnbSettings();
   }
 
   async preview(actor?: AuditActor, mode: PricingRunMode = PricingRunMode.PREVIEW, runKey?: string) {
@@ -357,6 +379,14 @@ export class PricingService {
     return settings;
   }
 
+  private async airbnbListingId() {
+    const settings = await this.requiredSettings();
+    const config = pricingConfigSchema.parse(settings.config);
+    const listing = config.listings.find((item) => item.channelType.toLowerCase() === "airbnb");
+    if (!listing) throw new ConflictException("Airbnb listing is missing from pricing settings");
+    return listing.listingId;
+  }
+
   private async recomputeRunStatus(runId: string, config: PricingConfig) {
     const submissions = await this.prisma.pricingSubmission.findMany({
       where: { runId },
@@ -470,4 +500,104 @@ function safeError(error: unknown) {
 
 function isUniqueConstraint(error: unknown) {
   return Boolean(error && typeof error === "object" && "code" in error && error.code === "P2002");
+}
+
+function airbnbRulesPatch(
+  patch: AirbnbPricingRulesPatch,
+  current: HostexAirbnbPriceRules
+): HostexAirbnbPriceRules {
+  const minimumStay = patch.minimumStay ?? requiredNumber(current.minimum_stay, "minimum stay");
+  const maximumStay = patch.maximumStay ?? requiredNumber(current.maximum_stay, "maximum stay");
+  if (minimumStay > maximumStay) {
+    throw new BadRequestException("Minimum stay cannot be greater than maximum stay");
+  }
+  const settings: HostexAirbnbPriceRules = {};
+  if (patch.weeklyDiscount !== undefined || patch.monthlyDiscount !== undefined) {
+    const discounts = new Map<number, HostexDiscountRule>();
+    for (const rule of requiredDiscountRules(current.long_term_discount, "length-of-stay discounts")) {
+      discounts.set(rule.days, rule);
+    }
+    if (patch.weeklyDiscount !== undefined) {
+      discounts.set(7, { days: 7, discount: patch.weeklyDiscount });
+    }
+    if (patch.monthlyDiscount !== undefined) {
+      discounts.set(28, { days: 28, discount: patch.monthlyDiscount });
+    }
+    settings.long_term_discount = [...discounts.values()].sort((left, right) => left.days - right.days);
+  }
+  if (patch.earlyBirdDiscount !== undefined) settings.early_bird_discount = patch.earlyBirdDiscount;
+  if (patch.lastMinuteDiscount !== undefined) settings.last_minute_discount = patch.lastMinuteDiscount;
+  if (patch.highRatedGuestDiscount !== undefined)
+    settings.high_rated_guest_discount = patch.highRatedGuestDiscount;
+  if (patch.mobileOnlyDiscount !== undefined) settings.mobile_only_discount = patch.mobileOnlyDiscount;
+  if (patch.minimumStay !== undefined) settings.minimum_stay = patch.minimumStay;
+  if (patch.maximumStay !== undefined) settings.maximum_stay = patch.maximumStay;
+  if (patch.advanceNotice !== undefined) settings.advance_notice = patch.advanceNotice;
+  if (patch.availabilityWindow !== undefined) settings.availability_window = patch.availabilityWindow;
+  if (patch.preparationTime !== undefined) settings.preparation_time = patch.preparationTime;
+  if (patch.daysOfWeekCheckIn !== undefined)
+    settings.days_of_week_check_in = uniqueWeekdays(patch.daysOfWeekCheckIn);
+  if (patch.daysOfWeekCheckOut !== undefined)
+    settings.days_of_week_check_out = uniqueWeekdays(patch.daysOfWeekCheckOut);
+  return settings;
+}
+
+function airbnbRulesView(listingId: string, settings: HostexAirbnbPriceRules) {
+  return {
+    listingId,
+    listingCurrency: requiredString(settings.listing_currency, "listing currency"),
+    basePrice: requiredNumber(settings.base_price, "base price"),
+    weekendPrice:
+      settings.weekend_price === null ? null : requiredNumber(settings.weekend_price, "weekend price"),
+    longTermDiscount: requiredDiscountRules(settings.long_term_discount, "length-of-stay discounts"),
+    earlyBirdDiscount: requiredDiscountRules(settings.early_bird_discount, "early-bird discounts"),
+    lastMinuteDiscount: requiredDiscountRules(settings.last_minute_discount, "last-minute discounts"),
+    highRatedGuestDiscount: requiredBoolean(settings.high_rated_guest_discount, "top-rated guest discount"),
+    mobileOnlyDiscount: requiredBoolean(settings.mobile_only_discount, "mobile-only discount"),
+    minimumStay: requiredNumber(settings.minimum_stay, "minimum stay"),
+    maximumStay: requiredNumber(settings.maximum_stay, "maximum stay"),
+    advanceNotice:
+      settings.advance_notice === null ? null : requiredNumber(settings.advance_notice, "advance notice"),
+    availabilityWindow: requiredNumber(settings.availability_window, "availability window"),
+    preparationTime: requiredNumber(settings.preparation_time, "preparation time"),
+    daysOfWeekCheckIn: requiredWeekdays(settings.days_of_week_check_in, "check-in days"),
+    daysOfWeekCheckOut: requiredWeekdays(settings.days_of_week_check_out, "check-out days"),
+    syncedAt: new Date().toISOString()
+  };
+}
+
+function requiredDiscountRules(value: HostexDiscountRule[] | undefined, label: string) {
+  if (
+    !Array.isArray(value) ||
+    value.some((rule) => !Number.isFinite(rule.discount) || !Number.isFinite(rule.days))
+  ) {
+    throw new Error(`Hostex Airbnb ${label} are unavailable`);
+  }
+  return value.map((rule) => ({ discount: rule.discount, days: rule.days }));
+}
+
+function requiredNumber(value: number | undefined, label: string) {
+  if (!Number.isFinite(value)) throw new Error(`Hostex Airbnb ${label} is unavailable`);
+  return Number(value);
+}
+
+function requiredBoolean(value: boolean | undefined, label: string) {
+  if (typeof value !== "boolean") throw new Error(`Hostex Airbnb ${label} is unavailable`);
+  return value;
+}
+
+function requiredString(value: string | undefined, label: string) {
+  if (!value?.trim()) throw new Error(`Hostex Airbnb ${label} is unavailable`);
+  return value;
+}
+
+function requiredWeekdays(value: number[] | undefined, label: string) {
+  if (!Array.isArray(value) || value.some((day) => !Number.isInteger(day) || day < 0 || day > 6)) {
+    throw new Error(`Hostex Airbnb ${label} are unavailable`);
+  }
+  return uniqueWeekdays(value);
+}
+
+function uniqueWeekdays(value: number[]) {
+  return [...new Set(value)].sort((left, right) => left - right);
 }

@@ -13,6 +13,11 @@ const TEMPLATE_KEYS: Record<EmailTemplateKind, string> = {
   visitorViewing: "email_template_visitor_viewing"
 };
 const LEGACY_TENANT_TEMPLATE_KEY = "email_template";
+const AUTO_QUEUE_KEY = "auto_queue";
+const AI_ID_CHECK_KEY = "ai_id_check_enabled";
+const AI_REVIEW_EMAIL_KEY = "ai_review_email";
+export const AI_REVIEW_MODEL = "google/gemini-2.5-flash-lite";
+export const DEFAULT_AI_REVIEW_EMAIL = "mendozarhainne@gmail.com";
 
 export function emailTemplateKindForPurpose(purpose: Purpose): EmailTemplateKind {
   return purpose === "Tenant" ? "tenant" : "visitorViewing";
@@ -27,9 +32,73 @@ export class SettingsService {
   ) {}
 
   async status() {
+    const [autoQueue, aiIdCheckEnabled, reviewEmail, google] = await Promise.all([
+      this.isAutoQueueEnabled(),
+      this.isAiIdCheckEnabled(),
+      this.getAiReviewEmail(),
+      this.google.status()
+    ]);
     return {
-      ...(await this.google.status()),
+      autoQueue,
+      aiIdCheck: {
+        enabled: aiIdCheckEnabled,
+        configured: Boolean(process.env.OPENROUTER_API_KEY?.trim()),
+        model: AI_REVIEW_MODEL,
+        reviewEmail
+      },
+      ...google,
       email: { configured: this.email.configured(), mode: "agentmail_api" as const }
+    };
+  }
+
+  async isAutoQueueEnabled() {
+    const setting = await this.prisma.appSetting.findUnique({ where: { key: AUTO_QUEUE_KEY } });
+    return setting?.value !== false;
+  }
+
+  async setAutoQueue(enabled: boolean) {
+    await this.prisma.appSetting.upsert({
+      where: { key: AUTO_QUEUE_KEY },
+      create: { key: AUTO_QUEUE_KEY, value: enabled },
+      update: { value: enabled }
+    });
+    return { autoQueue: enabled };
+  }
+
+  async isAiIdCheckEnabled() {
+    const setting = await this.prisma.appSetting.findUnique({ where: { key: AI_ID_CHECK_KEY } });
+    return setting?.value !== false;
+  }
+
+  async getAiReviewEmail() {
+    const setting = await this.prisma.appSetting.findUnique({ where: { key: AI_REVIEW_EMAIL_KEY } });
+    return typeof setting?.value === "string" && setting.value.trim()
+      ? setting.value.trim()
+      : DEFAULT_AI_REVIEW_EMAIL;
+  }
+
+  async setAiIdCheck(enabled: boolean, rawReviewEmail: string) {
+    const reviewEmail = rawReviewEmail.trim().toLowerCase();
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(reviewEmail)) {
+      throw new BadRequestException("A valid AI review email is required");
+    }
+    await this.prisma.$transaction([
+      this.prisma.appSetting.upsert({
+        where: { key: AI_ID_CHECK_KEY },
+        create: { key: AI_ID_CHECK_KEY, value: enabled },
+        update: { value: enabled }
+      }),
+      this.prisma.appSetting.upsert({
+        where: { key: AI_REVIEW_EMAIL_KEY },
+        create: { key: AI_REVIEW_EMAIL_KEY, value: reviewEmail },
+        update: { value: reviewEmail }
+      })
+    ]);
+    return {
+      enabled,
+      configured: Boolean(process.env.OPENROUTER_API_KEY?.trim()),
+      model: AI_REVIEW_MODEL,
+      reviewEmail
     };
   }
 

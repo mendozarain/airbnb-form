@@ -1,4 +1,6 @@
 import type {
+  AirbnbPricingRules,
+  AirbnbPricingRulesPatch,
   BookingDetail,
   BookingSummary,
   CalendarMonth,
@@ -105,6 +107,14 @@ export const api = {
     request<{ status: string; alreadyRunning?: boolean }>(`/api/admin/submissions/${id}/confirm`, {
       method: "POST"
     }),
+  approveAiReview: (id: string) =>
+    request<{ status: string; alreadyRunning?: boolean }>(`/api/admin/submissions/${id}/ai-review/approve`, {
+      method: "POST"
+    }),
+  retryAiReview: (id: string) =>
+    request<{ status: string }>(`/api/admin/submissions/${id}/ai-review/retry`, { method: "POST" }),
+  retryAiReviewNotification: (id: string) =>
+    request<{ ok: true }>(`/api/admin/submissions/${id}/ai-review/notify`, { method: "POST" }),
   retrySubmissionEmail: (id: string) =>
     request<{ ok: true; status: string }>(`/api/admin/submissions/${id}/retry-email`, {
       method: "POST"
@@ -116,6 +126,16 @@ export const api = {
   deleteSubmission: (id: string) =>
     request<{ ok: true }>(`/api/admin/submissions/${id}`, { method: "DELETE" }),
   getSettings: () => request<SettingsStatus>("/api/admin/settings/status"),
+  setAutoQueue: (enabled: boolean) =>
+    request<{ autoQueue: boolean }>("/api/admin/settings/auto-queue", {
+      method: "POST",
+      body: { enabled }
+    }),
+  setAiIdCheck: (enabled: boolean, reviewEmail: string) =>
+    request<SettingsStatus["aiIdCheck"]>("/api/admin/settings/ai-id-check", {
+      method: "POST",
+      body: { enabled, reviewEmail }
+    }),
   getEmailTemplates: () => request<{ templates: EmailTemplateSet }>("/api/admin/settings/email-templates"),
   saveEmailTemplate: (kind: EmailTemplateKind, body: EmailTemplate) =>
     request<{ template: EmailTemplate }>(`/api/admin/settings/email-templates/${kind}`, {
@@ -138,6 +158,12 @@ export const api = {
       body: { start, end }
     }),
   getPricingSettings: () => request<PricingSettings>("/api/admin/pricing/settings"),
+  getAirbnbPricingSettings: () => request<AirbnbPricingRules>("/api/admin/pricing/airbnb-settings"),
+  updateAirbnbPricingSettings: (body: AirbnbPricingRulesPatch) =>
+    request<AirbnbPricingRules>("/api/admin/pricing/airbnb-settings", {
+      method: "PATCH",
+      body
+    }),
   updatePricingSettings: (version: number, config: PricingConfig) =>
     request<PricingSettings>("/api/admin/pricing/settings", { method: "PUT", body: { version, config } }),
   setPricingAutomation: (enabled: boolean) =>

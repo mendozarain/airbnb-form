@@ -1,5 +1,5 @@
 import { jest } from "@jest/globals";
-import type { PricingConfig } from "@cozy-d-714/shared";
+import { airbnbPricingRulesPatchSchema, type PricingConfig } from "@cozy-d-714/shared";
 import { PricingRunMode, PricingRunStatus } from "../generated/prisma/enums.js";
 import { PricingService } from "./pricing.service.js";
 
@@ -40,7 +40,37 @@ const settings = {
   updatedBy: null
 };
 
+const airbnbRules = {
+  listing_currency: "PHP",
+  base_price: 3000,
+  weekend_price: 3500,
+  long_term_discount: [
+    { days: 7, discount: 20 },
+    { days: 14, discount: 25 },
+    { days: 28, discount: 40 }
+  ],
+  early_bird_discount: [{ days: 60, discount: 10 }],
+  last_minute_discount: [{ days: 2, discount: 15 }],
+  high_rated_guest_discount: true,
+  mobile_only_discount: false,
+  minimum_stay: 2,
+  maximum_stay: 365,
+  advance_notice: 24,
+  availability_window: 365,
+  preparation_time: 1,
+  days_of_week_check_in: [0, 1, 2, 3, 4, 5, 6],
+  days_of_week_check_out: [0, 1, 2, 3, 4, 5, 6]
+};
+
 describe("PricingService", () => {
+  it("accepts strict partial Airbnb patches and rejects empty or unknown fields", () => {
+    expect(airbnbPricingRulesPatchSchema.safeParse({ weeklyDiscount: 20 }).success).toBe(true);
+    expect(airbnbPricingRulesPatchSchema.safeParse({}).success).toBe(false);
+    expect(
+      airbnbPricingRulesPatchSchema.safeParse({ weeklyDiscount: 20, listingId: "browser-value" }).success
+    ).toBe(false);
+  });
+
   it("persists every pricing rules version with its actor", async () => {
     const nextSettings = {
       ...settings,
@@ -83,6 +113,111 @@ describe("PricingService", () => {
         changedBy: "admin@example.com"
       })
     });
+  });
+
+  it("reads live Airbnb settings for the server-configured listing", async () => {
+    const hostex = { getAirbnbPriceAndRules: resolved(airbnbRules) };
+    const service = new PricingService(
+      { pricingSetting: { findUnique: resolved(settings) } } as never,
+      hostex as never,
+      { record: resolved({}) } as never
+    );
+
+    await expect(service.airbnbSettings()).resolves.toMatchObject({
+      listingId: "airbnb",
+      listingCurrency: "PHP",
+      longTermDiscount: airbnbRules.long_term_discount,
+      highRatedGuestDiscount: true
+    });
+    expect(hostex.getAirbnbPriceAndRules).toHaveBeenCalledWith("airbnb");
+  });
+
+  it("updates only requested Airbnb fields and preserves custom stay discounts", async () => {
+    const getAirbnbPriceAndRules = jest
+      .fn<() => Promise<typeof airbnbRules>>()
+      .mockResolvedValueOnce(airbnbRules)
+      .mockResolvedValueOnce({
+        ...airbnbRules,
+        long_term_discount: [
+          { days: 7, discount: 20 },
+          { days: 14, discount: 25 },
+          { days: 28, discount: 45 }
+        ],
+        mobile_only_discount: true
+      });
+    const updateAirbnbPriceAndRules = resolved({ requestId: "request-1" });
+    const audit = { record: resolved({}) };
+    const service = new PricingService(
+      { pricingSetting: { findUnique: resolved(settings) } } as never,
+      { getAirbnbPriceAndRules, updateAirbnbPriceAndRules } as never,
+      audit as never
+    );
+
+    await expect(
+      service.updateAirbnbSettings(
+        { monthlyDiscount: 45, mobileOnlyDiscount: true },
+        { id: "admin-1", email: "admin@example.com" }
+      )
+    ).resolves.toMatchObject({ mobileOnlyDiscount: true });
+
+    expect(updateAirbnbPriceAndRules).toHaveBeenCalledWith("airbnb", {
+      long_term_discount: [
+        { days: 7, discount: 20 },
+        { days: 14, discount: 25 },
+        { days: 28, discount: 45 }
+      ],
+      mobile_only_discount: true
+    });
+    expect(audit.record).toHaveBeenCalledWith(
+      expect.objectContaining({ email: "admin@example.com" }),
+      "pricing.airbnb_settings_updated",
+      "airbnb_listing",
+      "airbnb",
+      expect.objectContaining({ fields: ["monthlyDiscount", "mobileOnlyDiscount"] })
+    );
+  });
+
+  it("does not render missing live Airbnb values as zero", async () => {
+    const service = new PricingService(
+      { pricingSetting: { findUnique: resolved(settings) } } as never,
+      { getAirbnbPriceAndRules: resolved({ ...airbnbRules, minimum_stay: undefined }) } as never,
+      { record: resolved({}) } as never
+    );
+
+    await expect(service.airbnbSettings()).rejects.toThrow("Hostex Airbnb minimum stay is unavailable");
+  });
+
+  it("rejects a partial availability patch that conflicts with the current live range", async () => {
+    const updateAirbnbPriceAndRules = resolved({ requestId: "request-1" });
+    const service = new PricingService(
+      { pricingSetting: { findUnique: resolved(settings) } } as never,
+      { getAirbnbPriceAndRules: resolved(airbnbRules), updateAirbnbPriceAndRules } as never,
+      { record: resolved({}) } as never
+    );
+
+    await expect(service.updateAirbnbSettings({ minimumStay: 366 })).rejects.toThrow(
+      "Minimum stay cannot be greater than maximum stay"
+    );
+    expect(updateAirbnbPriceAndRules).not.toHaveBeenCalled();
+  });
+
+  it("does not audit or read back an Airbnb update that Hostex rejects", async () => {
+    const audit = { record: resolved({}) };
+    const getAirbnbPriceAndRules = resolved(airbnbRules);
+    const service = new PricingService(
+      { pricingSetting: { findUnique: resolved(settings) } } as never,
+      {
+        getAirbnbPriceAndRules,
+        updateAirbnbPriceAndRules: jest.fn(() => Promise.reject(new Error("Airbnb rejected the update")))
+      } as never,
+      audit as never
+    );
+
+    await expect(service.updateAirbnbSettings({ weeklyDiscount: 20 })).rejects.toThrow(
+      "Airbnb rejected the update"
+    );
+    expect(getAirbnbPriceAndRules).toHaveBeenCalledTimes(1);
+    expect(audit.record).not.toHaveBeenCalled();
   });
 
   it("claims the run before reading Hostex and records a durable preview", async () => {

@@ -37,7 +37,7 @@ export function zonedDateTime(value: string, hour: number, timeZone: string) {
 }
 
 export function deliveryDueAt(checkIn: string, timeZone: string) {
-  return zonedDateTime(addDaysToDateOnly(checkIn, -1), 14, timeZone);
+  return zonedDateTime(addDaysToDateOnly(checkIn, -1), 7, timeZone);
 }
 
 export function endOfCheckInDay(checkIn: string, timeZone: string) {

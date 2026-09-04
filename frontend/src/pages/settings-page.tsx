@@ -12,6 +12,7 @@ import type {
 import { PageHeader } from "@/components/page-header";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -33,6 +34,7 @@ export function SettingsPage() {
   const [activeTemplate, setActiveTemplate] = useState<EmailTemplateKind>("tenant");
   const [loading, setLoading] = useState(true);
   const [acting, setActing] = useState(false);
+  const [aiReviewEmail, setAiReviewEmail] = useState("mendozarhainne@gmail.com");
 
   const refresh = useCallback(async () => {
     setLoading(true);
@@ -44,6 +46,7 @@ export function SettingsPage() {
         api.getPricingSettings()
       ]);
       setStatus(nextStatus);
+      setAiReviewEmail(nextStatus.aiIdCheck.reviewEmail);
       setHostex(nextHostex);
       setPricing(nextPricing);
       setTemplates(email.templates);
@@ -125,7 +128,7 @@ export function SettingsPage() {
           <h2 className="text-lg font-semibold">Connections</h2>
           <p className="text-sm text-slate-500">Live connection health without exposing credentials.</p>
         </div>
-        <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+        <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
           <Connection
             title="Google session"
             connected={Boolean(status?.connected)}
@@ -138,6 +141,15 @@ export function SettingsPage() {
               status?.email.configured
                 ? "Ready to send entrance passes."
                 : "AgentMail API configuration is missing."
+            }
+          />
+          <Connection
+            title="OpenRouter AI"
+            connected={Boolean(status?.aiIdCheck.configured)}
+            detail={
+              status?.aiIdCheck.configured
+                ? `${status.aiIdCheck.model} is ready for ID checks.`
+                : "OPENROUTER_API_KEY is missing; ID checks will be held for review."
             }
           />
           <Connection
@@ -195,6 +207,80 @@ export function SettingsPage() {
             {acting ? <Loader2 className="size-4 animate-spin" /> : <RefreshCw className="size-4" />}Check
             session
           </Button>
+        </div>
+      </section>
+
+      <section className="space-y-4 border-t border-slate-200 pt-7">
+        <div>
+          <h2 className="text-lg font-semibold">Registration workflow</h2>
+          <p className="text-sm text-slate-500">Choose whether new guest registrations need admin review.</p>
+        </div>
+        <label className="flex cursor-pointer items-start gap-3 rounded-lg border border-slate-200 bg-white p-4">
+          <Checkbox
+            checked={status?.autoQueue ?? true}
+            disabled={acting}
+            onCheckedChange={(checked) =>
+              void run(
+                () => api.setAutoQueue(checked === true),
+                checked === true ? "Auto queue enabled" : "Auto queue disabled"
+              )
+            }
+          />
+          <span className="space-y-1">
+            <span className="block font-medium">Auto queue new registrations</span>
+            <span className="block text-sm text-slate-500">
+              When enabled, a guest submission is queued for PMO processing immediately without pressing
+              Confirm. This is enabled by default.
+            </span>
+          </span>
+        </label>
+        <div className="space-y-4 rounded-lg border border-slate-200 bg-white p-4">
+          <label className="flex cursor-pointer items-start gap-3">
+            <Checkbox
+              checked={status?.aiIdCheck.enabled ?? true}
+              disabled={acting}
+              onCheckedChange={(checked) =>
+                void run(
+                  () => api.setAiIdCheck(checked === true, aiReviewEmail),
+                  checked === true ? "AI ID checks enabled" : "AI ID checks disabled"
+                )
+              }
+            />
+            <span className="space-y-1">
+              <span className="block font-medium">Check required IDs with AI</span>
+              <span className="block text-sm text-slate-500">
+                Required IDs are checked before Auto Queue. Clear name mismatches are rejected; uncertain
+                results are held for manual review.
+              </span>
+            </span>
+          </label>
+          <div className="grid gap-2 sm:grid-cols-[1fr_auto] sm:items-end">
+            <div className="space-y-2">
+              <Label htmlFor="ai-review-email">AI review notification email</Label>
+              <Input
+                id="ai-review-email"
+                type="email"
+                value={aiReviewEmail}
+                onChange={(event) => setAiReviewEmail(event.target.value)}
+              />
+            </div>
+            <Button
+              variant="secondary"
+              disabled={acting || !aiReviewEmail.trim()}
+              onClick={() =>
+                void run(
+                  () => api.setAiIdCheck(status?.aiIdCheck.enabled ?? true, aiReviewEmail),
+                  "AI review settings saved"
+                )
+              }
+            >
+              Save review email
+            </Button>
+          </div>
+          <p className="text-xs text-slate-500">
+            IDs are required only for guests aged 16–59. Review emails contain findings and a link, never the
+            ID itself.
+          </p>
         </div>
       </section>
 

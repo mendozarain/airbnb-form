@@ -3,6 +3,7 @@ import { chromium } from "playwright";
 import {
   assertEntrancePassFormContentVisible,
   assertEntrancePassScreenshotPrivacy,
+  areAttachedGoogleFormFilesSettled,
   containsEmailAddress,
   countVisibleEmailAddresses,
   countVisibleGoogleFormQuestions,
@@ -12,6 +13,7 @@ import {
   setGoogleEmailIdentityVisible,
   shouldHideUnusedGuestRow,
   submitGoogleForm,
+  waitForGoogleFormDraftSettled,
   validateEntrancePassScreenshot,
   validatePersistAndSubmitEntrancePass
 } from "./google-form.runner.js";
@@ -22,7 +24,8 @@ describe("entrance pass screenshot capture", () => {
     const page = {
       getByRole: jest.fn(() => ({ click })),
       waitForLoadState: jest.fn<() => Promise<void>>().mockResolvedValue(undefined),
-      evaluate: jest.fn<() => Promise<{ href: string; bodyText: string; requiredErrors: string[] }>>()
+      evaluate: jest
+        .fn<() => Promise<{ href: string; bodyText: string; requiredErrors: string[] }>>()
         .mockResolvedValue({
           href: "https://docs.google.com/forms/d/e/form-id/formResponse",
           bodyText: "Your response has been recorded",
@@ -70,6 +73,104 @@ describe("entrance pass screenshot capture", () => {
       await expect(page.getByRole("checkbox", { name: "D" }).getAttribute("aria-checked")).resolves.toBe(
         "true"
       );
+    } finally {
+      await browser.close();
+    }
+  });
+
+  it("accepts attached ID files when Google keeps a thumbnail Loading label", async () => {
+    const browser = await chromium.launch({ headless: true });
+    const page = await browser.newPage();
+    try {
+      await page.setContent(`
+        <div role="listitem" id="id-upload">
+          <div role="heading">Attach Valid Id</div>
+          <div>guest-passport.jpg <span>Loading...</span></div>
+        </div>
+      `);
+
+      await expect(
+        areAttachedGoogleFormFilesSettled(page.locator("#id-upload"), ["guest-passport.jpg"])
+      ).resolves.toBe(true);
+    } finally {
+      await browser.close();
+    }
+  });
+
+  it("does not treat explicitly Uploading ID files as settled", async () => {
+    const browser = await chromium.launch({ headless: true });
+    const page = await browser.newPage();
+    try {
+      await page.setContent(`
+        <div role="listitem" id="id-upload">
+          <div role="heading">Attach Valid Id</div>
+          <div>guest-passport.jpg <span>Uploading...</span></div>
+        </div>
+      `);
+
+      await expect(
+        areAttachedGoogleFormFilesSettled(page.locator("#id-upload"), ["guest-passport.jpg"])
+      ).resolves.toBe(false);
+    } finally {
+      await browser.close();
+    }
+  });
+
+  it("waits for Google Forms to finish saving before continuing", async () => {
+    const browser = await chromium.launch({ headless: true });
+    const page = await browser.newPage();
+    try {
+      await page.setContent(`<div id="save-state">Saving...</div>`);
+      await page.evaluate(() => {
+        window.setTimeout(() => {
+          const saveState = document.querySelector("#save-state");
+          if (saveState) saveState.textContent = "Draft saved";
+        }, 100);
+      });
+
+      await expect(waitForGoogleFormDraftSettled(page, 5_000)).resolves.toBeUndefined();
+    } finally {
+      await browser.close();
+    }
+  });
+
+  it("accepts named ID files after Google has finished processing them", async () => {
+    const browser = await chromium.launch({ headless: true });
+    const page = await browser.newPage();
+    try {
+      await page.setContent(`
+        <div role="listitem" id="id-upload">
+          <div role="heading">Attach Valid Id</div>
+          <div>guest-passport.jpg <button aria-label="Remove guest-passport.jpg">Remove</button></div>
+        </div>
+      `);
+
+      await expect(
+        areAttachedGoogleFormFilesSettled(page.locator("#id-upload"), ["guest-passport.jpg"])
+      ).resolves.toBe(true);
+    } finally {
+      await browser.close();
+    }
+  });
+
+  it("reports the exact required question instead of copying the whole form", async () => {
+    const browser = await chromium.launch({ headless: true });
+    const page = await browser.newPage();
+    try {
+      await page.setContent(`
+        <div role="listitem">
+          <div role="heading">Attach Valid Id</div>
+          <div>guest-passport.jpg</div>
+          <span>Required</span>
+        </div>
+        <div>Unrelated private form content</div>
+        <button>Submit</button>
+      `);
+
+      await expect(submitGoogleForm(page)).rejects.toThrow(
+        "required field is still missing: Attach Valid Id"
+      );
+      await expect(submitGoogleForm(page)).rejects.not.toThrow("Unrelated private form content");
     } finally {
       await browser.close();
     }

@@ -8,7 +8,7 @@ import { bookingRegistrationStatus } from "./registration-status.js";
 
 const MESSAGE = (firstName: string, guestUrl: string) =>
   `Hi ${firstName}, please complete the guest registration form for your upcoming stay at Cozy Davao D-714 before arrival: ${guestUrl}\n\n` +
-  "Please include every guest and upload a valid ID for each guest aged 16 or older. Thank you!";
+  "Please include every guest and upload a valid ID for each guest aged 16 to 59. Guests aged 60 or older do not need an ID. Thank you!";
 
 @Injectable()
 export class BookingsService {
@@ -43,10 +43,10 @@ export class BookingsService {
           : {})
       },
       include: { invites: { include: { submission: true } } },
-      orderBy: { checkIn: "asc" },
+      orderBy: { createdAt: "desc" },
       take: 500
     });
-    return { bookings: bookings.map(bookingSummary) };
+    return { bookings: bookings.sort(compareRegistrationBookings).map(bookingSummary) };
   }
 
   async get(id: string) {
@@ -101,16 +101,15 @@ export class BookingsService {
                   }
                 ]
               : []),
-            ...invite.hostexDeliveries
-              .map((delivery) => ({
-                id: delivery.id,
-                kind: delivery.kind === HostexDeliveryKind.AUTOMATED ? "automated" : "manual",
-                status: delivery.status.toLowerCase(),
-                attempts: delivery.attempts,
-                sentAt: delivery.sentAt?.toISOString() ?? null,
-                confirmedAt: delivery.confirmedAt?.toISOString() ?? null,
-                lastError: delivery.lastError
-              }))
+            ...invite.hostexDeliveries.map((delivery) => ({
+              id: delivery.id,
+              kind: delivery.kind === HostexDeliveryKind.AUTOMATED ? "automated" : "manual",
+              status: delivery.status.toLowerCase(),
+              attempts: delivery.attempts,
+              sentAt: delivery.sentAt?.toISOString() ?? null,
+              confirmedAt: delivery.confirmedAt?.toISOString() ?? null,
+              lastError: delivery.lastError
+            }))
           ]
         }))
       }
@@ -125,7 +124,7 @@ export class BookingsService {
       take: 500
     });
     return {
-      registrations: invites.map((invite) => ({
+      registrations: invites.sort(compareRegistrationInvites).map((invite) => ({
         invite: {
           id: invite.id,
           guestUrl: invite.publicToken ? inviteUrl(invite.publicToken) : null,
@@ -369,4 +368,46 @@ function firstName(value: string | null) {
 function safeError(error: unknown) {
   const message = error instanceof Error ? error.message : "Hostex message failed";
   return message.replace(/[A-Za-z0-9_-]{24,}/g, "[redacted]").slice(0, 500);
+}
+
+export function compareRegistrationBookings(left: RegistrationListBooking, right: RegistrationListBooking) {
+  const leftActivity = latestRegistrationActivity(left.invites);
+  const rightActivity = latestRegistrationActivity(right.invites);
+  if (leftActivity !== null || rightActivity !== null) {
+    if (leftActivity === null) return 1;
+    if (rightActivity === null) return -1;
+    if (leftActivity !== rightActivity) return rightActivity - leftActivity;
+  }
+  const leftBooked = left.bookedAt?.getTime() ?? left.createdAt.getTime();
+  const rightBooked = right.bookedAt?.getTime() ?? right.createdAt.getTime();
+  if (leftBooked !== rightBooked) return rightBooked - leftBooked;
+  const createdDifference = right.createdAt.getTime() - left.createdAt.getTime();
+  return createdDifference || left.id.localeCompare(right.id);
+}
+
+type RegistrationListBooking = {
+  id: string;
+  bookedAt: Date | null;
+  createdAt: Date;
+  invites: Array<{ createdAt: Date; submission: { createdAt: Date } | null }>;
+};
+
+function latestRegistrationActivity(invites: RegistrationListBooking["invites"]) {
+  if (!invites.length) return null;
+  return Math.max(
+    ...invites.map((invite) =>
+      Math.max(invite.createdAt.getTime(), invite.submission?.createdAt.getTime() ?? 0)
+    )
+  );
+}
+
+export function compareRegistrationInvites(
+  left: { id: string; createdAt: Date; submission: { createdAt: Date } | null },
+  right: { id: string; createdAt: Date; submission: { createdAt: Date } | null }
+) {
+  return (
+    Math.max(right.createdAt.getTime(), right.submission?.createdAt.getTime() ?? 0) -
+      Math.max(left.createdAt.getTime(), left.submission?.createdAt.getTime() ?? 0) ||
+    left.id.localeCompare(right.id)
+  );
 }

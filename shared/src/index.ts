@@ -12,6 +12,9 @@ export const BOOKING_STATUSES = [
   "timeout"
 ] as const;
 export const SUBMISSION_STATUSES = [
+  "ai_check_pending",
+  "ai_checking",
+  "ai_review_required",
   "ready_for_review",
   "queued",
   "submitting",
@@ -23,6 +26,11 @@ export const SUBMISSION_STATUSES = [
 ] as const;
 
 export const MINOR_ID_CUTOFF = 16;
+export const SENIOR_ID_CUTOFF = 60;
+
+export function requiresGuestId(age: number, lowerCutoff = MINOR_ID_CUTOFF, upperCutoff = SENIOR_ID_CUTOFF) {
+  return age >= lowerCutoff && age < upperCutoff;
+}
 
 export const guestSchema = z.object({
   fullName: z.string().trim().min(1, "Guest name is required"),
@@ -87,7 +95,8 @@ export const publicInviteSchema = z.object({
   purpose: z.enum(PURPOSES),
   ownerName: z.string(),
   ownerContact: z.string(),
-  minorIdCutoff: z.number().int()
+  minorIdCutoff: z.number().int(),
+  seniorIdCutoff: z.number().int()
 });
 
 export type Purpose = (typeof PURPOSES)[number];
@@ -314,6 +323,63 @@ export type PricingPreview = PricingRun & {
   days: PricingDay[];
 };
 
+export const airbnbDiscountRuleSchema = z
+  .object({
+    discount: z.coerce.number().int().min(0).max(100),
+    days: z.coerce.number().int().min(1).max(365)
+  })
+  .strict();
+
+const airbnbWeekdaySchema = z.coerce.number().int().min(0).max(6);
+
+export const airbnbPricingRulesPatchSchema = z
+  .object({
+    weeklyDiscount: z.coerce.number().int().min(0).max(100).optional(),
+    monthlyDiscount: z.coerce.number().int().min(0).max(100).optional(),
+    earlyBirdDiscount: z.array(airbnbDiscountRuleSchema).max(20).optional(),
+    lastMinuteDiscount: z.array(airbnbDiscountRuleSchema).max(20).optional(),
+    highRatedGuestDiscount: z.boolean().optional(),
+    mobileOnlyDiscount: z.boolean().optional(),
+    minimumStay: z.coerce.number().int().min(1).max(365).optional(),
+    maximumStay: z.coerce.number().int().min(1).max(1125).optional(),
+    advanceNotice: z.coerce.number().int().min(0).max(8760).optional(),
+    availabilityWindow: z.coerce.number().int().min(1).max(1095).optional(),
+    preparationTime: z.coerce.number().int().min(0).max(7).optional(),
+    daysOfWeekCheckIn: z.array(airbnbWeekdaySchema).max(7).optional(),
+    daysOfWeekCheckOut: z.array(airbnbWeekdaySchema).max(7).optional()
+  })
+  .strict()
+  .refine((value) => Object.keys(value).length > 0, "At least one Airbnb setting is required")
+  .refine(
+    (value) =>
+      value.minimumStay === undefined ||
+      value.maximumStay === undefined ||
+      value.minimumStay <= value.maximumStay,
+    { message: "Minimum stay cannot exceed maximum stay", path: ["minimumStay"] }
+  );
+
+export type AirbnbDiscountRule = z.infer<typeof airbnbDiscountRuleSchema>;
+export type AirbnbPricingRulesPatch = z.infer<typeof airbnbPricingRulesPatchSchema>;
+export type AirbnbPricingRules = {
+  listingId: string;
+  listingCurrency: string;
+  basePrice: number;
+  weekendPrice: number | null;
+  longTermDiscount: AirbnbDiscountRule[];
+  earlyBirdDiscount: AirbnbDiscountRule[];
+  lastMinuteDiscount: AirbnbDiscountRule[];
+  highRatedGuestDiscount: boolean;
+  mobileOnlyDiscount: boolean;
+  minimumStay: number;
+  maximumStay: number;
+  advanceNotice: number | null;
+  availabilityWindow: number;
+  preparationTime: number;
+  daysOfWeekCheckIn: number[];
+  daysOfWeekCheckOut: number[];
+  syncedAt: string;
+};
+
 export type HostexAutomationStatus = {
   webhookVerified: boolean;
   webhookVerifiedAt: string | null;
@@ -350,6 +416,24 @@ export type SubmissionDetail = SubmissionSummary & {
     requiresId: boolean;
     files: GuestFileView[];
   }>;
+  aiReview?: {
+    status: "pending" | "checking" | "passed" | "rejected" | "review_required";
+    model: string;
+    checkedAt?: string | null;
+    notificationSentAt?: string | null;
+    notificationError?: string | null;
+    error?: string | null;
+    results: Array<{
+      guestId: string;
+      enteredName: string;
+      extractedName?: string | null;
+      extractedNames?: string[];
+      matchedName?: string | null;
+      verdict: "match" | "clear_mismatch" | "uncertain";
+      confidence: number;
+      reason: string;
+    }>;
+  } | null;
 };
 
 export type EmailTemplate = {
@@ -362,6 +446,13 @@ export type EmailTemplateKind = (typeof EMAIL_TEMPLATE_KINDS)[number];
 export type EmailTemplateSet = Record<EmailTemplateKind, EmailTemplate>;
 
 export type SettingsStatus = {
+  autoQueue: boolean;
+  aiIdCheck: {
+    enabled: boolean;
+    configured: boolean;
+    model: string;
+    reviewEmail: string;
+  };
   connected: boolean;
   hasStorageState: boolean;
   expired: boolean;

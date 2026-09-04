@@ -41,6 +41,9 @@ enum PricingRunStatus {
 }
 
 enum SubmissionStatus {
+  AI_CHECK_PENDING       @map("ai_check_pending")
+  AI_CHECKING            @map("ai_checking")
+  AI_REVIEW_REQUIRED     @map("ai_review_required")
   READY_FOR_REVIEW       @map("ready_for_review")
   QUEUED                 @map("queued")
   SUBMITTING             @map("submitting")
@@ -51,6 +54,16 @@ enum SubmissionStatus {
   SUBMITTED_EMAIL_SENT   @map("submitted_email_sent")
 
   @@map("submission_status")
+}
+
+enum AiReviewStatus {
+  PENDING         @map("pending")
+  CHECKING        @map("checking")
+  PASSED          @map("passed")
+  REJECTED        @map("rejected")
+  REVIEW_REQUIRED @map("review_required")
+
+  @@map("ai_review_status")
 }
 
 enum HostexDeliveryStatus {
@@ -288,24 +301,43 @@ model HostexWebhookCredential {
 }
 
 model Submission {
-  id           String           @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  inviteId     String           @unique @map("invite_id") @db.Uuid
-  guestEmail   String           @map("guest_email")
-  buildingCode String           @map("building_code")
-  unitNumber   String           @map("unit_number")
-  checkIn      DateTime         @map("check_in") @db.Date
-  checkOut     DateTime         @map("check_out") @db.Date
+  id           String              @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  inviteId     String              @unique @map("invite_id") @db.Uuid
+  guestEmail   String              @map("guest_email")
+  buildingCode String              @map("building_code")
+  unitNumber   String              @map("unit_number")
+  checkIn      DateTime            @map("check_in") @db.Date
+  checkOut     DateTime            @map("check_out") @db.Date
   purpose      String
-  ownerName    String           @map("owner_name")
-  ownerContact String           @map("owner_contact")
-  status       SubmissionStatus @default(READY_FOR_REVIEW)
-  createdAt    DateTime         @default(now()) @map("created_at") @db.Timestamptz(3)
-  invite       Invite           @relation(fields: [inviteId], references: [id])
+  ownerName    String              @map("owner_name")
+  ownerContact String              @map("owner_contact")
+  status       SubmissionStatus    @default(READY_FOR_REVIEW)
+  createdAt    DateTime            @default(now()) @map("created_at") @db.Timestamptz(3)
+  invite       Invite              @relation(fields: [inviteId], references: [id])
   guests       Guest[]
   runs         AutomationRun[]
+  aiReview     SubmissionAiReview?
 
   @@index([status, createdAt])
   @@map("submissions")
+}
+
+model SubmissionAiReview {
+  id                 String         @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  submissionId       String         @unique @map("submission_id") @db.Uuid
+  status             AiReviewStatus @default(PENDING)
+  model              String
+  results            Json           @default("[]")
+  error              String?
+  checkedAt          DateTime?      @map("checked_at") @db.Timestamptz(3)
+  notificationSentAt DateTime?      @map("notification_sent_at") @db.Timestamptz(3)
+  notificationError  String?        @map("notification_error")
+  createdAt          DateTime       @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt          DateTime       @updatedAt @map("updated_at") @db.Timestamptz(3)
+  submission         Submission     @relation(fields: [submissionId], references: [id], onDelete: Cascade)
+
+  @@index([status, createdAt])
+  @@map("submission_ai_reviews")
 }
 
 model Guest {

@@ -1,6 +1,11 @@
-import { BadRequestException, Body, Controller, Get, Param, Post, Put, Query } from "@nestjs/common";
+import { BadRequestException, Body, Controller, Get, Param, Patch, Post, Put, Query } from "@nestjs/common";
 import { Roles, Session, type UserSession } from "@thallesp/nestjs-better-auth";
-import { pricingConfigSchema } from "@cozy-d-714/shared";
+import {
+  airbnbPricingRulesPatchSchema,
+  pricingConfigSchema,
+  type AirbnbPricingRulesPatch
+} from "@cozy-d-714/shared";
+import { ZodValidationPipe } from "../common/zod-validation.pipe.js";
 import { CalendarService } from "./calendar.service.js";
 import { PricingService } from "./pricing.service.js";
 
@@ -19,6 +24,19 @@ export class PricingController {
     const version = Number(body.version);
     if (!Number.isInteger(version)) throw new BadRequestException("Pricing settings version is required");
     return this.pricing.updateSettings(pricingConfigSchema.parse(body.config), version, session.user);
+  }
+
+  @Get("airbnb-settings")
+  airbnbSettings() {
+    return this.pricing.airbnbSettings();
+  }
+
+  @Patch("airbnb-settings")
+  updateAirbnbSettings(
+    @Body(new ZodValidationPipe(airbnbPricingRulesPatchSchema)) body: AirbnbPricingRulesPatch,
+    @Session() session: UserSession
+  ) {
+    return this.pricing.updateAirbnbSettings(body, session.user);
   }
 
   @Post("automation")
