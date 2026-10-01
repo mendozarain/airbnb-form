@@ -7,6 +7,7 @@ import {
   EmailService
 } from "../automation/email.service.js";
 import { GoogleSessionService } from "./google-session.service.js";
+import { GoogleSessionRecoveryService } from "./google-session-recovery.service.js";
 
 const TEMPLATE_KEYS: Record<EmailTemplateKind, string> = {
   tenant: "email_template_tenant",
@@ -28,15 +29,17 @@ export class SettingsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly google: GoogleSessionService,
-    private readonly email: EmailService
+    private readonly email: EmailService,
+    private readonly googleRecovery: GoogleSessionRecoveryService
   ) {}
 
   async status() {
-    const [autoQueue, aiIdCheckEnabled, reviewEmail, google] = await Promise.all([
+    const [autoQueue, aiIdCheckEnabled, reviewEmail, google, googleRecovery] = await Promise.all([
       this.isAutoQueueEnabled(),
       this.isAiIdCheckEnabled(),
       this.getAiReviewEmail(),
-      this.google.status()
+      this.google.status(),
+      this.googleRecovery.status()
     ]);
     return {
       autoQueue,
@@ -47,6 +50,7 @@ export class SettingsService {
         reviewEmail
       },
       ...google,
+      googleRecovery,
       email: { configured: this.email.configured(), mode: "agentmail_api" as const }
     };
   }
@@ -111,7 +115,9 @@ export class SettingsService {
 
     return {
       tenant: normaliseTemplate(tenant?.value ?? legacyTenant?.value, DEFAULT_EMAIL_TEMPLATE),
-      visitorViewing: normaliseTemplate(visitorViewing?.value, DEFAULT_VISITOR_VIEWING_EMAIL_TEMPLATE)
+      visitorViewing: visitTemplate(
+        normaliseTemplate(visitorViewing?.value, DEFAULT_VISITOR_VIEWING_EMAIL_TEMPLATE)
+      )
     };
   }
 
@@ -121,7 +127,8 @@ export class SettingsService {
   }
 
   async saveEmailTemplateForKind(kind: EmailTemplateKind, template: EmailTemplate | null | undefined) {
-    const value = validateTemplate(template);
+    const validated = validateTemplate(template);
+    const value = kind === "visitorViewing" ? visitTemplate(validated) : validated;
     await this.prisma.appSetting.upsert({
       where: { key: TEMPLATE_KEYS[kind] },
       create: { key: TEMPLATE_KEYS[kind], value },
@@ -155,4 +162,18 @@ function validateTemplate(template: EmailTemplate | null | undefined): EmailTemp
   }
   if (html.length > 60000) throw new BadRequestException("HTML body is too large");
   return { subject, html };
+}
+
+export function visitTemplate(template: EmailTemplate): EmailTemplate {
+  const wording = (value: string) =>
+    value
+      .replace(/upcoming stay at/gi, "upcoming visit to")
+      .replace(/upcoming stay/gi, "upcoming visit")
+      .replace(/stay details/gi, "visit details")
+      .replace(/your stay/gi, "your visit")
+      .replace(/check-in guide/gi, "visit guide")
+      .replace(/how to check in/gi, "Arrival directions")
+      .replace(/check-in instructions/gi, "visit directions")
+      .replace(/check-in details/gi, "visit details");
+  return { subject: wording(template.subject), html: wording(template.html) };
 }

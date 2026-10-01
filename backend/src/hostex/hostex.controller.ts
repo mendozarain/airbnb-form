@@ -11,6 +11,7 @@ import {
   UnauthorizedException
 } from "@nestjs/common";
 import { AllowAnonymous, Roles } from "@thallesp/nestjs-better-auth";
+import { BackgroundJobsService } from "../jobs/background-jobs.service.js";
 import { HostexService } from "./hostex.service.js";
 
 @Controller("api/webhooks/hostex")
@@ -36,7 +37,10 @@ export class HostexWebhookController {
 @Controller("api/admin/hostex")
 @Roles(["admin"])
 export class HostexAdminController {
-  constructor(private readonly hostex: HostexService) {}
+  constructor(
+    private readonly hostex: HostexService,
+    private readonly jobs: BackgroundJobsService
+  ) {}
 
   @Get("status")
   status() {
@@ -45,7 +49,7 @@ export class HostexAdminController {
 
   @Post("sync")
   sync() {
-    return this.hostex.syncNow();
+    return this.jobs.start("admin.hostexSync");
   }
 
   @Post("invites/:id/send")

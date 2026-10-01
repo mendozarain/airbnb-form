@@ -50,7 +50,12 @@ export type GoogleFormResult = {
   screenshotKey?: string;
   error?: string;
   retryable?: boolean;
+  failureKind?:
+    "authentication_expired" | "temporary_navigation" | "submission_failed" | "submission_uncertain";
 };
+
+class GoogleAuthenticationExpiredError extends Error {}
+export class GoogleSubmissionUncertainError extends Error {}
 
 @Injectable()
 export class GoogleFormRunner {
@@ -60,18 +65,19 @@ export class GoogleFormRunner {
   ) {}
 
   async submit(submission: GoogleFormSubmission): Promise<GoogleFormResult> {
-    const storageState = await this.googleSession.loadStorageState();
+    const session = await this.googleSession.loadStorageStateWithVersion();
 
-    if (!storageState) {
+    if (!session) {
       return {
         ok: false,
+        failureKind: "authentication_expired",
         error: "Google browser session is not connected. Open Settings and connect Google first."
       };
     }
 
     const browser = await chromium.launch({ headless: true });
     const context = await browser.newContext({
-      storageState: storageState as any,
+      storageState: session.state as any,
       viewport: ENTRANCE_PASS_CAPTURE_PROFILE.viewport,
       deviceScaleFactor: ENTRANCE_PASS_CAPTURE_PROFILE.deviceScaleFactor
     });
@@ -81,7 +87,9 @@ export class GoogleFormRunner {
       await page.goto(requiredEnv("GOOGLE_FORM_URL"), { waitUntil: "networkidle" });
 
       if (page.url().includes("ServiceLogin") || page.url().includes("accounts.google.com")) {
-        throw new Error("Google redirected to login. Browser auth storage is not configured yet.");
+        throw new GoogleAuthenticationExpiredError(
+          "Google redirected to login. Browser auth storage is not configured yet."
+        );
       }
 
       await clickEmailReceiptCheckbox(page);
@@ -168,17 +176,19 @@ export class GoogleFormRunner {
       });
 
       const updatedStorageState = await context.storageState({ indexedDB: true });
-      await this.storage.put("google/storage-state.json", JSON.stringify(updatedStorageState), {
-        contentType: "application/json",
-        metadata: { savedAt: new Date().toISOString() }
-      });
+      await this.googleSession.refreshActiveState(updatedStorageState as never, session).catch(() => undefined);
 
       return { ok: true, screenshotKey };
     } catch (error) {
       const message = error instanceof Error ? error.message : "Unknown automation error";
+      const failureKind = classifyGoogleFormFailure(error);
+      if (failureKind === "authentication_expired") {
+        await this.googleSession.markUnhealthy(message, page.url()).catch(() => undefined);
+      }
       return {
         ok: false,
-        retryable: message.includes("429") || message.includes("Rate limit"),
+        failureKind,
+        retryable: failureKind === "temporary_navigation",
         error: `[${AUTOMATION_VERSION}] ${message}`
       };
     } finally {
@@ -1130,11 +1140,27 @@ async function waitForGoogleFormSubmission(page: any) {
 }
 
 export async function submitGoogleForm(page: any) {
-  await page.getByRole("button", { name: /^Submit$/ }).click({
-    timeout: 20_000,
-    noWaitAfter: true
-  });
-  await waitForGoogleFormSubmission(page);
+  try {
+    await page.getByRole("button", { name: /^Submit$/ }).click({
+      timeout: 20_000,
+      noWaitAfter: true
+    });
+    await waitForGoogleFormSubmission(page);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Submission receipt could not be confirmed";
+    if (/required field is still missing/i.test(message)) throw error;
+    throw new GoogleSubmissionUncertainError(message);
+  }
+}
+
+export function classifyGoogleFormFailure(error: unknown): NonNullable<GoogleFormResult["failureKind"]> {
+  if (error instanceof GoogleAuthenticationExpiredError) return "authentication_expired";
+  if (error instanceof GoogleSubmissionUncertainError) return "submission_uncertain";
+  const message = error instanceof Error ? error.message : "";
+  if (/429|rate limit|timeout|timed out|ECONNRESET|ENOTFOUND|network/i.test(message)) {
+    return "temporary_navigation";
+  }
+  return "submission_failed";
 }
 
 async function clickEmailReceiptCheckbox(page: any) {

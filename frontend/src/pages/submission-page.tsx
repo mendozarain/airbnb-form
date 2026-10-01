@@ -69,7 +69,8 @@ export function SubmissionPage() {
   useEffect(() => {
     if (
       !submission ||
-      !["ai_check_pending", "ai_checking", "queued", "submitting"].includes(submission.status)
+      (!["ai_check_pending", "ai_checking", "queued", "submitting"].includes(submission.status) &&
+        !submission.chatDeliveries?.some((delivery) => ["queued", "sending"].includes(delivery.status)))
     )
       return;
     const timer = window.setInterval(() => void load(), 8000);
@@ -129,7 +130,10 @@ export function SubmissionPage() {
       />
 
       <section className="grid gap-4 rounded-lg border border-slate-200 bg-white p-4 sm:grid-cols-2 lg:grid-cols-4">
-        <Info label="Stay" value={`${formatDate(submission.checkIn)} – ${formatDate(submission.checkOut)}`} />
+        <Info
+          label={submission.purpose === "Tenant" ? "Stay" : "Visit"}
+          value={`${formatDate(submission.checkIn)} – ${formatDate(submission.checkOut)}`}
+        />
         <Info label="Unit" value={`Building ${submission.buildingCode}, ${submission.unitNumber}`} />
         <Info label="Purpose" value={submission.purpose} />
         <div>
@@ -142,6 +146,65 @@ export function SubmissionPage() {
         <div className="rounded-md border border-red-200 bg-red-50 p-4 text-sm text-red-800">
           {submission.latestError}
         </div>
+      )}
+
+      {Boolean(submission.chatDeliveries?.length) && (
+        <section className="space-y-4 rounded-lg border border-slate-200 bg-white p-4">
+          <h2 className="text-lg font-semibold">Platform email confirmations</h2>
+          <p className="text-sm text-slate-500">
+            Chat delivery is tracked separately. Retrying chat does not resend the email.
+          </p>
+          {submission.chatDeliveries?.map((delivery) => (
+            <div key={delivery.id} className="space-y-2 border-t border-slate-100 pt-3">
+              <div className="flex flex-wrap items-center gap-3">
+                <Badge>{labelStatus(delivery.status)}</Badge>
+                <span className="text-sm text-slate-500">
+                  {delivery.emailSentAt
+                    ? `Email sent ${new Date(delivery.emailSentAt).toLocaleString()}`
+                    : "Email not confirmed sent"}
+                </span>
+              </div>
+              <p className="text-sm">{delivery.message}</p>
+              {delivery.lastError && <p className="text-sm text-amber-800">{delivery.lastError}</p>}
+              {delivery.status === "waiting_email" && (
+                <p className="text-sm text-amber-800">
+                  Waiting for the email outcome. If this persists, check email provider history before sending
+                  another copy.
+                </p>
+              )}
+              {delivery.status === "failed" && (
+                <Button
+                  variant="secondary"
+                  disabled={acting}
+                  onClick={() =>
+                    void act(async () => {
+                      const result = await api.retrySubmissionChat(id, delivery.id);
+                      if (result.status !== "sent")
+                        toast.warning(`Chat status: ${labelStatus(result.status)}`);
+                    }, "Chat delivery updated")
+                  }
+                >
+                  Retry chat only
+                </Button>
+              )}
+              {delivery.status === "unknown" && (
+                <Button
+                  variant="secondary"
+                  disabled={acting}
+                  onClick={() =>
+                    void act(async () => {
+                      const result = await api.reconcileSubmissionChat(id, delivery.id);
+                      if (result.status === "unknown")
+                        toast.warning("Delivery is still uncertain; no duplicate message was sent.");
+                    }, "Chat delivery checked")
+                  }
+                >
+                  Check chat delivery
+                </Button>
+              )}
+            </div>
+          ))}
+        </section>
       )}
 
       {submission.aiReview && (

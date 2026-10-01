@@ -6,7 +6,8 @@
   "workspaces": [
     "backend",
     "frontend",
-    "shared"
+    "shared",
+    "infra"
   ],
   "engines": {
     "node": "22.x"
@@ -23,6 +24,7 @@
     "test:e2e": "npm run test:e2e --workspace backend",
     "format": "npm run format --workspace backend && npm run format --workspace frontend",
     "migrate:legacy": "npm run migrate:legacy --workspace backend --",
-    "backfill:bookings": "npm run backfill:bookings --workspace backend --"
+    "backfill:bookings": "npm run backfill:bookings --workspace backend --",
+    "deploy:infra": "npm run deploy --workspace infra"
   }
 }

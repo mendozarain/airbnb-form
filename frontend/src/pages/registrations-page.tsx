@@ -2,7 +2,7 @@ import { MessageCircle, RefreshCw, Search } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { toast } from "sonner";
-import type { BookingSummary, InviteSummary } from "@cozy-d-714/shared";
+import type { BookingSummary, InviteSummary, SettingsStatus } from "@cozy-d-714/shared";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -26,14 +26,17 @@ export function RegistrationsPage() {
   const [query, setQuery] = useState("");
   const [filter, setFilter] = useState<(typeof filters)[number]>("all");
   const [syncing, setSyncing] = useState(false);
+  const [googleRecovery, setGoogleRecovery] = useState<SettingsStatus["googleRecovery"] | null>(null);
 
   const load = useCallback(async () => {
-    const [bookingResult, inviteResult] = await Promise.all([
+    const [bookingResult, inviteResult, settings] = await Promise.all([
       api.listBookings({ query }),
-      api.listUncategorizedRegistrations()
+      api.listUncategorizedRegistrations(),
+      api.getSettings()
     ]);
     setBookings(bookingResult.bookings);
     setUncategorized(inviteResult.registrations.map((registration) => registration.invite));
+    setGoogleRecovery(settings.googleRecovery);
   }, [query]);
   useEffect(() => void load(), [load]);
   const shown = useMemo(
@@ -50,6 +53,19 @@ export function RegistrationsPage() {
         title="Registrations"
         description="Every guest link and submission, organized under its Hostex booking."
       />
+      {googleRecovery && googleRecovery.state !== "idle" && (
+        <section className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
+          <p className="font-semibold">
+            {googleRecovery.state === "recovering"
+              ? "Reconnecting Google"
+              : "Waiting for manual Google session"}
+          </p>
+          <p className="mt-1">
+            Queued registrations are being held safely and will resume oldest-first after the PMO form session
+            is verified.
+          </p>
+        </section>
+      )}
       <section className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
         <div className="flex flex-col gap-3 lg:flex-row lg:items-center">
           <div className="relative flex-1">
@@ -131,6 +147,15 @@ export function RegistrationsPage() {
                 {booking.registrationCount} registration record(s) ·{" "}
                 {booking.conversationId ? "Hostex conversation ready" : "No Hostex conversation"}
               </p>
+              {booking.registrationStatus === "pending" &&
+                googleRecovery &&
+                googleRecovery.state !== "idle" && (
+                  <p className="mt-2 text-xs font-medium text-amber-700">
+                    {googleRecovery?.state === "recovering"
+                      ? "Reconnecting Google"
+                      : "Waiting for manual Google session"}
+                  </p>
+                )}
             </Link>
           ))}
           {shown.length === 0 && (

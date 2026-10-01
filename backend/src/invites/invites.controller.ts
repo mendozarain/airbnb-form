@@ -1,16 +1,12 @@
 import {
-  BadRequestException,
   Body,
   Controller,
   Delete,
   Get,
   Patch,
   Param,
-  Post,
-  UploadedFile,
-  UseInterceptors
+  Post
 } from "@nestjs/common";
-import { FileInterceptor } from "@nestjs/platform-express";
 import { AllowAnonymous, Roles, Session, type UserSession } from "@thallesp/nestjs-better-auth";
 import {
   assignInviteBookingSchema,
@@ -25,6 +21,7 @@ import {
   type RegenerateInviteInput,
   type UpdateInviteInput
 } from "@cozy-d-714/shared";
+import { parseUploadRequest } from "../common/upload.js";
 import { ZodValidationPipe } from "../common/zod-validation.pipe.js";
 import { InvitesService } from "./invites.service.js";
 
@@ -95,11 +92,9 @@ export class PublicInvitesController {
     return this.invites.getPublic(token);
   }
 
-  @Post(":token/files")
-  @UseInterceptors(FileInterceptor("file", { limits: { fileSize: 100 * 1024 * 1024 } }))
-  upload(@Param("token") token: string, @UploadedFile() file?: Express.Multer.File) {
-    if (!file) throw new BadRequestException("File is required");
-    return this.invites.upload(token, file);
+  @Post(":token/files/presign")
+  presignUpload(@Param("token") token: string, @Body() body: unknown) {
+    return this.invites.presignUpload(token, parseUploadRequest(body));
   }
 
   @Post(":token/submission")

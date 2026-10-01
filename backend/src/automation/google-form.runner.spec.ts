@@ -9,6 +9,7 @@ import {
   countVisibleGoogleFormQuestions,
   ENTRANCE_PASS_CAPTURE_PROFILE,
   ENTRANCE_PASS_SCREENSHOT_OPTIONS,
+  GoogleSubmissionUncertainError,
   selectBuildingCode,
   setGoogleEmailIdentityVisible,
   shouldHideUnusedGuestRow,
@@ -38,6 +39,35 @@ describe("entrance pass screenshot capture", () => {
     await expect(submitGoogleForm(page)).resolves.toBeUndefined();
     expect(page.getByRole).toHaveBeenCalledWith("button", { name: /^Submit$/ });
     expect(click).toHaveBeenCalledWith({ timeout: 20_000, noWaitAfter: true });
+  });
+
+  it("marks a missing post-click receipt as uncertain so it cannot be replayed", async () => {
+    let now = 0;
+    const clock = jest.spyOn(Date, "now").mockImplementation(() => now);
+    const page = {
+      getByRole: jest.fn(() => ({
+        click: jest.fn<() => Promise<void>>().mockResolvedValue(undefined)
+      })),
+      waitForLoadState: jest.fn<() => Promise<void>>().mockResolvedValue(undefined),
+      evaluate: jest
+        .fn<() => Promise<{ href: string; bodyText: string; requiredErrors: string[] }>>()
+        .mockResolvedValue({
+          href: "https://docs.google.com/forms/d/e/form-id/viewform",
+          bodyText: "Registration form",
+          requiredErrors: []
+        }),
+      url: jest.fn(() => "https://docs.google.com/forms/d/e/form-id/viewform"),
+      waitForTimeout: jest.fn<() => Promise<void>>().mockImplementation(() => {
+        now += 1_000;
+        return Promise.resolve();
+      })
+    };
+
+    try {
+      await expect(submitGoogleForm(page)).rejects.toBeInstanceOf(GoogleSubmissionUncertainError);
+    } finally {
+      clock.mockRestore();
+    }
   });
 
   it("selects only the requested Building Code option", async () => {

@@ -7,6 +7,7 @@ import {
   S3Client,
   type GetObjectCommandOutput
 } from "@aws-sdk/client-s3";
+import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import { Injectable } from "@nestjs/common";
 import { Readable } from "node:stream";
 import { requiredEnv } from "../config/env.js";
@@ -18,15 +19,21 @@ type PutOptions = {
 
 @Injectable()
 export class StorageService {
-  private readonly bucket = requiredEnv("AWS_S3_BUCKET_NAME");
+  // Lambda reserves the AWS_* names, so config lives under S3_*. The legacy AWS_* names still work for local
+  // S3-compatible stores. Without explicit keys the SDK default credential chain (the function's IAM role) applies.
+  private readonly bucket = process.env.S3_BUCKET?.trim() || requiredEnv("AWS_S3_BUCKET_NAME");
   private readonly client = new S3Client({
-    endpoint: requiredEnv("AWS_ENDPOINT_URL"),
-    region: process.env.AWS_DEFAULT_REGION ?? "auto",
-    forcePathStyle: process.env.AWS_S3_URL_STYLE === "path",
-    credentials: {
-      accessKeyId: requiredEnv("AWS_ACCESS_KEY_ID"),
-      secretAccessKey: requiredEnv("AWS_SECRET_ACCESS_KEY")
-    }
+    endpoint: process.env.S3_ENDPOINT?.trim() || process.env.AWS_ENDPOINT_URL?.trim() || undefined,
+    region: process.env.S3_REGION?.trim() || process.env.AWS_REGION || process.env.AWS_DEFAULT_REGION || "auto",
+    forcePathStyle: (process.env.S3_URL_STYLE ?? process.env.AWS_S3_URL_STYLE) === "path",
+    ...(process.env.S3_ACCESS_KEY_ID
+      ? {
+          credentials: {
+            accessKeyId: requiredEnv("S3_ACCESS_KEY_ID"),
+            secretAccessKey: requiredEnv("S3_SECRET_ACCESS_KEY")
+          }
+        }
+      : {})
   });
 
   async put(key: string, body: Buffer | Uint8Array | string | Readable, options: PutOptions = {}) {
@@ -121,6 +128,45 @@ export class StorageService {
       ),
       nextCursor: response.NextContinuationToken
     };
+  }
+
+  // The browser must PUT exactly this content type and byte length, so the signed URL cannot be reused for a
+  // larger or different object. x-amz-meta-* values are hoisted into the URL and need no extra headers.
+  async presignPut(
+    key: string,
+    options: {
+      contentType: string;
+      contentLength: number;
+      metadata?: Record<string, string>;
+      expiresInSeconds?: number;
+    }
+  ) {
+    return getSignedUrl(
+      this.client,
+      new PutObjectCommand({
+        Bucket: this.bucket,
+        Key: normalizeKey(key),
+        ContentType: options.contentType,
+        ContentLength: options.contentLength,
+        Metadata: options.metadata
+      }),
+      { expiresIn: options.expiresInSeconds ?? 300, signableHeaders: new Set(["content-type", "content-length"]) }
+    );
+  }
+
+  async presignGet(key: string, options: { filename?: string; contentType?: string; expiresInSeconds?: number } = {}) {
+    return getSignedUrl(
+      this.client,
+      new GetObjectCommand({
+        Bucket: this.bucket,
+        Key: normalizeKey(key),
+        ResponseContentType: options.contentType,
+        ResponseContentDisposition: options.filename
+          ? `inline; filename="${options.filename.replace(/["\\\r\n]/g, "_")}"`
+          : undefined
+      }),
+      { expiresIn: options.expiresInSeconds ?? 120 }
+    );
   }
 
   nodeStream(object: GetObjectCommandOutput) {

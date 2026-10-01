@@ -1,5 +1,4 @@
-import { ConflictException, Injectable, NotFoundException } from "@nestjs/common";
-import { randomUUID } from "node:crypto";
+import { ConflictException, Injectable, NotFoundException, Optional } from "@nestjs/common";
 import {
   MINOR_ID_CUTOFF,
   SENIOR_ID_CUTOFF,
@@ -8,9 +7,11 @@ import {
 } from "@cozy-d-714/shared";
 import { AuditService, type AuditActor } from "../audit/audit.service.js";
 import { SubmissionStatus } from "../generated/prisma/enums.js";
+import { JobDispatcher } from "../jobs/job.dispatcher.js";
 import { PrismaService } from "../prisma/prisma.service.js";
 import { StorageService } from "../storage/storage.service.js";
 import { SettingsService } from "../settings/settings.service.js";
+import { deleteAfterIso, safeFileName, uploadKey, type UploadRequest } from "../common/upload.js";
 
 @Injectable()
 export class SubmissionsService {
@@ -18,7 +19,8 @@ export class SubmissionsService {
     private readonly prisma: PrismaService,
     private readonly storage: StorageService,
     private readonly audit: AuditService,
-    private readonly settings: SettingsService
+    private readonly settings: SettingsService,
+    @Optional() private readonly jobs?: JobDispatcher
   ) {}
 
   async list(filter?: string) {
@@ -50,7 +52,8 @@ export class SubmissionsService {
           include: { files: { orderBy: { createdAt: "asc" } } }
         },
         runs: { orderBy: { createdAt: "desc" }, take: 1 },
-        aiReview: true
+        aiReview: true,
+        emailDeliveries: { orderBy: { createdAt: "desc" } }
       }
     });
     if (!submission) throw new NotFoundException("Submission not found");
@@ -69,6 +72,15 @@ export class SubmissionsService {
         status: submission.status.toLowerCase(),
         createdAt: submission.createdAt.toISOString(),
         latestError: submission.runs[0]?.errorMessage ?? null,
+        chatDeliveries: submission.emailDeliveries.map((delivery) => ({
+          id: delivery.id,
+          status: delivery.status,
+          message: delivery.message,
+          emailSentAt: delivery.emailSentAt?.toISOString() ?? null,
+          sentAt: delivery.sentAt?.toISOString() ?? null,
+          createdAt: delivery.createdAt.toISOString(),
+          lastError: delivery.lastError
+        })),
         aiReview: submission.aiReview
           ? {
               status: submission.aiReview.status.toLowerCase(),
@@ -97,20 +109,23 @@ export class SubmissionsService {
     };
   }
 
-  async uploadEditFile(id: string, file: Express.Multer.File) {
+  async presignEditUpload(id: string, request: UploadRequest) {
     const submission = await this.prisma.submission.findUnique({ where: { id }, select: { status: true } });
     if (!submission) throw new NotFoundException("Submission not found");
     ensureEditable(submission.status);
-    const safeName = file.originalname.replace(/[^a-zA-Z0-9._-]/g, "_");
-    const key = `admin-edits/${id}/${randomUUID()}-${safeName}`;
-    await this.storage.put(key, file.buffer, {
-      contentType: file.mimetype || "application/octet-stream",
-      metadata: {
-        originalName: file.originalname,
-        deleteAfter: new Date(Date.now() + 31 * 86_400_000).toISOString()
-      }
+    const key = uploadKey(`admin-edits/${id}`, request.filename);
+    const uploadUrl = await this.storage.presignPut(key, {
+      contentType: request.contentType,
+      contentLength: request.size,
+      metadata: { originalName: safeFileName(request.filename), deleteAfter: deleteAfterIso() }
     });
-    return { key, filename: file.originalname, size: file.size };
+    return {
+      key,
+      filename: request.filename,
+      size: request.size,
+      uploadUrl,
+      headers: { "Content-Type": request.contentType }
+    };
   }
 
   async update(id: string, input: UpdateSubmissionInput, actor?: AuditActor) {
@@ -239,6 +254,7 @@ export class SubmissionsService {
       previousStatus: submission.status.toLowerCase(),
       status: needsAiCheck ? "ai_check_pending" : "ready_for_review"
     });
+    if (needsAiCheck) await this.jobs?.enqueue("aiReview.queue");
     return { ok: true, status: needsAiCheck ? "ai_check_pending" : "ready_for_review" };
   }
 
@@ -265,6 +281,7 @@ export class SubmissionsService {
     await this.prisma.automationRun.create({
       data: { submissionId: id, status: "queued" }
     });
+    await this.jobs?.enqueue("automation.queue");
     return { ok: true, queued: true, status: "queued" };
   }
 
@@ -314,12 +331,12 @@ export class SubmissionsService {
     return { ok: true, deletedFiles: keys.length };
   }
 
-  async file(id: string) {
+  // Short-lived signed URL: Lambda responses are capped at 6 MB, so files are served by S3 directly.
+  async fileUrl(id: string) {
     const file = await this.prisma.guestFile.findUnique({ where: { id } });
     if (!file) throw new NotFoundException("File not found");
-    const object = await this.storage.get(file.storageKey);
-    if (!object) throw new NotFoundException("File is missing from storage");
-    return { file, object };
+    if (!(await this.storage.head(file.storageKey))) throw new NotFoundException("File is missing from storage");
+    return this.storage.presignGet(file.storageKey, { filename: file.filename, contentType: file.contentType });
   }
 }
 

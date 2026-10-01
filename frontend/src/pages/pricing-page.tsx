@@ -11,6 +11,12 @@ import {
 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
+import {
+  PRICING_TIERS,
+  channelPrice,
+  tierPrice,
+  startingPrice as roundStartingPrice
+} from "@cozy-d-714/shared";
 import type {
   AirbnbDiscountRule,
   AirbnbPricingRules,
@@ -166,12 +172,16 @@ export function PricingPage() {
         <TabsContent value="pricing" className="space-y-5">
           <SectionIntro
             title="Nightly prices"
-            description="Saved now and published by the next 8 AM run. Use Preview below if you want to publish immediately."
+            description={
+              settings.automationOn && settings.automationAvailable
+                ? "Saved changes publish at the next 8 AM Manila run. Use Preview to publish sooner."
+                : "Automation is paused. Save changes, then preview and publish when ready."
+            }
           />
           <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
             <PriceCard
               title="Base price"
-              description="Your usual nightly rate"
+              description="Starting rate for nights 31+ days away"
               value={config.baseAirbnbPrice}
               onChange={(value) => setConfig({ ...config, baseAirbnbPrice: value })}
             />
@@ -188,7 +198,7 @@ export function PricingPage() {
             />
             <PriceCard
               title="Minimum price"
-              description="Never publish below this"
+              description="Airbnb nightly floor before discounts and fees"
               value={config.minimumAirbnbPrice}
               onChange={(value) => setConfig({ ...config, minimumAirbnbPrice: value })}
             />
@@ -199,6 +209,8 @@ export function PricingPage() {
               onChange={(value) => setConfig({ ...config, maximumNonEventAirbnbPrice: value })}
             />
           </div>
+          <TierTable config={config} />
+          <PlatformMarkups config={config} setConfig={setConfig} />
           <SaveBar
             dirty={pricingDirty}
             working={working === "pricing"}
@@ -207,7 +219,8 @@ export function PricingPage() {
           />
           <PreviewPanel
             preview={preview}
-            working={working !== null}
+            working={working !== null || pricingDirty}
+            dirty={pricingDirty}
             onPreview={() =>
               void work("preview", async () => {
                 setPreview(await api.previewPricing());
@@ -387,7 +400,7 @@ export function PricingPage() {
         <TabsContent value="automation" className="space-y-5">
           <SectionIntro
             title="Advanced automation"
-            description="Occupancy, seasonal, event, channel, history, and retry controls."
+            description="Event premiums, channel adjustments, history, and retry controls."
           />
           <div className="rounded-xl border border-slate-200 bg-white p-5">
             <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
@@ -438,6 +451,127 @@ export function PricingPage() {
         </TabsContent>
       </Tabs>
     </div>
+  );
+}
+
+function platformLabel(channel: string) {
+  if (channel.toLowerCase() === "booking.com") return "Booking.com";
+  return statusLabel(channel);
+}
+
+function PlatformMarkups({
+  config,
+  setConfig
+}: {
+  config: PricingConfig;
+  setConfig: (config: PricingConfig) => void;
+}) {
+  return (
+    <section className="rounded-xl border border-slate-200 bg-white p-5">
+      <h3 className="font-semibold text-slate-950">Platform markups</h3>
+      <p className="mt-1 text-sm text-slate-500">
+        Added after the nightly tier to allow for platform costs and delayed payouts. Guest discounts and fees
+        still affect your earnings.
+      </p>
+      <div className="mt-4 grid gap-4 sm:grid-cols-2">
+        {["booking.com", "agoda"].map((channel) => {
+          const listing = config.listings.find((item) => item.channelType.toLowerCase() === channel);
+          if (!listing) return null;
+          return (
+            <label key={channel} className="rounded-lg bg-slate-50 p-4">
+              <span className="text-sm font-medium">{platformLabel(channel)} markup</span>
+              <div className="mt-2 flex items-center gap-2">
+                <Input
+                  aria-label={`${platformLabel(channel)} markup`}
+                  type="number"
+                  min="20"
+                  max="40"
+                  step="1"
+                  value={Math.round((listing.ratio - 1) * 100)}
+                  onChange={(event) =>
+                    setConfig({
+                      ...config,
+                      listings: config.listings.map((item) =>
+                        item.channelType.toLowerCase() === channel
+                          ? { ...item, ratio: Number((1 + Number(event.target.value) / 100).toFixed(4)) }
+                          : item
+                      )
+                    })
+                  }
+                />
+                <span>%</span>
+              </div>
+              <p className="mt-2 text-xs text-slate-500">
+                20–40% · At the Airbnb floor: {money(channelPrice(config.minimumAirbnbPrice, listing.ratio))}
+              </p>
+            </label>
+          );
+        })}
+      </div>
+    </section>
+  );
+}
+
+function TierTable({ config }: { config: PricingConfig }) {
+  const startingPrice = roundStartingPrice(
+    config.baseAirbnbPrice,
+    config.minimumAirbnbPrice,
+    config.maximumNonEventAirbnbPrice,
+    config.roundTo
+  );
+  const platforms = config.listings.filter(
+    (listing, index, listings) =>
+      listings.findIndex(
+        (other) => other.channelType === listing.channelType && other.ratio === listing.ratio
+      ) === index
+  );
+  return (
+    <section className="min-w-0 rounded-xl border border-slate-200 bg-white p-5">
+      <h3 className="font-semibold text-slate-950">Empty nights get cheaper as they approach</h3>
+      <p className="mt-1 text-sm text-slate-500">
+        Weekday examples using your current inputs. Weekend and event premiums also fade to the minimum within
+        two days.
+      </p>
+      {config.baseAirbnbPrice === config.minimumAirbnbPrice && (
+        <p className="mt-2 text-sm text-amber-700">
+          Base and minimum are equal, so ordinary nights have a flat price.
+        </p>
+      )}
+      <div className="mt-4 overflow-x-auto">
+        <table className="w-full whitespace-nowrap text-left text-sm">
+          <thead>
+            <tr>
+              <th className="p-2">Days away</th>
+              {platforms.map((listing) => (
+                <th className="p-2" key={listing.listingId}>
+                  {platformLabel(listing.channelType)}
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {PRICING_TIERS.map((tier) => {
+              const price = tierPrice(
+                startingPrice,
+                config.minimumAirbnbPrice,
+                tier.minimumDays,
+                config.roundTo
+              );
+              return (
+                <tr key={tier.label} className="border-t border-slate-100">
+                  <td className="p-2">{tier.label}</td>
+                  {platforms.map((listing) => (
+                    <td className="p-2 font-medium" key={listing.listingId}>
+                      {money(channelPrice(price, listing.ratio))}
+                    </td>
+                  ))}
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+    </section>
   );
 }
 
@@ -690,7 +824,9 @@ function SaveBar({
   onSave: () => void;
 }) {
   return (
-    <div className="z-10 flex flex-col gap-3 rounded-xl border border-slate-200 bg-white/95 p-4 shadow-lg backdrop-blur sm:sticky sm:bottom-3 sm:flex-row sm:items-center sm:justify-between">
+    <div
+      className={`z-10 flex flex-col gap-3 rounded-xl border border-slate-200 bg-white/95 p-4 shadow-lg backdrop-blur sm:flex-row sm:items-center sm:justify-between ${dirty ? "sm:sticky sm:bottom-3" : ""}`}
+    >
       <p className="text-sm text-slate-600">
         {dirty ? `${text} are not saved yet.` : "Everything is up to date."}
       </p>
@@ -734,44 +870,18 @@ function AdvancedRules({
   config: PricingConfig;
   setConfig: (config: PricingConfig) => void;
 }) {
-  const percentFields: Array<{ key: keyof PricingConfig; label: string }> = [
-    { key: "rainySeasonDiscount", label: "Rainy-season discount" },
-    { key: "urgentGapDiscount", label: "Urgent-gap discount" },
-    { key: "lowOccupancyThreshold", label: "Low occupancy starts below" },
-    { key: "lowOccupancyDiscount", label: "Low occupancy discount" },
-    { key: "mediumOccupancyThreshold", label: "Medium occupancy starts at" },
-    { key: "mediumOccupancyPremium", label: "Medium occupancy increase" },
-    { key: "highOccupancyThreshold", label: "High occupancy starts at" },
-    { key: "highOccupancyPremium", label: "High occupancy increase" },
-    { key: "eventBoost", label: "Event increase" }
-  ];
   return (
     <div className="space-y-3">
       <details className="rounded-xl border border-slate-200 bg-white p-5">
         <summary className="cursor-pointer font-semibold text-slate-950">
-          Occupancy, seasonal, and urgent gaps
+          Events, horizon, and rounding
         </summary>
         <div className="mt-5 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          {percentFields.map((field) => (
-            <NumberField
-              key={String(field.key)}
-              label={field.label}
-              suffix="%"
-              value={Number(config[field.key]) * 100}
-              onChange={(value) => setConfig({ ...config, [field.key]: value / 100 })}
-            />
-          ))}
           <NumberField
-            label="Urgent-gap window"
-            suffix="days"
-            value={config.urgentGapDays}
-            onChange={(value) => setConfig({ ...config, urgentGapDays: value })}
-          />
-          <NumberField
-            label="Low occupancy lead time"
-            suffix="days"
-            value={config.lowOccupancyLeadDays}
-            onChange={(value) => setConfig({ ...config, lowOccupancyLeadDays: value })}
+            label="Event increase"
+            suffix="%"
+            value={config.eventBoost * 100}
+            onChange={(value) => setConfig({ ...config, eventBoost: value / 100 })}
           />
           <NumberField
             label="Pricing horizon"
@@ -788,24 +898,26 @@ function AdvancedRules({
         </div>
       </details>
       <details className="rounded-xl border border-slate-200 bg-white p-5">
-        <summary className="cursor-pointer font-semibold text-slate-950">Platform adjustments</summary>
+        <summary className="cursor-pointer font-semibold text-slate-950">Other platform adjustments</summary>
         <p className="mt-2 text-sm text-slate-500">
           Shown as the percentage above or below the calculated Airbnb price.
         </p>
         <div className="mt-4 grid gap-3 sm:grid-cols-2">
-          {config.listings.map((listing, index) => (
-            <NumberField
-              key={`${listing.channelType}-${listing.listingId}`}
-              label={statusLabel(listing.channelType)}
-              suffix="% adjustment"
-              value={Math.round((listing.ratio - 1) * 100)}
-              onChange={(value) => {
-                const listings = [...config.listings];
-                listings[index] = { ...listing, ratio: 1 + value / 100 };
-                setConfig({ ...config, listings });
-              }}
-            />
-          ))}
+          {config.listings.map((listing, index) =>
+            ["airbnb", "agoda", "booking.com"].includes(listing.channelType.toLowerCase()) ? null : (
+              <NumberField
+                key={`${listing.channelType}-${listing.listingId}`}
+                label={platformLabel(listing.channelType)}
+                suffix="% adjustment"
+                value={Math.round((listing.ratio - 1) * 100)}
+                onChange={(value) => {
+                  const listings = [...config.listings];
+                  listings[index] = { ...listing, ratio: 1 + value / 100 };
+                  setConfig({ ...config, listings });
+                }}
+              />
+            )
+          )}
         </div>
       </details>
       <details className="rounded-xl border border-slate-200 bg-white p-5">
@@ -883,11 +995,13 @@ function NumberField({
 function PreviewPanel({
   preview,
   working,
+  dirty,
   onPreview,
   onApply
 }: {
   preview: PricingPreview | null;
   working: boolean;
+  dirty: boolean;
   onPreview: () => void;
   onApply: () => void;
 }) {
@@ -896,7 +1010,10 @@ function PreviewPanel({
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h2 className="font-semibold text-slate-950">Preview and publish now</h2>
-          <p className="mt-1 text-sm text-slate-500">Preview reads Hostex but never writes prices.</p>
+          <p className="mt-1 text-sm text-slate-500">
+            Preview reads Hostex but never writes prices.{" "}
+            {dirty && "Save your changes before previewing or applying."}
+          </p>
         </div>
         <Button variant="secondary" disabled={working} onClick={onPreview}>
           <Calculator className="size-4" />
@@ -907,20 +1024,52 @@ function PreviewPanel({
         <>
           <div className="mt-4 max-h-72 overflow-auto rounded-lg border border-slate-200">
             <div className="divide-y divide-slate-100">
-              {preview.days.slice(0, 31).map((day) => (
-                <div key={day.date} className="flex items-center justify-between px-3 py-2 text-sm">
+              {preview.days.map((day) => (
+                <div
+                  key={day.date}
+                  className="flex flex-col gap-2 px-3 py-3 text-sm sm:flex-row sm:items-center sm:justify-between"
+                >
                   <div>
                     <p className="font-medium text-slate-800">{formatDate(day.date)}</p>
-                    <p className="text-xs text-slate-400">{day.reasons.slice(1).join(", ") || "base"}</p>
+                    <p className="text-xs text-slate-500">
+                      {day.leadDays !== undefined && `${day.leadDays} days away · `}
+                      {day.tier}
+                    </p>
+                    <p className="text-xs text-slate-500">
+                      {day.reasons.filter((reason) => !reason.includes("days away")).join(", ")}
+                    </p>
                   </div>
-                  <span className="font-semibold">{money(day.airbnbPrice)}</span>
+                  {day.available ? (
+                    <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs sm:justify-end">
+                      {(day.platformPrices?.length
+                        ? day.platformPrices
+                        : [{ channelType: "airbnb", listingId: "airbnb", price: day.airbnbPrice }]
+                      )
+                        .filter(
+                          (item, index, items) =>
+                            items.findIndex(
+                              (other) => other.channelType === item.channelType && other.price === item.price
+                            ) === index
+                        )
+                        .map((item) => (
+                          <span key={`${item.channelType}-${item.listingId}`}>
+                            {platformLabel(item.channelType)} <strong>{money(item.price)}</strong>
+                          </span>
+                        ))}
+                    </div>
+                  ) : (
+                    <Badge>Skipped · booked or blocked</Badge>
+                  )}
                 </div>
               ))}
             </div>
           </div>
           <AlertDialog>
             <AlertDialogTrigger asChild>
-              <Button className="mt-4 w-full sm:w-auto" disabled={working}>
+              <Button
+                className="mt-4 w-full sm:w-auto"
+                disabled={working || !preview.days.some((day) => day.available)}
+              >
                 <Play className="size-4" />
                 Apply this preview
               </Button>
@@ -928,12 +1077,15 @@ function PreviewPanel({
             <AlertDialogContent>
               <AlertDialogTitle>Submit these prices to Hostex?</AlertDialogTitle>
               <AlertDialogDescription>
-                This writes {preview.days.length} daily recommendations across Airbnb, Booking.com, Agoda, and
-                direct booking. Hostex acceptance starts asynchronous platform updates.
+                This writes prices for {preview.days.filter((day) => day.available).length} available nights
+                across your configured platforms. Booked and blocked nights are skipped. Hostex acceptance
+                starts asynchronous platform updates.
               </AlertDialogDescription>
               <AlertDialogFooter>
                 <AlertDialogCancel>Cancel</AlertDialogCancel>
-                <AlertDialogAction onClick={onApply}>Apply prices</AlertDialogAction>
+                <AlertDialogAction disabled={working} onClick={onApply}>
+                  Apply prices
+                </AlertDialogAction>
               </AlertDialogFooter>
             </AlertDialogContent>
           </AlertDialog>

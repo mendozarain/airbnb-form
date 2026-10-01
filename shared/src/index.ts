@@ -231,8 +231,11 @@ export const pricingEventSchema = z.object({
   end: z.string().regex(/^\d{2}-\d{2}$/)
 });
 
+export const PRICING_ALGORITHM = "vacancy-tiers-v1" as const;
+
 export const pricingConfigSchema = z
   .object({
+    algorithm: z.literal(PRICING_ALGORITHM),
     propertyName: z.string().trim().min(1),
     propertyId: z.coerce.number().int().positive(),
     timezone: z.literal("Asia/Manila"),
@@ -240,17 +243,7 @@ export const pricingConfigSchema = z
     baseAirbnbPrice: z.coerce.number().int().positive(),
     minimumAirbnbPrice: z.coerce.number().int().positive(),
     maximumNonEventAirbnbPrice: z.coerce.number().int().positive(),
-    rainySeasonDiscount: z.coerce.number().min(0).max(1),
-    urgentGapDays: z.coerce.number().int().min(0).max(60),
-    urgentGapDiscount: z.coerce.number().min(0).max(1),
     weekendPremium: z.coerce.number().min(0).max(1),
-    lowOccupancyThreshold: z.coerce.number().min(0).max(1),
-    lowOccupancyDiscount: z.coerce.number().min(0).max(1),
-    lowOccupancyLeadDays: z.coerce.number().int().min(0).max(365),
-    mediumOccupancyThreshold: z.coerce.number().min(0).max(1),
-    mediumOccupancyPremium: z.coerce.number().min(0).max(1),
-    highOccupancyThreshold: z.coerce.number().min(0).max(1),
-    highOccupancyPremium: z.coerce.number().min(0).max(1),
     eventBoost: z.coerce.number().min(0).max(2),
     roundTo: z.coerce.number().int().positive(),
     listings: z.array(pricingListingSchema).min(1),
@@ -264,13 +257,28 @@ export const pricingConfigSchema = z
     message: "Base price cannot exceed maximum price",
     path: ["maximumNonEventAirbnbPrice"]
   })
-  .refine((value) => value.lowOccupancyThreshold <= value.mediumOccupancyThreshold, {
-    message: "Low occupancy threshold must not exceed medium threshold",
-    path: ["lowOccupancyThreshold"]
-  })
-  .refine((value) => value.mediumOccupancyThreshold <= value.highOccupancyThreshold, {
-    message: "Medium occupancy threshold must not exceed high threshold",
-    path: ["mediumOccupancyThreshold"]
+  .superRefine((value, context) => {
+    for (const channel of ["booking.com", "agoda"]) {
+      const listings = value.listings.filter((listing) => listing.channelType.toLowerCase() === channel);
+      for (const listing of listings) {
+        if (listing.ratio < 1.2 || listing.ratio > 1.4 || listing.ratio !== listings[0]?.ratio) {
+          context.addIssue({
+            code: "custom",
+            path: ["listings"],
+            message: `${channel} must use one markup between 20% and 40% across all its listings`
+          });
+        }
+      }
+    }
+    if (
+      value.listings.some((listing) => listing.channelType.toLowerCase() === "airbnb" && listing.ratio !== 1)
+    ) {
+      context.addIssue({
+        code: "custom",
+        path: ["listings"],
+        message: "Airbnb must use the calculated nightly price without a markup"
+      });
+    }
   });
 
 export type PricingConfig = z.infer<typeof pricingConfigSchema>;
@@ -290,6 +298,9 @@ export type PricingSettings = {
 
 export type PricingDay = {
   date: string;
+  leadDays?: number;
+  tier?: string;
+  platformPrices?: Array<{ channelType: string; listingId: string; price: number }>;
   airbnbPrice: number;
   available: boolean;
   occupancyRatio: number;
@@ -403,7 +414,18 @@ export type GuestFileView = {
   url: string;
 };
 
+export type EntrancePassChatDelivery = {
+  id: string;
+  status: string;
+  message: string;
+  emailSentAt: string | null;
+  sentAt: string | null;
+  createdAt: string;
+  lastError: string | null;
+};
+
 export type SubmissionDetail = SubmissionSummary & {
+  chatDeliveries?: EntrancePassChatDelivery[];
   buildingCode: BuildingCode;
   unitNumber: string;
   purpose: Purpose;
@@ -455,8 +477,10 @@ export type SettingsStatus = {
   };
   connected: boolean;
   hasStorageState: boolean;
+  pendingVerification: boolean;
   expired: boolean;
   connectedAt?: string;
+  accountEmail?: string;
   lastCheck?: {
     checkedAt: string;
     valid: boolean;
@@ -467,4 +491,22 @@ export type SettingsStatus = {
     configured: boolean;
     mode: "agentmail_api";
   };
+  googleRecovery: {
+    configured: boolean;
+    enabled: boolean;
+    state: "idle" | "recovering" | "manual_required";
+    expectedAccount: string;
+    incidentId?: string;
+    lastAttemptAt?: string;
+    lastSuccessAt?: string;
+    lastError?: string;
+    leaseUntil?: string;
+    alertDelivery: {
+      attempts: number;
+      sentAt?: string;
+      error?: string;
+    };
+  };
 };
+
+export { PRICING_TIERS, pricingTier, tierPrice, channelPrice, startingPrice } from "./pricing.js";

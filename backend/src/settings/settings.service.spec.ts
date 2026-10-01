@@ -90,6 +90,31 @@ describe("SettingsService email templates", () => {
     });
   });
 
+  it("normalizes legacy non-tenant copy on load and save while preserving tenant copy", async () => {
+    const legacy = {
+      subject: "Your upcoming stay and check-in guide",
+      html: "<h1>Your upcoming stay at Building D</h1><p>Check-in instructions and stay details</p><a href='https://example.com'>Directions</a>"
+    };
+    const { service, upsert } = createServiceWithMocks({
+      email_template_tenant: legacy,
+      email_template_visitor_viewing: legacy
+    });
+    expect(await service.getEmailTemplate("Tenant")).toEqual(legacy);
+    for (const purpose of ["Visitor of Tenant", "Viewing"] as const) {
+      const template = await service.getEmailTemplate(purpose);
+      expect(template.subject).toBe("Your upcoming visit and visit guide");
+      expect(template.html).toContain("Your upcoming visit to Building D");
+      expect(template.html).toContain("https://example.com");
+      expect(template.html).not.toMatch(/upcoming stay|check-in instructions|stay details/i);
+    }
+    await service.saveEmailTemplateForKind("visitorViewing", legacy);
+    expect(upsert).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        update: { value: expect.objectContaining({ subject: "Your upcoming visit and visit guide" }) }
+      })
+    );
+  });
+
   it("rejects an empty template", async () => {
     const service = createService({});
     await expect(
@@ -112,6 +137,6 @@ function createServiceWithMocks(values: Record<string, unknown>) {
     appSetting: { findUnique, upsert },
     $transaction: jest.fn((operations: Promise<unknown>[]) => Promise.all(operations))
   };
-  const service = new SettingsService(prisma as never, {} as never, {} as never);
+  const service = new SettingsService(prisma as never, {} as never, {} as never, {} as never);
   return { service, findUnique, upsert };
 }

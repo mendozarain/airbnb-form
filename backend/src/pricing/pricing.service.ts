@@ -1,6 +1,13 @@
 import { BadRequestException, ConflictException, Injectable, NotFoundException } from "@nestjs/common";
 import { Cron } from "@nestjs/schedule";
-import { pricingConfigSchema, type AirbnbPricingRulesPatch, type PricingConfig } from "@cozy-d-714/shared";
+import {
+  PRICING_ALGORITHM,
+  channelPrice,
+  pricingTier,
+  pricingConfigSchema,
+  type AirbnbPricingRulesPatch,
+  type PricingConfig
+} from "@cozy-d-714/shared";
 import { AuditService, type AuditActor } from "../audit/audit.service.js";
 import { PricingRunMode, PricingRunStatus } from "../generated/prisma/enums.js";
 import {
@@ -10,6 +17,7 @@ import {
 } from "../hostex/hostex.client.js";
 import { localDate } from "../hostex/hostex.time.js";
 import { PrismaService } from "../prisma/prisma.service.js";
+import { upgradePricingConfig } from "./pricing.config.js";
 import { addDays, calculatePricing, compressPrices, type CalculatedPricingDay } from "./pricing.engine.js";
 
 @Injectable()
@@ -21,15 +29,13 @@ export class PricingService {
   ) {}
 
   async settings() {
-    const [settings, history] = await Promise.all([
-      this.requiredSettings(),
-      this.prisma.pricingSettingVersion.findMany({
-        where: { settingId: "primary" },
-        orderBy: { version: "desc" },
-        take: 20,
-        select: { version: true, changedBy: true, createdAt: true }
-      })
-    ]);
+    const settings = await this.requiredSettings();
+    const history = await this.prisma.pricingSettingVersion.findMany({
+      where: { settingId: "primary" },
+      orderBy: { version: "desc" },
+      take: 20,
+      select: { version: true, changedBy: true, createdAt: true }
+    });
     return {
       version: settings.version,
       automationOn: settings.automationOn,
@@ -46,6 +52,7 @@ export class PricingService {
   }
 
   async updateSettings(config: PricingConfig, expectedVersion: number, actor?: AuditActor) {
+    await this.requiredSettings();
     const parsed = pricingConfigSchema.parse(config);
     const current = await this.prisma.$transaction(async (transaction) => {
       const updated = await transaction.pricingSetting.updateMany({
@@ -72,6 +79,10 @@ export class PricingService {
   }
 
   async setAutomation(enabled: boolean, actor?: AuditActor) {
+    await this.requiredSettings();
+    if (enabled && process.env.ENABLE_HOSTEX_PRICING_AUTOMATION !== "true") {
+      throw new ConflictException("Pricing automation is disabled in the server environment");
+    }
     await this.prisma.pricingSetting.update({
       where: { id: "primary" },
       data: { automationOn: enabled, updatedBy: actor?.email ?? null }
@@ -190,9 +201,8 @@ export class PricingService {
     if (!run) throw new NotFoundException("Pricing preview not found");
     if (run.status !== PricingRunStatus.PREVIEWED)
       throw new ConflictException("Only a preview can be applied");
-    const settings = await this.requiredSettings();
-    if (settings.version !== run.settingsVersion)
-      throw new ConflictException("Pricing settings changed; create a new preview");
+    const config = await this.assertPublishable(run);
+    if (!run.days.some((day) => day.available)) throw new ConflictException("No available nights to publish");
 
     const claimed = await this.prisma.pricingRun.updateMany({
       where: { id: runId, status: PricingRunStatus.PREVIEWED },
@@ -204,7 +214,6 @@ export class PricingService {
     });
     if (!claimed.count) throw new ConflictException("Pricing preview is already being applied");
 
-    const config = pricingConfigSchema.parse(run.configSnapshot);
     const days: CalculatedPricingDay[] = run.days.map((day) => ({
       date: dateOnly(day.date),
       airbnbPrice: day.airbnbPrice,
@@ -216,6 +225,7 @@ export class PricingService {
     let failures = 0;
     for (const listing of config.listings) {
       const ranges = compressPrices(days, listing.ratio);
+      if (!ranges.length) continue;
       try {
         const result = await this.hostex.submitPrices(listing.channelType, listing.listingId, ranges);
         await this.prisma.pricingSubmission.create({
@@ -281,7 +291,7 @@ export class PricingService {
     );
     if (newer) throw new ConflictException("A newer retry already exists for this listing");
 
-    const config = pricingConfigSchema.parse(run.configSnapshot);
+    const config = await this.assertPublishable(run);
     const listing = config.listings.find(
       (item) => item.channelType === failed.channelType && item.listingId === failed.listingId
     );
@@ -295,6 +305,7 @@ export class PricingService {
       reasons: Array.isArray(day.reasons) ? day.reasons.map(String) : []
     }));
     const ranges = compressPrices(days, listing.ratio);
+    if (!ranges.length) throw new ConflictException("No available nights to publish; create a new preview");
     let retry;
     try {
       retry = await this.prisma.pricingSubmission.create({
@@ -361,7 +372,8 @@ export class PricingService {
     if (!settings.automationOn) return;
     const date = localDate(new Date(), "Asia/Manila");
     const preview = await this.preview(undefined, PricingRunMode.AUTOMATIC, `automatic:${date}`);
-    if (preview.status === "previewed") await this.apply(preview.id);
+    if (preview.status === "previewed" && preview.days.some((day) => day.available))
+      await this.apply(preview.id);
   }
 
   private async getRunByKey(runKey: string) {
@@ -376,7 +388,96 @@ export class PricingService {
   private async requiredSettings() {
     const settings = await this.prisma.pricingSetting.findUnique({ where: { id: "primary" } });
     if (!settings) throw new Error("Pricing settings are missing");
-    return settings;
+    if (hasCurrentAlgorithm(settings.config)) return settings;
+    const config = upgradePricingConfig(settings.config);
+    // Upgrade config, version history and audit together. Only the winning reader upgrades.
+    return this.prisma.$transaction(async (transaction) => {
+      const changed = await transaction.pricingSetting.updateMany({
+        where: { id: settings.id, version: settings.version },
+        data: {
+          config: config as never,
+          version: { increment: 1 },
+          automationOn: false,
+          updatedBy: "system:pricing-upgrade"
+        }
+      });
+      const current = await transaction.pricingSetting.findUnique({ where: { id: settings.id } });
+      if (!current || !hasCurrentAlgorithm(current.config)) {
+        throw new ConflictException("Pricing settings changed during upgrade; refresh and try again");
+      }
+      if (changed.count) {
+        await transaction.pricingSettingVersion.create({
+          data: {
+            settingId: current.id,
+            version: current.version,
+            config: current.config as never,
+            changedBy: "system:pricing-upgrade"
+          }
+        });
+        await transaction.adminAuditEvent.create({
+          data: {
+            action: "pricing.algorithm_upgraded",
+            entityType: "pricing_settings",
+            entityId: current.id,
+            details: {
+              algorithm: PRICING_ALGORITHM,
+              previousVersion: settings.version,
+              version: current.version,
+              bookingMarkup: 30,
+              agodaMarkup: 30,
+              automationPaused: true
+            }
+          }
+        });
+      }
+      return current;
+    });
+  }
+
+  private async assertPublishable(run: {
+    configSnapshot: unknown;
+    settingsVersion: number;
+    startedAt: Date;
+    days: Array<{ date: Date; available: boolean }>;
+  }) {
+    if (!hasCurrentAlgorithm(run.configSnapshot)) {
+      throw new ConflictException("This run uses the retired pricing algorithm; create a new preview");
+    }
+    const settings = await this.requiredSettings();
+    if (settings.version !== run.settingsVersion) {
+      throw new ConflictException("Pricing settings changed; create a new preview");
+    }
+    const config = pricingConfigSchema.parse(run.configSnapshot);
+    const today = localDate(new Date(), config.timezone);
+    if (localDate(run.startedAt, config.timezone) !== today) {
+      throw new ConflictException("Pricing preview is from a different day; create a new preview");
+    }
+    const end = addDays(today, config.horizonDays);
+    const [availabilities, bookings] = await Promise.all([
+      this.hostex.getAvailabilities(config.propertyId, today, end),
+      this.prisma.booking.findMany({
+        where: { status: "accepted", checkOut: { gte: dateValue(today) }, checkIn: { lte: dateValue(end) } },
+        select: { checkIn: true, checkOut: true, status: true }
+      })
+    ]);
+    const fresh = calculatePricing(
+      today,
+      config,
+      bookings.map((booking) => ({
+        checkIn: dateOnly(booking.checkIn),
+        checkOut: dateOnly(booking.checkOut),
+        status: booking.status
+      })),
+      availabilities
+    );
+    const previous = new Map(run.days.map((day) => [dateOnly(day.date), day.available]));
+    if (
+      fresh.days.length !== run.days.length ||
+      fresh.days.some((day) => previous.get(day.date) !== day.available)
+    ) {
+      throw new ConflictException("Availability changed; create a new preview");
+    }
+    return config;
   }
 
   private async airbnbListingId() {
@@ -439,6 +540,7 @@ function runSummary(run: {
 function runView(
   run: Parameters<typeof runSummary>[0] & {
     occupancy: unknown;
+    configSnapshot?: unknown;
     days: Array<{
       date: Date;
       airbnbPrice: number;
@@ -449,11 +551,23 @@ function runView(
     }>;
   }
 ) {
+  const parsed = pricingConfigSchema.safeParse(run.configSnapshot);
+  const config = parsed.success ? parsed.data : null;
+  const today = localDate(run.startedAt, "Asia/Manila");
   return {
     ...runSummary(run),
     occupancy: run.occupancy ?? {},
     days: run.days.map((day) => ({
       date: dateOnly(day.date),
+      leadDays: Math.round((day.date.getTime() - dateValue(today).getTime()) / 86_400_000),
+      tier: config
+        ? pricingTier(Math.round((day.date.getTime() - dateValue(today).getTime()) / 86_400_000)).label
+        : undefined,
+      platformPrices: config?.listings.map((listing) => ({
+        channelType: listing.channelType,
+        listingId: listing.listingId,
+        price: channelPrice(day.airbnbPrice, listing.ratio)
+      })),
       airbnbPrice: day.airbnbPrice,
       available: day.available,
       occupancyRatio: day.occupancyRatio,
@@ -600,4 +714,10 @@ function requiredWeekdays(value: number[] | undefined, label: string) {
 
 function uniqueWeekdays(value: number[]) {
   return [...new Set(value)].sort((left, right) => left - right);
+}
+
+function hasCurrentAlgorithm(value: unknown) {
+  return Boolean(
+    value && typeof value === "object" && "algorithm" in value && value.algorithm === PRICING_ALGORITHM
+  );
 }

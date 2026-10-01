@@ -1,8 +1,9 @@
-import { ConflictException, Injectable, NotFoundException } from "@nestjs/common";
+import { ConflictException, Injectable, NotFoundException, Optional } from "@nestjs/common";
 import { Cron, CronExpression } from "@nestjs/schedule";
 import { AuditService, type AuditActor } from "../audit/audit.service.js";
 import { EmailService } from "../automation/email.service.js";
 import { AiReviewStatus, SubmissionStatus } from "../generated/prisma/enums.js";
+import { JobDispatcher } from "../jobs/job.dispatcher.js";
 import { PrismaService } from "../prisma/prisma.service.js";
 import { AI_REVIEW_MODEL, SettingsService } from "../settings/settings.service.js";
 import { StorageService } from "../storage/storage.service.js";
@@ -46,7 +47,8 @@ export class AiReviewService {
     private readonly storage: StorageService,
     private readonly settings: SettingsService,
     private readonly email: EmailService,
-    private readonly audit: AuditService
+    private readonly audit: AuditService,
+    @Optional() private readonly jobs?: JobDispatcher
   ) {}
 
   @Cron(CronExpression.EVERY_MINUTE)
@@ -111,6 +113,7 @@ export class AiReviewService {
     await this.audit.record(actor, "ai_id_check.overridden", "submission", submissionId, {
       status: "queued"
     });
+    await this.jobs?.enqueue("automation.queue");
     return { ok: true, status: "queued" };
   }
 
@@ -136,6 +139,7 @@ export class AiReviewService {
       }
     });
     await this.audit.record(actor, "ai_id_check.retried", "submission", submissionId);
+    await this.jobs?.enqueue("aiReview.queue");
     return { ok: true, status: "ai_check_pending" };
   }
 
@@ -241,6 +245,7 @@ export class AiReviewService {
       guestCount: results.length,
       status: autoQueue ? "queued" : "ready_for_review"
     });
+    if (autoQueue) await this.jobs?.enqueue("automation.queue");
   }
 
   private async reviewGuest(guest: {

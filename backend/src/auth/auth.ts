@@ -24,7 +24,10 @@ export const auth = betterAuth({
   },
   advanced: {
     database: { generateId: "uuid" },
-    useSecureCookies: process.env.NODE_ENV === "production"
+    useSecureCookies: process.env.NODE_ENV === "production",
+    // Behind Amplify and API Gateway the client address only arrives in X-Forwarded-For; without it every
+    // visitor shares one rate-limit bucket per path.
+    ipAddress: { ipAddressHeaders: ["x-forwarded-for"] }
   },
   plugins: [admin({ defaultRole: "user", adminRoles: ["admin"] })]
 });

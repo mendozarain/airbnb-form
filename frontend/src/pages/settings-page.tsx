@@ -208,6 +208,71 @@ export function SettingsPage() {
             session
           </Button>
         </div>
+        <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+          <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+            <label className="flex cursor-pointer items-start gap-3">
+              <Checkbox
+                checked={status?.googleRecovery.enabled ?? false}
+                disabled={acting || !status?.googleRecovery.configured}
+                onCheckedChange={(checked) =>
+                  void run(
+                    () => api.setGoogleAutoRecovery(checked === true),
+                    checked === true
+                      ? "Automatic Google recovery enabled"
+                      : "Automatic Google recovery disabled"
+                  )
+                }
+              />
+              <span className="space-y-1">
+                <span className="block font-medium">Recover Google automatically</span>
+                <span className="block text-sm text-slate-500">
+                  Uses only the 1Password item for {status?.googleRecovery.expectedAccount} when the PMO form
+                  redirects to Google login.
+                </span>
+              </span>
+            </label>
+            <Badge
+              className={
+                status?.googleRecovery.state === "recovering"
+                  ? "bg-amber-100 text-amber-800"
+                  : status?.googleRecovery.state === "manual_required"
+                    ? "bg-red-100 text-red-700"
+                    : "bg-emerald-100 text-emerald-700"
+              }
+            >
+              {status?.googleRecovery.state === "recovering"
+                ? "Reconnecting Google"
+                : status?.googleRecovery.state === "manual_required"
+                  ? "Waiting for manual Google session"
+                  : "Ready"}
+            </Badge>
+          </div>
+          {!status?.googleRecovery.configured && (
+            <p className="mt-3 text-sm text-amber-700">
+              Add the Browser Use integration, vault, item, and profile IDs in Railway before enabling
+              recovery.
+            </p>
+          )}
+          {status?.googleRecovery.lastError && (
+            <p className="mt-3 text-sm text-red-700">{status.googleRecovery.lastError}</p>
+          )}
+          {status?.pendingVerification && (
+            <p className="mt-3 text-sm text-amber-700">
+              A manually uploaded session is waiting for Check session before it can become active.
+            </p>
+          )}
+          {status?.googleRecovery.state === "manual_required" && status.googleRecovery.configured && (
+            <Button
+              className="mt-3"
+              variant="secondary"
+              disabled={acting}
+              onClick={() => void run(() => api.retryGoogleRecovery(), "Google recovery attempt completed")}
+            >
+              {acting ? <Loader2 className="size-4 animate-spin" /> : <RefreshCw className="size-4" />}
+              Retry automatic recovery
+            </Button>
+          )}
+        </div>
       </section>
 
       <section className="space-y-4 border-t border-slate-200 pt-7">

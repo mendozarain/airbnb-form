@@ -1,5 +1,5 @@
-import { ConflictException, GoneException, Injectable, NotFoundException } from "@nestjs/common";
-import { createHash, randomUUID } from "node:crypto";
+import { ConflictException, GoneException, Injectable, NotFoundException, Optional } from "@nestjs/common";
+import { createHash } from "node:crypto";
 import { nanoid } from "nanoid";
 import type {
   CreateBookingInviteInput,
@@ -11,10 +11,12 @@ import type {
 import { MINOR_ID_CUTOFF, SENIOR_ID_CUTOFF, requiresGuestId } from "@cozy-d-714/shared";
 import { AuditService, type AuditActor } from "../audit/audit.service.js";
 import { HostexDeliveryStatus, InviteStatus, SubmissionStatus } from "../generated/prisma/enums.js";
+import { JobDispatcher } from "../jobs/job.dispatcher.js";
 import { PrismaService } from "../prisma/prisma.service.js";
 import { SettingsService } from "../settings/settings.service.js";
 import { StorageService } from "../storage/storage.service.js";
 import { requiredEnv } from "../config/env.js";
+import { deleteAfterIso, safeFileName, uploadKey, type UploadRequest } from "../common/upload.js";
 
 @Injectable()
 export class InvitesService {
@@ -22,7 +24,8 @@ export class InvitesService {
     private readonly prisma: PrismaService,
     private readonly storage: StorageService,
     private readonly audit: AuditService,
-    private readonly settings: SettingsService
+    private readonly settings: SettingsService,
+    @Optional() private readonly jobs?: JobDispatcher
   ) {}
 
   async create(input: CreateInviteInput) {
@@ -274,18 +277,23 @@ export class InvitesService {
     };
   }
 
-  async upload(token: string, file: Express.Multer.File) {
+  // Files go straight from the browser to S3: API Gateway caps request bodies at 10 MB. The returned key is
+  // validated again (HeadObject) when the guest submits the registration.
+  async presignUpload(token: string, request: UploadRequest) {
     const invite = await this.findOpen(token);
-    const safeName = file.originalname.replace(/[^a-zA-Z0-9._-]/g, "_");
-    const key = `ids/${invite.id}/${randomUUID()}-${safeName}`;
-    const deleteAfter = new Date(Date.now() + 31 * 86400000).toISOString();
-
-    await this.storage.put(key, file.buffer, {
-      contentType: file.mimetype || "application/octet-stream",
-      metadata: { originalName: file.originalname, deleteAfter }
+    const key = uploadKey(`ids/${invite.id}`, request.filename);
+    const uploadUrl = await this.storage.presignPut(key, {
+      contentType: request.contentType,
+      contentLength: request.size,
+      metadata: { originalName: safeFileName(request.filename), deleteAfter: deleteAfterIso() }
     });
-
-    return { key, filename: file.originalname, size: file.size };
+    return {
+      key,
+      filename: request.filename,
+      size: request.size,
+      uploadUrl,
+      headers: { "Content-Type": request.contentType }
+    };
   }
 
   async submit(token: string, input: GuestSubmission) {
@@ -381,6 +389,8 @@ export class InvitesService {
       return created;
     });
 
+    if (initialStatus === SubmissionStatus.AI_CHECK_PENDING) await this.jobs?.enqueue("aiReview.queue");
+    else if (initialStatus === SubmissionStatus.QUEUED) await this.jobs?.enqueue("automation.queue");
     return { submissionId: submission.id, status: initialStatus.toLowerCase() };
   }
 

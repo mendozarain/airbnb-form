@@ -1,4 +1,4 @@
-import { Controller, Get, NotFoundException, Param, Res, StreamableFile } from "@nestjs/common";
+import { Controller, Get, NotFoundException, Param, Res } from "@nestjs/common";
 import { AllowAnonymous } from "@thallesp/nestjs-better-auth";
 import type { Response } from "express";
 import { StorageService } from "../storage/storage.service.js";
@@ -13,7 +13,7 @@ export class PassImageController {
 
   @Get(":token")
   @AllowAnonymous()
-  async image(@Param("token") token: string, @Res({ passthrough: true }) response: Response) {
+  async image(@Param("token") token: string, @Res() response: Response) {
     let storageKey: string;
     try {
       storageKey = this.links.verifyToken(token);
@@ -21,15 +21,15 @@ export class PassImageController {
       throw new NotFoundException("Entrance pass not found");
     }
 
-    const object = await this.storage.get(storageKey);
-    if (!object) throw new NotFoundException("Entrance pass not found");
+    if (!(await this.storage.head(storageKey))) throw new NotFoundException("Entrance pass not found");
 
-    response.setHeader("Cache-Control", "private, max-age=3600");
-    response.setHeader("X-Content-Type-Options", "nosniff");
-
-    return new StreamableFile(this.storage.nodeStream(object), {
-      type: "image/png",
-      disposition: 'inline; filename="matina-enclaves-entrance-pass.png"'
+    // Lambda responses are capped at 6 MB, so S3 serves the image through a short-lived signed URL.
+    const url = await this.storage.presignGet(storageKey, {
+      filename: "matina-enclaves-entrance-pass.png",
+      contentType: "image/png",
+      expiresInSeconds: 300
     });
+    response.setHeader("Cache-Control", "private, no-store");
+    response.redirect(302, url);
   }
 }

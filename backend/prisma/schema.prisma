@@ -317,6 +317,7 @@ model Submission {
   guests       Guest[]
   runs         AutomationRun[]
   aiReview     SubmissionAiReview?
+  emailDeliveries EntrancePassDelivery[]
 
   @@index([status, createdAt])
   @@map("submissions")
@@ -501,4 +502,41 @@ model HostexCalendarDay {
   @@unique([channelType, listingId, date])
   @@index([date])
   @@map("hostex_calendar_days")
+}
+
+// One record per deliberate email send; chat retries reuse this record.
+model EntrancePassDelivery {
+  id                 String     @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  submissionId       String     @map("submission_id") @db.Uuid
+  conversationId     String     @map("conversation_id")
+  recipient          String
+  message            String
+  status             String     @default("waiting_email")
+  emailSentAt        DateTime?  @map("email_sent_at") @db.Timestamptz(3)
+  sentAt             DateTime?  @map("sent_at") @db.Timestamptz(3)
+  lastAttemptAt      DateTime?  @map("last_attempt_at") @db.Timestamptz(3)
+  baselineMessageIds String[]   @default([]) @map("baseline_message_ids")
+  confirmedMessageId String?    @unique @map("confirmed_message_id")
+  lastError          String?    @map("last_error")
+  createdAt          DateTime   @default(now()) @map("created_at") @db.Timestamptz(3)
+  submission         Submission @relation(fields: [submissionId], references: [id], onDelete: Cascade)
+
+  @@index([status, createdAt])
+  @@index([submissionId, createdAt])
+  @@map("entrance_pass_deliveries")
+}
+
+// Admin actions that outlive an API Gateway request (about 30 seconds) run as background jobs; the UI polls this row.
+model BackgroundJob {
+  id         String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  kind       String
+  status     String    @default("queued")
+  result     Json?
+  error      String?
+  createdAt  DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  startedAt  DateTime? @map("started_at") @db.Timestamptz(3)
+  finishedAt DateTime? @map("finished_at") @db.Timestamptz(3)
+
+  @@index([kind, createdAt])
+  @@map("background_jobs")
 }

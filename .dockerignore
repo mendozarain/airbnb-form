@@ -8,3 +8,5 @@ node_modules
 .local
 coverage
 google-storage-state.json
+infra/cdk.out
+infra/node_modules
