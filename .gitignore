@@ -18,3 +18,4 @@ google-storage-state.json
 .agents/
 .claude/
 skills-lock.json
+infra/cdk.out/

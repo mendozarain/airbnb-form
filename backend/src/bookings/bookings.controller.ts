@@ -3,6 +3,7 @@ import { Roles, Session, type UserSession } from "@thallesp/nestjs-better-auth";
 import { createBookingInviteSchema, type CreateBookingInviteInput } from "@cozy-d-714/shared";
 import { ZodValidationPipe } from "../common/zod-validation.pipe.js";
 import { HostexService } from "../hostex/hostex.service.js";
+import { BackgroundJobsService } from "../jobs/background-jobs.service.js";
 import { InvitesService } from "../invites/invites.service.js";
 import { BookingsService } from "./bookings.service.js";
 
@@ -12,7 +13,8 @@ export class BookingsController {
   constructor(
     private readonly bookings: BookingsService,
     private readonly invites: InvitesService,
-    private readonly hostex: HostexService
+    private readonly hostex: HostexService,
+    private readonly jobs: BackgroundJobsService
   ) {}
 
   @Get()
@@ -37,7 +39,7 @@ export class BookingsController {
 
   @Post("sync")
   sync() {
-    return this.hostex.syncNow();
+    return this.jobs.start("admin.bookingsSync");
   }
 
   @Post(":id/invites")

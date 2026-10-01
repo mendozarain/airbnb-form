@@ -1,13 +1,13 @@
 import { zodResolver } from "@hookform/resolvers/zod";
-import { Loader2 } from "lucide-react";
+import { Loader2, Lock, Mail } from "lucide-react";
 import { useEffect } from "react";
 import { useForm } from "react-hook-form";
 import { useNavigate } from "react-router-dom";
 import { toast } from "sonner";
 import { z } from "zod";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
+import { Confetti } from "@/components/ui/confetti";
+import { IconField } from "@/components/ui/field";
 import { authClient } from "@/lib/auth-client";
 
 const schema = z.object({
@@ -37,32 +37,34 @@ export function SignInPage() {
   });
 
   return (
-    <main className="flex min-h-screen items-center justify-center px-4 py-10">
-      <section className="w-full max-w-sm rounded-lg border border-slate-200 bg-white p-6 shadow-sm">
-        <p className="text-xs font-semibold uppercase text-brand-700">Admin</p>
-        <h1 className="mt-2 text-2xl font-semibold">Sign in</h1>
-        <p className="mt-1 text-sm text-slate-600">Use your existing administrator account.</p>
-        <form className="mt-6 space-y-4" onSubmit={submit}>
-          <div className="space-y-2">
-            <Label htmlFor="email">Email</Label>
-            <Input id="email" type="email" autoComplete="email" {...form.register("email")} />
-            {form.formState.errors.email && (
-              <p className="text-sm text-red-600">{form.formState.errors.email.message}</p>
-            )}
-          </div>
-          <div className="space-y-2">
-            <Label htmlFor="password">Password</Label>
-            <Input
-              id="password"
-              type="password"
-              autoComplete="current-password"
-              {...form.register("password")}
-            />
-            {form.formState.errors.password && (
-              <p className="text-sm text-red-600">{form.formState.errors.password.message}</p>
-            )}
-          </div>
-          <Button className="w-full" disabled={form.formState.isSubmitting}>
+    <main className="flex min-h-screen items-center justify-center bg-lavender px-4 py-10">
+      <section className="relative w-full max-w-sm overflow-hidden rounded-xl bg-surface-raised p-6 shadow-card sm:p-8">
+        <div className="pt-2 text-center">
+          <Confetti />
+          <p className="text-label text-primary">Admin</p>
+          <h1 className="font-display mt-2 text-[44px] leading-[50px] text-ink">Welcome back</h1>
+          <p className="mt-2 text-sm text-ink-muted">Sign in to manage bookings and guest registrations.</p>
+        </div>
+        <form className="mt-8 space-y-5" onSubmit={submit} noValidate>
+          <IconField
+            icon={Mail}
+            label="Email"
+            type="email"
+            autoComplete="email"
+            placeholder="you@example.com"
+            error={form.formState.errors.email?.message}
+            {...form.register("email")}
+          />
+          <IconField
+            icon={Lock}
+            label="Password"
+            type="password"
+            autoComplete="current-password"
+            placeholder="Your password"
+            error={form.formState.errors.password?.message}
+            {...form.register("password")}
+          />
+          <Button size="lg" className="w-full" disabled={form.formState.isSubmitting}>
             {form.formState.isSubmitting && <Loader2 className="size-4 animate-spin" />}
             Sign in
           </Button>

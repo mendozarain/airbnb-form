@@ -1,4 +1,6 @@
 import type {
+  AirbnbPricingRules,
+  AirbnbPricingRulesPatch,
   BookingDetail,
   BookingSummary,
   CalendarMonth,
@@ -46,7 +48,7 @@ export const api = {
       "/api/admin/bookings/uncategorized/list"
     ),
   syncBookings: () =>
-    request<{ ok: true; found?: number; sent?: number }>("/api/admin/bookings/sync", { method: "POST" }),
+    runJob<{ ok: true; found?: number; sent?: number }>("/api/admin/bookings/sync"),
   createBookingInvite: (bookingId: string, body: CreateBookingInviteInput) =>
     request<{ inviteId: string; guestUrl: string; expiresAt: string }>(
       `/api/admin/bookings/${bookingId}/invites`,
@@ -66,9 +68,7 @@ export const api = {
       { method: "POST" }
     ),
   syncHostex: () =>
-    request<{ ok: true; found?: number; sent?: number; alreadyRunning?: boolean }>("/api/admin/hostex/sync", {
-      method: "POST"
-    }),
+    runJob<{ ok: true; found?: number; sent?: number; alreadyRunning?: boolean }>("/api/admin/hostex/sync"),
   getHostexStatus: () => request<HostexAutomationStatus>("/api/admin/hostex/status"),
   sendHostexInvite: (id: string, allowUnknownDuplicate = false) =>
     request<{ status?: string }>(`/api/admin/hostex/invites/${id}/send`, {
@@ -96,13 +96,25 @@ export const api = {
   updateSubmission: (id: string, body: unknown) =>
     request<{ ok: true; status: string }>(`/api/admin/submissions/${id}`, { method: "PATCH", body }),
   uploadSubmissionEditFile: (id: string, file: File) =>
-    upload<{ key: string; filename: string; size: number }>(
-      `/api/admin/submissions/${id}/files`,
-      "file",
-      file
-    ),
+    uploadToStorage(`/api/admin/submissions/${id}/files/presign`, file),
   confirmSubmission: (id: string) =>
     request<{ status: string; alreadyRunning?: boolean }>(`/api/admin/submissions/${id}/confirm`, {
+      method: "POST"
+    }),
+  approveAiReview: (id: string) =>
+    request<{ status: string; alreadyRunning?: boolean }>(`/api/admin/submissions/${id}/ai-review/approve`, {
+      method: "POST"
+    }),
+  retryAiReview: (id: string) =>
+    request<{ status: string }>(`/api/admin/submissions/${id}/ai-review/retry`, { method: "POST" }),
+  retryAiReviewNotification: (id: string) =>
+    request<{ ok: true }>(`/api/admin/submissions/${id}/ai-review/notify`, { method: "POST" }),
+  retrySubmissionChat: (id: string, deliveryId: string) =>
+    request<{ status: string }>(`/api/admin/submissions/${id}/chat-deliveries/${deliveryId}/retry`, {
+      method: "POST"
+    }),
+  reconcileSubmissionChat: (id: string, deliveryId: string) =>
+    request<{ status: string }>(`/api/admin/submissions/${id}/chat-deliveries/${deliveryId}/reconcile`, {
       method: "POST"
     }),
   retrySubmissionEmail: (id: string) =>
@@ -116,6 +128,16 @@ export const api = {
   deleteSubmission: (id: string) =>
     request<{ ok: true }>(`/api/admin/submissions/${id}`, { method: "DELETE" }),
   getSettings: () => request<SettingsStatus>("/api/admin/settings/status"),
+  setAutoQueue: (enabled: boolean) =>
+    request<{ autoQueue: boolean }>("/api/admin/settings/auto-queue", {
+      method: "POST",
+      body: { enabled }
+    }),
+  setAiIdCheck: (enabled: boolean, reviewEmail: string) =>
+    request<SettingsStatus["aiIdCheck"]>("/api/admin/settings/ai-id-check", {
+      method: "POST",
+      body: { enabled, reviewEmail }
+    }),
   getEmailTemplates: () => request<{ templates: EmailTemplateSet }>("/api/admin/settings/email-templates"),
   saveEmailTemplate: (kind: EmailTemplateKind, body: EmailTemplate) =>
     request<{ template: EmailTemplate }>(`/api/admin/settings/email-templates/${kind}`, {
@@ -123,9 +145,17 @@ export const api = {
       body
     }),
   checkGoogle: () =>
-    request<SettingsStatus["lastCheck"]>("/api/admin/settings/google-session/check", { method: "POST" }),
-  uploadFile: (token: string, file: File) =>
-    upload<{ key: string; filename: string; size: number }>(`/api/invites/${token}/files`, "file", file),
+    runJob<SettingsStatus["lastCheck"]>("/api/admin/settings/google-session/check"),
+  setGoogleAutoRecovery: (enabled: boolean) =>
+    request<SettingsStatus["googleRecovery"]>("/api/admin/settings/google-session/auto-recovery", {
+      method: "POST",
+      body: { enabled }
+    }),
+  retryGoogleRecovery: () =>
+    runJob<{ recovered: boolean; state: SettingsStatus["googleRecovery"] }>(
+      "/api/admin/settings/google-session/recover"
+    ),
+  uploadFile: (token: string, file: File) => uploadToStorage(`/api/invites/${token}/files/presign`, file),
   uploadGoogleState: (file: File) =>
     upload<{ connected: boolean }>("/api/admin/settings/google-session/upload", "storageState", file),
   getCalendar: (start: string, end: string) =>
@@ -133,18 +163,20 @@ export const api = {
       `/api/admin/calendar?start=${encodeURIComponent(start)}&end=${encodeURIComponent(end)}`
     ),
   syncCalendar: (start: string, end: string) =>
-    request<{ ok: true; days: number; syncedAt: string }>("/api/admin/calendar/sync", {
-      method: "POST",
-      body: { start, end }
-    }),
+    runJob<{ ok: true; days: number; syncedAt: string }>("/api/admin/calendar/sync", { start, end }),
   getPricingSettings: () => request<PricingSettings>("/api/admin/pricing/settings"),
+  getAirbnbPricingSettings: () => request<AirbnbPricingRules>("/api/admin/pricing/airbnb-settings"),
+  updateAirbnbPricingSettings: (body: AirbnbPricingRulesPatch) =>
+    request<AirbnbPricingRules>("/api/admin/pricing/airbnb-settings", {
+      method: "PATCH",
+      body
+    }),
   updatePricingSettings: (version: number, config: PricingConfig) =>
     request<PricingSettings>("/api/admin/pricing/settings", { method: "PUT", body: { version, config } }),
   setPricingAutomation: (enabled: boolean) =>
     request<PricingSettings>("/api/admin/pricing/automation", { method: "POST", body: { enabled } }),
   previewPricing: () => request<PricingPreview>("/api/admin/pricing/preview", { method: "POST" }),
-  applyPricing: (id: string) =>
-    request<{ run: PricingPreview }>(`/api/admin/pricing/runs/${id}/apply`, { method: "POST" }),
+  applyPricing: (id: string) => runJob<{ run: PricingPreview }>(`/api/admin/pricing/runs/${id}/apply`),
   retryPricingListing: (runId: string, submissionId: string) =>
     request<{ run: PricingRun }>(`/api/admin/pricing/runs/${runId}/submissions/${submissionId}/retry`, {
       method: "POST",
@@ -169,6 +201,60 @@ async function request<T>(path: string, options: { method?: string; body?: unkno
     body: options.body === undefined ? undefined : JSON.stringify(options.body)
   });
   return read<T>(response);
+}
+
+type BackgroundJob = {
+  id: string;
+  status: "queued" | "running" | "succeeded" | "failed";
+  result: unknown;
+  error: string | null;
+};
+
+const JOB_POLL_MS = 2000;
+const JOB_TIMEOUT_MS = 15 * 60_000;
+
+// Long admin actions run in the background on the server (API requests are cut off after about 30 seconds).
+// This starts one and resolves with its result, so callers can await it like any other request.
+async function runJob<T>(path: string, body?: unknown): Promise<T> {
+  const started = await request<{ jobId: string }>(path, { method: "POST", body });
+  const deadline = Date.now() + JOB_TIMEOUT_MS;
+  while (Date.now() < deadline) {
+    await new Promise((resolve) => setTimeout(resolve, JOB_POLL_MS));
+    const job = await request<BackgroundJob>(`/api/admin/jobs/${started.jobId}`);
+    if (job.status === "succeeded") return (job.result ?? {}) as T;
+    if (job.status === "failed") throw new Error(job.error ?? "The action failed");
+  }
+  throw new Error("The action is still running; check back in a few minutes");
+}
+
+const CONTENT_TYPES_BY_EXTENSION: Record<string, string> = {
+  pdf: "application/pdf",
+  jpg: "image/jpeg",
+  jpeg: "image/jpeg",
+  png: "image/png",
+  webp: "image/webp",
+  heic: "image/heic",
+  heif: "image/heif"
+};
+
+function contentTypeOf(file: File) {
+  if (file.type) return file.type;
+  return CONTENT_TYPES_BY_EXTENSION[file.name.split(".").pop()?.toLowerCase() ?? ""] ?? "application/octet-stream";
+}
+
+// Files go straight to S3 with a short-lived signed URL; the API only authorizes the upload.
+async function uploadToStorage(presignPath: string, file: File) {
+  const contentType = contentTypeOf(file);
+  const presigned = await request<{
+    key: string;
+    filename: string;
+    size: number;
+    uploadUrl: string;
+    headers: Record<string, string>;
+  }>(presignPath, { method: "POST", body: { filename: file.name, contentType, size: file.size } });
+  const response = await fetch(presigned.uploadUrl, { method: "PUT", headers: presigned.headers, body: file });
+  if (!response.ok) throw new Error("The file could not be uploaded. Try again.");
+  return { key: presigned.key, filename: presigned.filename, size: presigned.size };
 }
 
 async function upload<T>(path: string, field: string, file: File): Promise<T> {

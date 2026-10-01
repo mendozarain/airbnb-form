@@ -7,12 +7,18 @@ import {
   EmailService
 } from "../automation/email.service.js";
 import { GoogleSessionService } from "./google-session.service.js";
+import { GoogleSessionRecoveryService } from "./google-session-recovery.service.js";
 
 const TEMPLATE_KEYS: Record<EmailTemplateKind, string> = {
   tenant: "email_template_tenant",
   visitorViewing: "email_template_visitor_viewing"
 };
 const LEGACY_TENANT_TEMPLATE_KEY = "email_template";
+const AUTO_QUEUE_KEY = "auto_queue";
+const AI_ID_CHECK_KEY = "ai_id_check_enabled";
+const AI_REVIEW_EMAIL_KEY = "ai_review_email";
+export const AI_REVIEW_MODEL = "google/gemini-2.5-flash-lite";
+export const DEFAULT_AI_REVIEW_EMAIL = "mendozarhainne@gmail.com";
 
 export function emailTemplateKindForPurpose(purpose: Purpose): EmailTemplateKind {
   return purpose === "Tenant" ? "tenant" : "visitorViewing";
@@ -23,13 +29,80 @@ export class SettingsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly google: GoogleSessionService,
-    private readonly email: EmailService
+    private readonly email: EmailService,
+    private readonly googleRecovery: GoogleSessionRecoveryService
   ) {}
 
   async status() {
+    const [autoQueue, aiIdCheckEnabled, reviewEmail, google, googleRecovery] = await Promise.all([
+      this.isAutoQueueEnabled(),
+      this.isAiIdCheckEnabled(),
+      this.getAiReviewEmail(),
+      this.google.status(),
+      this.googleRecovery.status()
+    ]);
     return {
-      ...(await this.google.status()),
+      autoQueue,
+      aiIdCheck: {
+        enabled: aiIdCheckEnabled,
+        configured: Boolean(process.env.OPENROUTER_API_KEY?.trim()),
+        model: AI_REVIEW_MODEL,
+        reviewEmail
+      },
+      ...google,
+      googleRecovery,
       email: { configured: this.email.configured(), mode: "agentmail_api" as const }
+    };
+  }
+
+  async isAutoQueueEnabled() {
+    const setting = await this.prisma.appSetting.findUnique({ where: { key: AUTO_QUEUE_KEY } });
+    return setting?.value !== false;
+  }
+
+  async setAutoQueue(enabled: boolean) {
+    await this.prisma.appSetting.upsert({
+      where: { key: AUTO_QUEUE_KEY },
+      create: { key: AUTO_QUEUE_KEY, value: enabled },
+      update: { value: enabled }
+    });
+    return { autoQueue: enabled };
+  }
+
+  async isAiIdCheckEnabled() {
+    const setting = await this.prisma.appSetting.findUnique({ where: { key: AI_ID_CHECK_KEY } });
+    return setting?.value !== false;
+  }
+
+  async getAiReviewEmail() {
+    const setting = await this.prisma.appSetting.findUnique({ where: { key: AI_REVIEW_EMAIL_KEY } });
+    return typeof setting?.value === "string" && setting.value.trim()
+      ? setting.value.trim()
+      : DEFAULT_AI_REVIEW_EMAIL;
+  }
+
+  async setAiIdCheck(enabled: boolean, rawReviewEmail: string) {
+    const reviewEmail = rawReviewEmail.trim().toLowerCase();
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(reviewEmail)) {
+      throw new BadRequestException("A valid AI review email is required");
+    }
+    await this.prisma.$transaction([
+      this.prisma.appSetting.upsert({
+        where: { key: AI_ID_CHECK_KEY },
+        create: { key: AI_ID_CHECK_KEY, value: enabled },
+        update: { value: enabled }
+      }),
+      this.prisma.appSetting.upsert({
+        where: { key: AI_REVIEW_EMAIL_KEY },
+        create: { key: AI_REVIEW_EMAIL_KEY, value: reviewEmail },
+        update: { value: reviewEmail }
+      })
+    ]);
+    return {
+      enabled,
+      configured: Boolean(process.env.OPENROUTER_API_KEY?.trim()),
+      model: AI_REVIEW_MODEL,
+      reviewEmail
     };
   }
 
@@ -42,7 +115,9 @@ export class SettingsService {
 
     return {
       tenant: normaliseTemplate(tenant?.value ?? legacyTenant?.value, DEFAULT_EMAIL_TEMPLATE),
-      visitorViewing: normaliseTemplate(visitorViewing?.value, DEFAULT_VISITOR_VIEWING_EMAIL_TEMPLATE)
+      visitorViewing: visitTemplate(
+        normaliseTemplate(visitorViewing?.value, DEFAULT_VISITOR_VIEWING_EMAIL_TEMPLATE)
+      )
     };
   }
 
@@ -52,7 +127,8 @@ export class SettingsService {
   }
 
   async saveEmailTemplateForKind(kind: EmailTemplateKind, template: EmailTemplate | null | undefined) {
-    const value = validateTemplate(template);
+    const validated = validateTemplate(template);
+    const value = kind === "visitorViewing" ? visitTemplate(validated) : validated;
     await this.prisma.appSetting.upsert({
       where: { key: TEMPLATE_KEYS[kind] },
       create: { key: TEMPLATE_KEYS[kind], value },
@@ -86,4 +162,18 @@ function validateTemplate(template: EmailTemplate | null | undefined): EmailTemp
   }
   if (html.length > 60000) throw new BadRequestException("HTML body is too large");
   return { subject, html };
+}
+
+export function visitTemplate(template: EmailTemplate): EmailTemplate {
+  const wording = (value: string) =>
+    value
+      .replace(/upcoming stay at/gi, "upcoming visit to")
+      .replace(/upcoming stay/gi, "upcoming visit")
+      .replace(/stay details/gi, "visit details")
+      .replace(/your stay/gi, "your visit")
+      .replace(/check-in guide/gi, "visit guide")
+      .replace(/how to check in/gi, "Arrival directions")
+      .replace(/check-in instructions/gi, "visit directions")
+      .replace(/check-in details/gi, "visit details");
+  return { subject: wording(template.subject), html: wording(template.html) };
 }

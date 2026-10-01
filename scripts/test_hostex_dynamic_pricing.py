@@ -2,6 +2,7 @@
 
 import importlib.util
 import sys
+import subprocess
 import unittest
 from datetime import date, timedelta
 from pathlib import Path
@@ -40,6 +41,15 @@ def config():
 
 
 class PricingTests(unittest.TestCase):
+    def test_retired_entrypoint_refuses_apply_before_loading_config(self):
+        result = subprocess.run(
+            [sys.executable, str(MODULE_PATH), "--apply", "--config", "/nonexistent/pricing-config.json"],
+            capture_output=True, text=True, check=False,
+        )
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("Retired:", result.stderr)
+        self.assertNotIn("Cannot load pricing config", result.stderr)
+
     def test_urgent_gap_respects_2500_floor(self):
         today = date(2026, 7, 10)
         result = pricing.calculate_daily_price(today, today, True, 0.1, config())

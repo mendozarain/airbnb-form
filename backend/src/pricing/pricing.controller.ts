@@ -1,13 +1,22 @@
-import { BadRequestException, Body, Controller, Get, Param, Post, Put, Query } from "@nestjs/common";
+import { BadRequestException, Body, Controller, Get, Param, Patch, Post, Put, Query } from "@nestjs/common";
 import { Roles, Session, type UserSession } from "@thallesp/nestjs-better-auth";
-import { pricingConfigSchema } from "@cozy-d-714/shared";
+import {
+  airbnbPricingRulesPatchSchema,
+  pricingConfigSchema,
+  type AirbnbPricingRulesPatch
+} from "@cozy-d-714/shared";
+import { ZodValidationPipe } from "../common/zod-validation.pipe.js";
+import { BackgroundJobsService } from "../jobs/background-jobs.service.js";
 import { CalendarService } from "./calendar.service.js";
 import { PricingService } from "./pricing.service.js";
 
 @Controller("api/admin/pricing")
 @Roles(["admin"])
 export class PricingController {
-  constructor(private readonly pricing: PricingService) {}
+  constructor(
+    private readonly pricing: PricingService,
+    private readonly jobs: BackgroundJobsService
+  ) {}
 
   @Get("settings")
   settings() {
@@ -18,7 +27,23 @@ export class PricingController {
   updateSettings(@Body() body: { version: unknown; config: unknown }, @Session() session: UserSession) {
     const version = Number(body.version);
     if (!Number.isInteger(version)) throw new BadRequestException("Pricing settings version is required");
-    return this.pricing.updateSettings(pricingConfigSchema.parse(body.config), version, session.user);
+    const parsed = pricingConfigSchema.safeParse(body.config);
+    if (!parsed.success)
+      throw new BadRequestException(parsed.error.issues.map((issue) => issue.message).join("; "));
+    return this.pricing.updateSettings(parsed.data, version, session.user);
+  }
+
+  @Get("airbnb-settings")
+  airbnbSettings() {
+    return this.pricing.airbnbSettings();
+  }
+
+  @Patch("airbnb-settings")
+  updateAirbnbSettings(
+    @Body(new ZodValidationPipe(airbnbPricingRulesPatchSchema)) body: AirbnbPricingRulesPatch,
+    @Session() session: UserSession
+  ) {
+    return this.pricing.updateAirbnbSettings(body, session.user);
   }
 
   @Post("automation")
@@ -33,7 +58,10 @@ export class PricingController {
 
   @Post("runs/:id/apply")
   apply(@Param("id") id: string, @Session() session: UserSession) {
-    return this.pricing.apply(id, session.user);
+    return this.jobs.start("admin.pricingApply", {
+      runId: id,
+      actor: { id: session.user.id, email: session.user.email }
+    });
   }
 
   @Post("runs/:id/submissions/:submissionId/retry")
@@ -61,7 +89,10 @@ export class PricingController {
 @Controller("api/admin/calendar")
 @Roles(["admin"])
 export class CalendarController {
-  constructor(private readonly calendar: CalendarService) {}
+  constructor(
+    private readonly calendar: CalendarService,
+    private readonly jobs: BackgroundJobsService
+  ) {}
 
   @Get()
   get(@Query("start") start: string, @Query("end") end: string) {
@@ -73,6 +104,6 @@ export class CalendarController {
     if (typeof body.start !== "string" || typeof body.end !== "string") {
       throw new BadRequestException("Calendar dates are required");
     }
-    return this.calendar.sync(body.start, body.end);
+    return this.jobs.start("admin.calendarSync", { start: body.start, end: body.end });
   }
 }

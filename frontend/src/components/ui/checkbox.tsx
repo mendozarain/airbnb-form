@@ -6,13 +6,13 @@ export function Checkbox({ className, ...props }: React.ComponentProps<typeof Ch
   return (
     <CheckboxPrimitive.Root
       className={cn(
-        "flex size-5 shrink-0 items-center justify-center rounded border border-slate-400 bg-white data-[state=checked]:border-brand-600 data-[state=checked]:bg-brand-600",
+        "flex size-5 shrink-0 items-center justify-center rounded-sm border border-line-strong bg-surface-raised data-[state=checked]:border-primary data-[state=checked]:bg-primary",
         className
       )}
       {...props}
     >
       <CheckboxPrimitive.Indicator>
-        <Check className="size-4 text-white" />
+        <Check className="size-4 text-on-primary" />
       </CheckboxPrimitive.Indicator>
     </CheckboxPrimitive.Root>
   );

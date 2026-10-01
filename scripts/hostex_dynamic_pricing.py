@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Guarded daily dynamic pricing for D-714 through the Hostex v3 API.
+"""Retired pricing entrypoint. Use the NestJS pricing service; helpers remain for historical tests.
 
 Dry-run is the default. Passing --apply is required to submit prices.
 Hostex price writes are asynchronous, so an accepted API response is reported
@@ -472,50 +472,9 @@ def parse_args() -> argparse.Namespace:
 
 
 def main() -> int:
-    args = parse_args()
-    load_env_file(args.env_file)
-    config = load_config(args.config)
-    timezone = ZoneInfo(config["timezone"])
-    now = datetime.now(timezone)
-    today = args.as_of or now.date()
-    end = today + timedelta(days=int(config["horizon_days"]))
-
-    client = HostexClient(os.environ.get("HOSTEX_ACCESS_TOKEN", ""))
-    reservations = client.reservations(int(config["property_id"]), today, end)
-    availabilities = client.availabilities(int(config["property_id"]), today, end)
-    occupancy, occupancy_detail = occupancy_by_month(today, end, reservations)
-    daily_prices = build_daily_prices(today, end, availabilities, occupancy, config)
-
-    submissions: list[dict[str, Any]] = []
-    if args.apply:
-        failures: list[str] = []
-        for listing in config["listings"]:
-            ranges = compress_prices(daily_prices, float(listing["ratio"]))
-            try:
-                result = client.submit_prices(
-                    listing["channel_type"], str(listing["listing_id"]), ranges
-                )
-                submissions.append(
-                    {
-                        "channel_type": listing["channel_type"],
-                        "listing_id": str(listing["listing_id"]),
-                        "ratio": float(listing["ratio"]),
-                        "range_count": len(ranges),
-                        "request_id": result.get("request_id"),
-                    }
-                )
-            except PricingError as exc:
-                failures.append(f"{listing['channel_type']}/{listing['listing_id']}: {exc}")
-        if failures:
-            raise PricingError(
-                f"{len(failures)} Hostex price submissions failed after "
-                f"{len(submissions)} were accepted:\n- " + "\n- ".join(failures)
-            )
-
-    mode = "apply" if args.apply else "dry-run"
-    audit_path = write_audit_log(mode, now, config, daily_prices, submissions)
-    print_report(mode, now, config, occupancy_detail, daily_prices, submissions, audit_path)
-    return 0
+    print("Retired: use the application's Pricing preview/apply and NestJS scheduler. "
+          "Disable the legacy Railway hostex-pricing cron before enabling NestJS pricing.", file=sys.stderr)
+    return 1
 
 
 if __name__ == "__main__":

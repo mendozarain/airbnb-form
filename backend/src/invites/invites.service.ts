@@ -1,5 +1,5 @@
-import { ConflictException, GoneException, Injectable, NotFoundException } from "@nestjs/common";
-import { createHash, randomUUID } from "node:crypto";
+import { ConflictException, GoneException, Injectable, NotFoundException, Optional } from "@nestjs/common";
+import { createHash } from "node:crypto";
 import { nanoid } from "nanoid";
 import type {
   CreateBookingInviteInput,
@@ -8,19 +8,24 @@ import type {
   RegenerateInviteInput,
   UpdateInviteInput
 } from "@cozy-d-714/shared";
-import { MINOR_ID_CUTOFF } from "@cozy-d-714/shared";
+import { MINOR_ID_CUTOFF, SENIOR_ID_CUTOFF, requiresGuestId } from "@cozy-d-714/shared";
 import { AuditService, type AuditActor } from "../audit/audit.service.js";
-import { HostexDeliveryStatus, InviteStatus } from "../generated/prisma/enums.js";
+import { HostexDeliveryStatus, InviteStatus, SubmissionStatus } from "../generated/prisma/enums.js";
+import { JobDispatcher } from "../jobs/job.dispatcher.js";
 import { PrismaService } from "../prisma/prisma.service.js";
+import { SettingsService } from "../settings/settings.service.js";
 import { StorageService } from "../storage/storage.service.js";
 import { requiredEnv } from "../config/env.js";
+import { deleteAfterIso, safeFileName, uploadKey, type UploadRequest } from "../common/upload.js";
 
 @Injectable()
 export class InvitesService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly storage: StorageService,
-    private readonly audit: AuditService
+    private readonly audit: AuditService,
+    private readonly settings: SettingsService,
+    @Optional() private readonly jobs?: JobDispatcher
   ) {}
 
   async create(input: CreateInviteInput) {
@@ -267,30 +272,48 @@ export class InvitesService {
       purpose: invite.purpose,
       ownerName: requiredEnv("OWNER_NAME"),
       ownerContact: requiredEnv("OWNER_CONTACT"),
-      minorIdCutoff: Number(process.env.MINOR_ID_CUTOFF ?? MINOR_ID_CUTOFF)
+      minorIdCutoff: Number(process.env.MINOR_ID_CUTOFF ?? MINOR_ID_CUTOFF),
+      seniorIdCutoff: Number(process.env.SENIOR_ID_CUTOFF ?? SENIOR_ID_CUTOFF)
     };
   }
 
-  async upload(token: string, file: Express.Multer.File) {
+  // Files go straight from the browser to S3: API Gateway caps request bodies at 10 MB. The returned key is
+  // validated again (HeadObject) when the guest submits the registration.
+  async presignUpload(token: string, request: UploadRequest) {
     const invite = await this.findOpen(token);
-    const safeName = file.originalname.replace(/[^a-zA-Z0-9._-]/g, "_");
-    const key = `ids/${invite.id}/${randomUUID()}-${safeName}`;
-    const deleteAfter = new Date(Date.now() + 31 * 86400000).toISOString();
-
-    await this.storage.put(key, file.buffer, {
-      contentType: file.mimetype || "application/octet-stream",
-      metadata: { originalName: file.originalname, deleteAfter }
+    const key = uploadKey(`ids/${invite.id}`, request.filename);
+    const uploadUrl = await this.storage.presignPut(key, {
+      contentType: request.contentType,
+      contentLength: request.size,
+      metadata: { originalName: safeFileName(request.filename), deleteAfter: deleteAfterIso() }
     });
-
-    return { key, filename: file.originalname, size: file.size };
+    return {
+      key,
+      filename: request.filename,
+      size: request.size,
+      uploadUrl,
+      headers: { "Content-Type": request.contentType }
+    };
   }
 
   async submit(token: string, input: GuestSubmission) {
     const invite = await this.findOpen(token);
-    const cutoff = Number(process.env.MINOR_ID_CUTOFF ?? MINOR_ID_CUTOFF);
+    const [autoQueue, aiIdCheck] = await Promise.all([
+      this.settings.isAutoQueueEnabled(),
+      this.settings.isAiIdCheckEnabled()
+    ]);
+    const lowerCutoff = Number(process.env.MINOR_ID_CUTOFF ?? MINOR_ID_CUTOFF);
+    const upperCutoff = Number(process.env.SENIOR_ID_CUTOFF ?? SENIOR_ID_CUTOFF);
+    const needsAiCheck =
+      aiIdCheck && input.guests.some((guest) => requiresGuestId(guest.age, lowerCutoff, upperCutoff));
+    const initialStatus = needsAiCheck
+      ? SubmissionStatus.AI_CHECK_PENDING
+      : autoQueue
+        ? SubmissionStatus.QUEUED
+        : SubmissionStatus.READY_FOR_REVIEW;
 
     for (const guest of input.guests) {
-      if (guest.age >= cutoff && !guest.idFileKey) {
+      if (requiresGuestId(guest.age, lowerCutoff, upperCutoff) && !guest.idFileKey) {
         throw new ConflictException(`Valid ID is required for ${guest.fullName}`);
       }
     }
@@ -298,7 +321,9 @@ export class InvitesService {
     const files = new Map<string, Awaited<ReturnType<StorageService["head"]>>>();
     for (const key of input.guests.flatMap((guest) => (guest.idFileKey ? [guest.idFileKey] : []))) {
       const object = await this.storage.head(key);
-      if (!object) throw new ConflictException("An uploaded ID file is missing");
+      if (!object || !key.startsWith(`ids/${invite.id}/`)) {
+        throw new ConflictException("An uploaded ID file is missing");
+      }
       files.set(key, object);
     }
 
@@ -313,9 +338,24 @@ export class InvitesService {
           checkOut: invite.checkOut,
           purpose: invite.purpose,
           ownerName: requiredEnv("OWNER_NAME"),
-          ownerContact: requiredEnv("OWNER_CONTACT")
+          ownerContact: requiredEnv("OWNER_CONTACT"),
+          status: initialStatus
         }
       });
+
+      if (needsAiCheck) {
+        await tx.submissionAiReview.create({
+          data: {
+            submissionId: created.id,
+            status: "PENDING",
+            model: "google/gemini-2.5-flash-lite"
+          }
+        });
+      } else if (autoQueue) {
+        await tx.automationRun.create({
+          data: { submissionId: created.id, status: "queued" }
+        });
+      }
 
       for (const guest of input.guests) {
         const createdGuest = await tx.guest.create({
@@ -323,7 +363,7 @@ export class InvitesService {
             submissionId: created.id,
             fullName: guest.fullName,
             age: guest.age,
-            requiresId: guest.age >= cutoff
+            requiresId: requiresGuestId(guest.age, lowerCutoff, upperCutoff)
           }
         });
 
@@ -349,7 +389,9 @@ export class InvitesService {
       return created;
     });
 
-    return { submissionId: submission.id, status: "ready_for_review" };
+    if (initialStatus === SubmissionStatus.AI_CHECK_PENDING) await this.jobs?.enqueue("aiReview.queue");
+    else if (initialStatus === SubmissionStatus.QUEUED) await this.jobs?.enqueue("automation.queue");
+    return { submissionId: submission.id, status: initialStatus.toLowerCase() };
   }
 
   private async findOpen(token: string) {

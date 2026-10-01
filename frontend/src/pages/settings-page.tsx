@@ -12,6 +12,7 @@ import type {
 import { PageHeader } from "@/components/page-header";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -33,6 +34,7 @@ export function SettingsPage() {
   const [activeTemplate, setActiveTemplate] = useState<EmailTemplateKind>("tenant");
   const [loading, setLoading] = useState(true);
   const [acting, setActing] = useState(false);
+  const [aiReviewEmail, setAiReviewEmail] = useState("mendozarhainne@gmail.com");
 
   const refresh = useCallback(async () => {
     setLoading(true);
@@ -44,6 +46,7 @@ export function SettingsPage() {
         api.getPricingSettings()
       ]);
       setStatus(nextStatus);
+      setAiReviewEmail(nextStatus.aiIdCheck.reviewEmail);
       setHostex(nextHostex);
       setPricing(nextPricing);
       setTemplates(email.templates);
@@ -123,9 +126,9 @@ export function SettingsPage() {
       <section className="space-y-4">
         <div>
           <h2 className="text-lg font-semibold">Connections</h2>
-          <p className="text-sm text-slate-500">Live connection health without exposing credentials.</p>
+          <p className="text-sm text-ink-muted">Live connection health without exposing credentials.</p>
         </div>
-        <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+        <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
           <Connection
             title="Google session"
             connected={Boolean(status?.connected)}
@@ -138,6 +141,15 @@ export function SettingsPage() {
               status?.email.configured
                 ? "Ready to send entrance passes."
                 : "AgentMail API configuration is missing."
+            }
+          />
+          <Connection
+            title="OpenRouter AI"
+            connected={Boolean(status?.aiIdCheck.configured)}
+            detail={
+              status?.aiIdCheck.configured
+                ? `${status.aiIdCheck.model} is ready for ID checks.`
+                : "OPENROUTER_API_KEY is missing; ID checks will be held for review."
             }
           />
           <Connection
@@ -161,11 +173,11 @@ export function SettingsPage() {
             }
           />
         </div>
-        <div className="flex flex-wrap gap-2 text-xs text-slate-500">
-          <Badge className="border border-slate-200 bg-white text-slate-600">
+        <div className="flex flex-wrap gap-2 text-xs text-ink-muted">
+          <Badge className="border border-hairline bg-surface-raised text-ink-muted">
             Guest messages: {hostex?.automationEnabled ? "enabled" : "off"}
           </Badge>
-          <Badge className="border border-slate-200 bg-white text-slate-600">
+          <Badge className="border border-hairline bg-surface-raised text-ink-muted">
             Pricing rules: v{pricing?.version ?? "—"}
           </Badge>
         </div>
@@ -182,7 +194,7 @@ export function SettingsPage() {
                 event.target.value = "";
               }}
             />
-            <span className="inline-flex h-10 items-center gap-2 rounded-md bg-brand-600 px-4 text-sm font-semibold text-white hover:bg-brand-700">
+            <span className="inline-flex h-10 items-center gap-2 rounded-md bg-primary px-4 text-sm font-semibold text-white hover:bg-primary-hover">
               <Upload className="size-4" />
               Upload session
             </span>
@@ -196,12 +208,151 @@ export function SettingsPage() {
             session
           </Button>
         </div>
+        <div className="rounded-xl border border-hairline bg-surface-raised p-4 shadow-sm">
+          <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+            <label className="flex cursor-pointer items-start gap-3">
+              <Checkbox
+                checked={status?.googleRecovery.enabled ?? false}
+                disabled={acting || !status?.googleRecovery.configured}
+                onCheckedChange={(checked) =>
+                  void run(
+                    () => api.setGoogleAutoRecovery(checked === true),
+                    checked === true
+                      ? "Automatic Google recovery enabled"
+                      : "Automatic Google recovery disabled"
+                  )
+                }
+              />
+              <span className="space-y-1">
+                <span className="block font-medium">Recover Google automatically</span>
+                <span className="block text-sm text-ink-muted">
+                  Uses only the 1Password item for {status?.googleRecovery.expectedAccount} when the PMO form
+                  redirects to Google login.
+                </span>
+              </span>
+            </label>
+            <Badge
+              className={
+                status?.googleRecovery.state === "recovering"
+                  ? "bg-butter/40 text-ink"
+                  : status?.googleRecovery.state === "manual_required"
+                    ? "bg-danger/10 text-danger"
+                    : "bg-success/10 text-success"
+              }
+            >
+              {status?.googleRecovery.state === "recovering"
+                ? "Reconnecting Google"
+                : status?.googleRecovery.state === "manual_required"
+                  ? "Waiting for manual Google session"
+                  : "Ready"}
+            </Badge>
+          </div>
+          {!status?.googleRecovery.configured && (
+            <p className="mt-3 text-sm text-ink">
+              Add the Browser Use integration, vault, item, and profile IDs in Railway before enabling
+              recovery.
+            </p>
+          )}
+          {status?.googleRecovery.lastError && (
+            <p className="mt-3 text-sm text-danger">{status.googleRecovery.lastError}</p>
+          )}
+          {status?.pendingVerification && (
+            <p className="mt-3 text-sm text-ink">
+              A manually uploaded session is waiting for Check session before it can become active.
+            </p>
+          )}
+          {status?.googleRecovery.state === "manual_required" && status.googleRecovery.configured && (
+            <Button
+              className="mt-3"
+              variant="secondary"
+              disabled={acting}
+              onClick={() => void run(() => api.retryGoogleRecovery(), "Google recovery attempt completed")}
+            >
+              {acting ? <Loader2 className="size-4 animate-spin" /> : <RefreshCw className="size-4" />}
+              Retry automatic recovery
+            </Button>
+          )}
+        </div>
       </section>
 
-      <section className="space-y-4 border-t border-slate-200 pt-7">
+      <section className="space-y-4 border-t border-hairline pt-7">
+        <div>
+          <h2 className="text-lg font-semibold">Registration workflow</h2>
+          <p className="text-sm text-ink-muted">Choose whether new guest registrations need admin review.</p>
+        </div>
+        <label className="flex cursor-pointer items-start gap-3 rounded-lg border border-hairline bg-surface-raised p-4">
+          <Checkbox
+            checked={status?.autoQueue ?? true}
+            disabled={acting}
+            onCheckedChange={(checked) =>
+              void run(
+                () => api.setAutoQueue(checked === true),
+                checked === true ? "Auto queue enabled" : "Auto queue disabled"
+              )
+            }
+          />
+          <span className="space-y-1">
+            <span className="block font-medium">Auto queue new registrations</span>
+            <span className="block text-sm text-ink-muted">
+              When enabled, a guest submission is queued for PMO processing immediately without pressing
+              Confirm. This is enabled by default.
+            </span>
+          </span>
+        </label>
+        <div className="space-y-4 rounded-lg border border-hairline bg-surface-raised p-4">
+          <label className="flex cursor-pointer items-start gap-3">
+            <Checkbox
+              checked={status?.aiIdCheck.enabled ?? true}
+              disabled={acting}
+              onCheckedChange={(checked) =>
+                void run(
+                  () => api.setAiIdCheck(checked === true, aiReviewEmail),
+                  checked === true ? "AI ID checks enabled" : "AI ID checks disabled"
+                )
+              }
+            />
+            <span className="space-y-1">
+              <span className="block font-medium">Check required IDs with AI</span>
+              <span className="block text-sm text-ink-muted">
+                Required IDs are checked before Auto Queue. Clear name mismatches are rejected; uncertain
+                results are held for manual review.
+              </span>
+            </span>
+          </label>
+          <div className="grid gap-2 sm:grid-cols-[1fr_auto] sm:items-end">
+            <div className="space-y-2">
+              <Label htmlFor="ai-review-email">AI review notification email</Label>
+              <Input
+                id="ai-review-email"
+                type="email"
+                value={aiReviewEmail}
+                onChange={(event) => setAiReviewEmail(event.target.value)}
+              />
+            </div>
+            <Button
+              variant="secondary"
+              disabled={acting || !aiReviewEmail.trim()}
+              onClick={() =>
+                void run(
+                  () => api.setAiIdCheck(status?.aiIdCheck.enabled ?? true, aiReviewEmail),
+                  "AI review settings saved"
+                )
+              }
+            >
+              Save review email
+            </Button>
+          </div>
+          <p className="text-xs text-ink-muted">
+            IDs are required only for guests aged 16–59. Review emails contain findings and a link, never the
+            ID itself.
+          </p>
+        </div>
+      </section>
+
+      <section className="space-y-4 border-t border-hairline pt-7">
         <div>
           <h2 className="text-lg font-semibold">Guest email</h2>
-          <p className="text-sm text-slate-500">
+          <p className="text-sm text-ink-muted">
             Each message shows the entrance pass inline with a button for the full-size image. No file is
             attached.
           </p>
@@ -217,8 +368,8 @@ export function SettingsPage() {
             </TabsTrigger>
           </TabsList>
         </Tabs>
-        <div className="space-y-4 rounded-lg border border-slate-200 bg-white p-4">
-          <p className="text-sm text-slate-500">
+        <div className="space-y-4 rounded-lg border border-hairline bg-surface-raised p-4">
+          <p className="text-sm text-ink-muted">
             {activeTemplate === "tenant"
               ? "Complete arrival, check-in, appliance, and stay guide for tenants."
               : "Shared essentials-only message for visitors of tenants and property viewings."}
@@ -239,19 +390,23 @@ export function SettingsPage() {
               value={template.html}
               onChange={(event) => updateTemplate({ html: event.target.value })}
             />
+            <p className="text-xs text-ink-muted">
+              Use <code className="rounded-sm bg-surface px-1">{"{{greeting_name}}"}</code> in the subject or
+              body. It becomes the guest's first name when the email is sent.
+            </p>
           </div>
           <div className="flex items-center justify-between gap-3">
-            <span className="text-sm text-slate-500">{dirty ? "Unsaved changes" : "All changes saved"}</span>
+            <span className="text-sm text-ink-muted">{dirty ? "Unsaved changes" : "All changes saved"}</span>
             <Button disabled={acting || !dirty} onClick={() => void saveActiveTemplate()}>
               Save {activeTemplate === "tenant" ? "Tenant" : "Visitor / Viewing"}
             </Button>
           </div>
         </div>
-        <details className="rounded-lg border border-slate-200 bg-white p-4">
+        <details className="rounded-lg border border-hairline bg-surface-raised p-4">
           <summary className="cursor-pointer text-sm font-medium">Preview email</summary>
           <div
-            className="mt-4 overflow-hidden rounded-md border border-slate-200"
-            dangerouslySetInnerHTML={{ __html: template.html }}
+            className="mt-4 overflow-hidden rounded-md border border-hairline"
+            dangerouslySetInnerHTML={{ __html: template.html.replaceAll("{{greeting_name}}", "Maria") }}
           />
         </details>
       </section>
@@ -265,21 +420,15 @@ function templatesEqual(left: EmailTemplate, right: EmailTemplate) {
 
 function Connection({ title, connected, detail }: { title: string; connected: boolean; detail: string }) {
   return (
-    <div className="rounded-lg border border-slate-200 bg-white p-4">
+    <div className="rounded-lg border border-hairline bg-surface-raised p-4">
       <div className="flex items-center justify-between gap-3">
         <h3 className="font-medium">{title}</h3>
-        <Badge
-          className={
-            connected
-              ? "border-emerald-200 bg-emerald-50 text-emerald-700"
-              : "border-amber-200 bg-amber-50 text-amber-700"
-          }
-        >
+        <Badge tone={connected ? "success" : "warning"}>
           {connected ? <CheckCircle2 className="mr-1 size-3" /> : <XCircle className="mr-1 size-3" />}
           {connected ? "Connected" : "Needs setup"}
         </Badge>
       </div>
-      <p className="mt-2 text-sm text-slate-500">{detail}</p>
+      <p className="mt-2 text-sm text-ink-muted">{detail}</p>
     </div>
   );
 }

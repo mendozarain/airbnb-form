@@ -1,5 +1,4 @@
 import {
-  BadRequestException,
   Body,
   Controller,
   Delete,
@@ -8,17 +7,16 @@ import {
   Patch,
   Post,
   Query,
-  Res,
-  UploadedFile,
-  UseInterceptors
+  Res
 } from "@nestjs/common";
-import { FileInterceptor } from "@nestjs/platform-express";
 import { Roles, Session, type UserSession } from "@thallesp/nestjs-better-auth";
 import { updateSubmissionSchema, type UpdateSubmissionInput } from "@cozy-d-714/shared";
 import type { Response } from "express";
+import { EntrancePassChatService } from "../automation/entrance-pass-chat.service.js";
 import { AutomationService } from "../automation/automation.service.js";
+import { AiReviewService } from "../ai-review/ai-review.service.js";
+import { parseUploadRequest } from "../common/upload.js";
 import { ZodValidationPipe } from "../common/zod-validation.pipe.js";
-import { StorageService } from "../storage/storage.service.js";
 import { SubmissionsService } from "./submissions.service.js";
 
 @Controller("api/admin")
@@ -26,8 +24,9 @@ import { SubmissionsService } from "./submissions.service.js";
 export class SubmissionsController {
   constructor(
     private readonly submissions: SubmissionsService,
-    private readonly storage: StorageService,
-    private readonly automation: AutomationService
+    private readonly automation: AutomationService,
+    private readonly aiReview: AiReviewService,
+    private readonly chat: EntrancePassChatService
   ) {}
 
   @Get("me")
@@ -50,16 +49,39 @@ export class SubmissionsController {
     return this.submissions.confirm(id);
   }
 
+  @Post("submissions/:id/ai-review/approve")
+  approveAiReview(@Param("id") id: string, @Session() session: UserSession) {
+    return this.aiReview.approveAndQueue(id, session.user);
+  }
+
+  @Post("submissions/:id/ai-review/retry")
+  retryAiReview(@Param("id") id: string, @Session() session: UserSession) {
+    return this.aiReview.retry(id, session.user);
+  }
+
+  @Post("submissions/:id/ai-review/notify")
+  retryAiReviewNotification(@Param("id") id: string, @Session() session: UserSession) {
+    return this.aiReview.retryNotification(id, session.user);
+  }
+
   @Post("submissions/:id/retry-email")
   retryEmail(@Param("id") id: string) {
     return this.automation.retryEmail(id);
   }
 
-  @Post("submissions/:id/files")
-  @UseInterceptors(FileInterceptor("file", { limits: { fileSize: 100 * 1024 * 1024 } }))
-  uploadEditFile(@Param("id") id: string, @UploadedFile() file?: Express.Multer.File) {
-    if (!file) throw new BadRequestException("File is required");
-    return this.submissions.uploadEditFile(id, file);
+  @Post("submissions/:id/chat-deliveries/:deliveryId/retry")
+  retryChat(@Param("id") id: string, @Param("deliveryId") deliveryId: string) {
+    return this.chat.retry(id, deliveryId);
+  }
+
+  @Post("submissions/:id/chat-deliveries/:deliveryId/reconcile")
+  reconcileChat(@Param("id") id: string, @Param("deliveryId") deliveryId: string) {
+    return this.chat.reconcile(id, deliveryId);
+  }
+
+  @Post("submissions/:id/files/presign")
+  presignEditUpload(@Param("id") id: string, @Body() body: unknown) {
+    return this.submissions.presignEditUpload(id, parseUploadRequest(body));
   }
 
   @Patch("submissions/:id")
@@ -88,10 +110,7 @@ export class SubmissionsController {
 
   @Get("files/:id")
   async file(@Param("id") id: string, @Res() response: Response) {
-    const { file, object } = await this.submissions.file(id);
-    response.setHeader("Content-Type", file.contentType);
-    response.setHeader("Content-Disposition", `inline; filename="${file.filename.replace(/["\r\n]/g, "")}"`);
     response.setHeader("Cache-Control", "private, no-store");
-    this.storage.nodeStream(object).pipe(response);
+    response.redirect(302, await this.submissions.fileUrl(id));
   }
 }

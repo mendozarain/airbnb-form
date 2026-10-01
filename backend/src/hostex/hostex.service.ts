@@ -1,4 +1,4 @@
-import { ConflictException, Injectable, NotFoundException } from "@nestjs/common";
+import { ConflictException, Injectable, NotFoundException, Optional } from "@nestjs/common";
 import { Cron, CronExpression } from "@nestjs/schedule";
 import { createHash, timingSafeEqual } from "node:crypto";
 import { nanoid } from "nanoid";
@@ -8,6 +8,7 @@ import {
   HostexWebhookStatus,
   InviteStatus
 } from "../generated/prisma/enums.js";
+import { JobDispatcher } from "../jobs/job.dispatcher.js";
 import { PrismaService } from "../prisma/prisma.service.js";
 import {
   HostexApiError,
@@ -19,7 +20,7 @@ import { addDaysToDateOnly, deliveryDueAt, endOfCheckInDay, localDate } from "./
 
 const DELIVERY_MESSAGE = (firstName: string, guestUrl: string) =>
   `Hi ${firstName}, please complete the guest registration form for your upcoming stay at Cozy Davao D-714 before arrival: ${guestUrl}\n\n` +
-  "Please include every guest and upload a valid ID for each guest aged 16 or older. Thank you!";
+  "Please include every guest and upload a valid ID for each guest aged 16 to 59. Guests aged 60 or older do not need an ID. Thank you!";
 
 const AUTOMATIC_SENDABLE: HostexDeliveryStatus[] = [
   HostexDeliveryStatus.SCHEDULED,
@@ -46,7 +47,8 @@ export class HostexService {
 
   constructor(
     private readonly prisma: PrismaService,
-    private readonly client: HostexClient
+    private readonly client: HostexClient,
+    @Optional() private readonly jobs?: JobDispatcher
   ) {}
 
   async authenticateWebhook(
@@ -126,6 +128,7 @@ export class HostexService {
 
     try {
       await this.prisma.hostexWebhookEvent.create({ data: { dedupeKey, ...values } });
+      await this.jobs?.enqueue("hostex.webhooks");
       return { ok: true, queued: true };
     } catch (error) {
       if (isUniqueConstraint(error)) return { ok: true, duplicate: true };
@@ -182,6 +185,7 @@ export class HostexService {
               lastError: safeError(error)
             }
           });
+          if (event.attempts < 5) await this.jobs?.wakeAt("hostex.webhooks", retryAt);
         }
       }
     } finally {
@@ -189,7 +193,7 @@ export class HostexService {
     }
   }
 
-  @Cron("*/15 14-23 * * *", { timeZone: process.env.HOSTEX_TIMEZONE ?? "Asia/Manila" })
+  @Cron("*/15 7-23 * * *", { timeZone: process.env.HOSTEX_TIMEZONE ?? "Asia/Manila" })
   async scheduledReservationSync() {
     if (!this.automationEnabled()) return;
     await this.syncUpcoming(true);
@@ -521,6 +525,7 @@ export class HostexService {
           (current?.attempts ?? 5) < 5 &&
           retryAt < endOfCheckInDay(dateOnly(current!.invite.checkIn), this.timeZone());
         const status = retryAllowed ? HostexDeliveryStatus.RETRY_WAIT : HostexDeliveryStatus.BLOCKED;
+        if (retryAllowed) await this.jobs?.wakeAt("hostex.deliveries", retryAt);
         const [updated] = await this.prisma.$transaction([
           this.prisma.hostexBookingAutomation.update({
             where: { id },
@@ -590,11 +595,7 @@ export class HostexService {
           inviteId: delivery.inviteId,
           kind: HostexDeliveryKind.AUTOMATED,
           status: {
-            in: [
-              HostexDeliveryStatus.SENDING,
-              HostexDeliveryStatus.SENT,
-              HostexDeliveryStatus.UNKNOWN
-            ]
+            in: [HostexDeliveryStatus.SENDING, HostexDeliveryStatus.SENT, HostexDeliveryStatus.UNKNOWN]
           }
         },
         orderBy: { createdAt: "desc" },

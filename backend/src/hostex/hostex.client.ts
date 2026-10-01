@@ -43,6 +43,25 @@ export type HostexListingCalendarDay = {
   restrictions?: unknown;
 };
 
+export type HostexDiscountRule = { discount: number; days: number };
+export type HostexAirbnbPriceRules = {
+  listing_currency?: string;
+  base_price?: number;
+  weekend_price?: number | null;
+  long_term_discount?: HostexDiscountRule[];
+  early_bird_discount?: HostexDiscountRule[];
+  last_minute_discount?: HostexDiscountRule[];
+  high_rated_guest_discount?: boolean;
+  mobile_only_discount?: boolean;
+  minimum_stay?: number;
+  maximum_stay?: number;
+  advance_notice?: number | null;
+  availability_window?: number;
+  preparation_time?: number;
+  days_of_week_check_in?: number[];
+  days_of_week_check_out?: number[];
+};
+
 export type HostexConversation = {
   id: string;
   messages: Array<{
@@ -180,6 +199,21 @@ export class HostexClient {
   ) {
     const payload = await this.request<never>("POST", "/listings/prices", {
       body: { channel_type: channelType, listing_id: listingId, prices }
+    });
+    return { requestId: payload.request_id ?? null };
+  }
+
+  async getAirbnbPriceAndRules(listingId: string) {
+    const payload = await this.request<HostexAirbnbPriceRules>("GET", "/listings/airbnb/price_and_rules", {
+      query: { listing_id: listingId }
+    });
+    if (!payload.data) throw new HostexApiError("Hostex returned no Airbnb settings", "empty");
+    return payload.data;
+  }
+
+  async updateAirbnbPriceAndRules(listingId: string, settings: HostexAirbnbPriceRules) {
+    const payload = await this.request<never>("POST", "/listings/airbnb/price_and_rules", {
+      body: { listing_id: listingId, settings }
     });
     return { requestId: payload.request_id ?? null };
   }

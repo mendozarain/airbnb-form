@@ -1,5 +1,5 @@
 import { jest } from "@jest/globals";
-import { HostexDeliveryStatus, InviteStatus } from "../generated/prisma/enums.js";
+import { HostexDeliveryStatus, InviteStatus, SubmissionStatus } from "../generated/prisma/enums.js";
 import { InvitesService } from "./invites.service.js";
 
 describe("InvitesService", () => {
@@ -28,6 +28,9 @@ describe("InvitesService", () => {
       submission: {
         create: resolved({ id: "submission-1" })
       },
+      automationRun: {
+        create: resolved({})
+      },
       guest: {
         create: resolved({ id: "guest-1" })
       },
@@ -46,21 +49,90 @@ describe("InvitesService", () => {
         callback(transaction)
       )
     };
-    const service = new InvitesService(prisma as never, {} as never, { record: resolved({}) } as never);
+    const service = new InvitesService(
+      prisma as never,
+      {} as never,
+      { record: resolved({}) } as never,
+      { isAutoQueueEnabled: resolved(true), isAiIdCheckEnabled: resolved(true) } as never
+    );
 
-    await service.submit("public-token", {
-      guestEmail: "guest@example.com",
-      guests: [{ fullName: "Guest One", age: 10 }],
-      acceptedRules: true
-    });
+    await expect(
+      service.submit("public-token", {
+        guestEmail: "guest@example.com",
+        guests: [{ fullName: "Guest One", age: 10 }],
+        acceptedRules: true
+      })
+    ).resolves.toEqual({ submissionId: "submission-1", status: "queued" });
 
     expect(transaction.submission.create).toHaveBeenCalledWith({
       data: expect.objectContaining({
         inviteId: "invite-1",
         guestEmail: "guest@example.com",
-        purpose: "Tenant"
+        purpose: "Tenant",
+        status: SubmissionStatus.QUEUED
       })
     });
+    expect(transaction.automationRun.create).toHaveBeenCalledWith({
+      data: { submissionId: "submission-1", status: "queued" }
+    });
+  });
+
+  it("holds an ID-required submission for AI review before Auto Queue", async () => {
+    const invite = {
+      id: "invite-1",
+      purpose: "Tenant",
+      checkIn: new Date("2026-08-01T00:00:00.000Z"),
+      checkOut: new Date("2026-08-02T00:00:00.000Z"),
+      status: InviteStatus.OPEN,
+      expiresAt: new Date("2099-08-01T00:00:00.000Z")
+    };
+    const transaction = {
+      submission: { create: resolved({ id: "submission-1" }) },
+      submissionAiReview: { create: resolved({}) },
+      automationRun: { create: resolved({}) },
+      guest: { create: resolved({ id: "guest-1" }) },
+      guestFile: { create: resolved({}) },
+      invite: { update: resolved({}) }
+    };
+    const prisma = {
+      invite: { findUnique: resolved(invite) },
+      $transaction: jest.fn(async (callback: (tx: typeof transaction) => Promise<unknown>) =>
+        callback(transaction)
+      )
+    };
+    const storage = {
+      head: resolved({
+        size: 1024,
+        contentType: "image/jpeg",
+        metadata: { originalName: "id.jpg" }
+      })
+    };
+    const settings = {
+      isAutoQueueEnabled: resolved(true),
+      isAiIdCheckEnabled: resolved(true)
+    };
+    const service = new InvitesService(
+      prisma as never,
+      storage as never,
+      { record: resolved({}) } as never,
+      settings as never
+    );
+
+    await expect(
+      service.submit("public-token", {
+        guestEmail: "guest@example.com",
+        guests: [{ fullName: "Guest One", age: 16, idFileKey: "ids/invite-1/id.jpg" }],
+        acceptedRules: true
+      })
+    ).resolves.toEqual({ submissionId: "submission-1", status: "ai_check_pending" });
+
+    expect(transaction.submission.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({ status: SubmissionStatus.AI_CHECK_PENDING })
+    });
+    expect(transaction.submissionAiReview.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({ submissionId: "submission-1", status: "PENDING" })
+    });
+    expect(transaction.automationRun.create).not.toHaveBeenCalled();
   });
 
   it("regenerates without sending and suppresses an existing scheduled delivery", async () => {
@@ -91,7 +163,7 @@ describe("InvitesService", () => {
       )
     };
     const audit = { record: resolved({}) };
-    const service = new InvitesService(prisma as never, {} as never, audit as never);
+    const service = new InvitesService(prisma as never, {} as never, audit as never, {} as never);
 
     const result = await service.regenerate("invite-old", { expiresAt: "2026-08-17T00:00:00.000Z" });
 
@@ -126,7 +198,12 @@ describe("InvitesService", () => {
         })
       }
     };
-    const service = new InvitesService(prisma as never, {} as never, { record: resolved({}) } as never);
+    const service = new InvitesService(
+      prisma as never,
+      {} as never,
+      { record: resolved({}) } as never,
+      {} as never
+    );
 
     await expect(service.getPublic("revoked-token")).rejects.toMatchObject({ status: 410 });
   });

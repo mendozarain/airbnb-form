@@ -5,6 +5,8 @@ import { SubmissionStatus } from "../generated/prisma/enums.js";
 import { PrismaService } from "../prisma/prisma.service.js";
 import { StorageService } from "../storage/storage.service.js";
 import { SettingsService } from "../settings/settings.service.js";
+import { GoogleSessionRecoveryService } from "../settings/google-session-recovery.service.js";
+import { EntrancePassChatService } from "./entrance-pass-chat.service.js";
 import { EmailService } from "./email.service.js";
 import { GoogleFormRunner, type GoogleFormFile, type GoogleFormSubmission } from "./google-form.runner.js";
 import { PassImageService } from "./pass-image.service.js";
@@ -25,7 +27,9 @@ export class AutomationService {
     private readonly runner: GoogleFormRunner,
     private readonly settings: SettingsService,
     private readonly email: EmailService,
-    private readonly passImages: PassImageService
+    private readonly passImages: PassImageService,
+    private readonly googleRecovery: GoogleSessionRecoveryService,
+    private readonly chat: EntrancePassChatService
   ) {}
 
   @Cron(CronExpression.EVERY_MINUTE)
@@ -33,6 +37,8 @@ export class AutomationService {
     if (this.processing || process.env.ENABLE_BACKGROUND_WORKERS === "false") return;
     this.processing = true;
     try {
+      await this.googleRecovery.maintain().catch(() => undefined);
+      if (!(await this.googleRecovery.queueMayRun())) return;
       const next = await this.prisma.submission.findFirst({
         where: { status: SubmissionStatus.QUEUED },
         orderBy: { createdAt: "asc" },
@@ -70,6 +76,7 @@ export class AutomationService {
         guestEmail: true,
         purpose: true,
         status: true,
+        guests: { orderBy: { createdAt: "asc" }, select: { fullName: true } },
         runs: {
           orderBy: { createdAt: "desc" },
           take: 1,
@@ -93,14 +100,20 @@ export class AutomationService {
     });
     if (!claimed.count) throw new ConflictException("Email send is already running");
 
+    let deliveryId: string | undefined;
+    let emailAccepted = false;
     try {
       const screenshot = await this.storage.head(run.screenshotStorageKey);
       if (!screenshot) throw new Error("Entrance pass screenshot is missing from storage");
+      deliveryId = (await this.chat.prepare(submissionId)).id;
       await this.email.sendEntrancePass(
         submission.guestEmail,
         await this.settings.getEmailTemplate(parsePurpose(submission.purpose)),
-        this.passImages.createUrl(run.screenshotStorageKey)
+        this.passImages.createUrl(run.screenshotStorageKey),
+        { guests: submission.guests, purpose: submission.purpose }
       );
+      emailAccepted = true;
+      await this.chat.emailSent(deliveryId);
       await this.prisma.$transaction([
         this.prisma.automationRun.update({
           where: { id: run.id },
@@ -113,6 +126,8 @@ export class AutomationService {
       ]);
       return { ok: true, status: "submitted_email_sent" };
     } catch (error) {
+      if (emailAccepted) throw error;
+      if (deliveryId) await this.chat.emailFailed(deliveryId);
       const message = error instanceof Error ? error.message : "Could not email entrance pass";
       await this.prisma.$transaction([
         this.prisma.automationRun.update({
@@ -132,6 +147,24 @@ export class AutomationService {
     try {
       const submission = await this.loadSubmission(submissionId);
       const result = await this.runner.submit(submission);
+      if (!result.ok && result.failureKind === "authentication_expired") {
+        await this.finishRun(
+          submissionId,
+          "waiting_for_google_session",
+          result.error ?? "Google authentication expired"
+        );
+        await this.prisma.$transaction([
+          this.prisma.submission.update({
+            where: { id: submissionId },
+            data: { status: SubmissionStatus.QUEUED }
+          }),
+          this.prisma.automationRun.create({ data: { submissionId, status: "queued" } })
+        ]);
+        await this.googleRecovery
+          .recoverIfNeeded(result.error ?? "Google authentication expired")
+          .catch(() => undefined);
+        return;
+      }
       let status: SubmissionStatus = result.ok
         ? SubmissionStatus.SUBMITTED
         : result.retryable
@@ -140,16 +173,21 @@ export class AutomationService {
       let errorMessage = result.error ?? null;
 
       if (result.ok && result.screenshotKey) {
+        let deliveryId: string | undefined;
         try {
           const screenshot = await this.storage.head(result.screenshotKey);
           if (!screenshot) throw new Error("Entrance pass screenshot is missing from storage");
+          deliveryId = (await this.chat.prepare(submissionId)).id;
           await this.email.sendEntrancePass(
             submission.guestEmail,
             await this.settings.getEmailTemplate(submission.purpose),
-            this.passImages.createUrl(result.screenshotKey)
+            this.passImages.createUrl(result.screenshotKey),
+            { guests: submission.guests, purpose: submission.purpose }
           );
           status = SubmissionStatus.SUBMITTED_EMAIL_SENT;
+          await this.chat.emailSent(deliveryId);
         } catch (error) {
+          if (deliveryId) await this.chat.emailFailed(deliveryId);
           errorMessage = error instanceof Error ? error.message : "Could not email entrance pass";
           status = SubmissionStatus.SUBMITTED_EMAIL_FAILED;
         }

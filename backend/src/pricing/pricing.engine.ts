@@ -1,4 +1,10 @@
-import type { PricingConfig } from "@cozy-d-714/shared";
+import {
+  pricingTier,
+  tierPrice,
+  channelPrice,
+  startingPrice as roundStartingPrice,
+  type PricingConfig
+} from "@cozy-d-714/shared";
 
 export type PricingInputBooking = { checkIn: string; checkOut: string; status: string };
 export type PricingAvailability = { date: string; available: boolean };
@@ -46,7 +52,13 @@ export function calculatePricing(
 
   const days = dates.map((date) => {
     const occupancyRatio = occupancy.get(date.slice(0, 7))?.ratio ?? 0;
-    return calculateDay(date, today, available.get(date) ?? false, occupancyRatio, config);
+    return calculateDay(
+      date,
+      today,
+      (available.get(date) ?? false) && !bookedDates.has(date),
+      occupancyRatio,
+      config
+    );
   });
   return { end, occupancy: Object.fromEntries(occupancy), days };
 }
@@ -59,54 +71,39 @@ export function calculateDay(
   config: PricingConfig
 ): CalculatedPricingDay {
   const day = new Date(`${date}T00:00:00.000Z`);
-  const month = day.getUTCMonth() + 1;
   const leadDays = daysBetween(today, date);
   let price = config.baseAirbnbPrice;
   const reasons = ["base"];
-
-  if (month >= 6 && month <= 11) {
-    price *= 1 - config.rainySeasonDiscount;
-    reasons.push("rainy season");
-  }
-  if (occupancyRatio >= config.highOccupancyThreshold) {
-    price *= 1 + config.highOccupancyPremium;
-    reasons.push("high occupancy");
-  } else if (occupancyRatio >= config.mediumOccupancyThreshold) {
-    price *= 1 + config.mediumOccupancyPremium;
-    reasons.push("medium occupancy");
-  } else if (occupancyRatio <= config.lowOccupancyThreshold && leadDays <= config.lowOccupancyLeadDays) {
-    price *= 1 - config.lowOccupancyDiscount;
-    reasons.push("low occupancy");
-  }
   if ([5, 6].includes(day.getUTCDay())) {
     price *= 1 + config.weekendPremium;
     reasons.push("weekend");
   }
-  if (available && leadDays <= config.urgentGapDays) {
-    price *= 1 - config.urgentGapDiscount;
-    reasons.push("urgent gap");
-  }
-
-  let airbnbPrice = clamp(
-    roundTo(price, config.roundTo),
+  let startingPrice = roundStartingPrice(
+    price,
     config.minimumAirbnbPrice,
-    config.maximumNonEventAirbnbPrice
+    config.maximumNonEventAirbnbPrice,
+    config.roundTo
   );
   const event = recurringEvent(date, config.recurringEvents);
   if (event) {
-    airbnbPrice = Math.max(
-      airbnbPrice,
+    startingPrice = Math.max(
+      startingPrice,
       roundTo(config.baseAirbnbPrice * (1 + config.eventBoost), config.roundTo)
     );
     reasons.push(event);
   }
+  const airbnbPrice = tierPrice(startingPrice, config.minimumAirbnbPrice, leadDays, config.roundTo);
+  const tier = pricingTier(leadDays);
+  reasons.push(`${leadDays} days away`, `${tier.label}: ${tier.fraction * 100}% of gap above minimum`);
+  if (!available) reasons.push("skipped: booked or blocked");
   return { date, airbnbPrice, available, occupancyRatio, event, reasons };
 }
 
 export function compressPrices(days: CalculatedPricingDay[], ratio: number) {
   const ranges: Array<{ start_date: string; end_date: string; price: number }> = [];
   for (const day of days) {
-    const price = Math.round(day.airbnbPrice * ratio);
+    if (!day.available) continue;
+    const price = channelPrice(day.airbnbPrice, ratio);
     const last = ranges.at(-1);
     if (last && last.price === price && addDays(last.end_date, 1) === day.date) last.end_date = day.date;
     else ranges.push({ start_date: day.date, end_date: day.date, price });
@@ -147,10 +144,6 @@ function daysBetween(first: string, second: string) {
 
 function roundTo(value: number, increment: number) {
   return Math.round(value / increment) * increment;
-}
-
-function clamp(value: number, minimum: number, maximum: number) {
-  return Math.max(minimum, Math.min(maximum, value));
 }
 
 function minDate(first: string, second: string) {

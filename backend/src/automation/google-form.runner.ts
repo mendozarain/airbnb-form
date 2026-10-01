@@ -6,7 +6,7 @@ import { requiredEnv } from "../config/env.js";
 import { StorageService } from "../storage/storage.service.js";
 import { GoogleSessionService } from "../settings/google-session.service.js";
 
-const AUTOMATION_VERSION = "google-form-purpose-account-ui-redacted-v37";
+const AUTOMATION_VERSION = "google-form-purpose-account-ui-redacted-v39";
 const EMAIL_ADDRESS_PATTERN_SOURCE = String.raw`\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b`;
 const MINIMUM_VISIBLE_FORM_QUESTIONS = 5;
 
@@ -50,7 +50,12 @@ export type GoogleFormResult = {
   screenshotKey?: string;
   error?: string;
   retryable?: boolean;
+  failureKind?:
+    "authentication_expired" | "temporary_navigation" | "submission_failed" | "submission_uncertain";
 };
+
+class GoogleAuthenticationExpiredError extends Error {}
+export class GoogleSubmissionUncertainError extends Error {}
 
 @Injectable()
 export class GoogleFormRunner {
@@ -60,18 +65,19 @@ export class GoogleFormRunner {
   ) {}
 
   async submit(submission: GoogleFormSubmission): Promise<GoogleFormResult> {
-    const storageState = await this.googleSession.loadStorageState();
+    const session = await this.googleSession.loadStorageStateWithVersion();
 
-    if (!storageState) {
+    if (!session) {
       return {
         ok: false,
+        failureKind: "authentication_expired",
         error: "Google browser session is not connected. Open Settings and connect Google first."
       };
     }
 
     const browser = await chromium.launch({ headless: true });
     const context = await browser.newContext({
-      storageState: storageState as any,
+      storageState: session.state as any,
       viewport: ENTRANCE_PASS_CAPTURE_PROFILE.viewport,
       deviceScaleFactor: ENTRANCE_PASS_CAPTURE_PROFILE.deviceScaleFactor
     });
@@ -81,7 +87,9 @@ export class GoogleFormRunner {
       await page.goto(requiredEnv("GOOGLE_FORM_URL"), { waitUntil: "networkidle" });
 
       if (page.url().includes("ServiceLogin") || page.url().includes("accounts.google.com")) {
-        throw new Error("Google redirected to login. Browser auth storage is not configured yet.");
+        throw new GoogleAuthenticationExpiredError(
+          "Google redirected to login. Browser auth storage is not configured yet."
+        );
       }
 
       await clickEmailReceiptCheckbox(page);
@@ -107,6 +115,7 @@ export class GoogleFormRunner {
       await clickQuestionCheckbox(page, /I confirm that the information provided is accurate/i, "agreement");
       await waitForNoUploadPicker(page, 45_000);
       await closeUnexpectedTabs(page);
+      await waitForGoogleFormDraftSettled(page);
 
       await setGoogleFormSubmitControlsVisible(page, false);
       await setUnusedGuestRowsVisible(page, false);
@@ -151,22 +160,35 @@ export class GoogleFormRunner {
           });
         },
         submit: async () => {
+          if (idFiles.length > 0) {
+            const uploadQuestion = findIdUploadQuestion(page);
+            await waitForAttachedFiles(
+              page,
+              uploadQuestion,
+              idFiles.map((file) => file.filename),
+              uploadTimeoutFor(idFiles)
+            );
+          }
+
+          await waitForGoogleFormDraftSettled(page);
           await submitGoogleForm(page);
         }
       });
 
       const updatedStorageState = await context.storageState({ indexedDB: true });
-      await this.storage.put("google/storage-state.json", JSON.stringify(updatedStorageState), {
-        contentType: "application/json",
-        metadata: { savedAt: new Date().toISOString() }
-      });
+      await this.googleSession.refreshActiveState(updatedStorageState as never, session).catch(() => undefined);
 
       return { ok: true, screenshotKey };
     } catch (error) {
       const message = error instanceof Error ? error.message : "Unknown automation error";
+      const failureKind = classifyGoogleFormFailure(error);
+      if (failureKind === "authentication_expired") {
+        await this.googleSession.markUnhealthy(message, page.url()).catch(() => undefined);
+      }
       return {
         ok: false,
-        retryable: message.includes("429") || message.includes("Rate limit"),
+        failureKind,
+        retryable: failureKind === "temporary_navigation",
         error: `[${AUTOMATION_VERSION}] ${message}`
       };
     } finally {
@@ -523,12 +545,7 @@ async function clickTextIfVisible(page: any, text: string | RegExp) {
 }
 
 async function uploadIdFiles(page: any, files: GoogleFormFile[]) {
-  const uploadQuestion = page
-    .locator('div[role="listitem"]')
-    .filter({
-      hasText: /Attach\s+Valid\s+Id/i
-    })
-    .first();
+  const uploadQuestion = findIdUploadQuestion(page);
   const uploadTimeoutMs = uploadTimeoutFor(files);
   const expectedFilenames = files.map((file) => file.filename);
 
@@ -541,6 +558,15 @@ async function uploadIdFiles(page: any, files: GoogleFormFile[]) {
   await uploadIdFileBatch(page, uploadQuestion, files, uploadTimeoutMs);
   await closeUploadPickerIfOpen(page);
   await waitForAttachedFiles(page, uploadQuestion, expectedFilenames, uploadTimeoutMs);
+}
+
+function findIdUploadQuestion(page: any) {
+  return page
+    .locator('div[role="listitem"]')
+    .filter({
+      hasText: /Attach\s+Valid\s+Id/i
+    })
+    .first();
 }
 
 async function uploadIdFileBatch(
@@ -708,30 +734,86 @@ async function waitForUploadChunkOutcome(
 
 async function waitForAttachedFiles(page: any, uploadQuestion: any, filenames: string[], timeoutMs: number) {
   const startedAt = Date.now();
+  let settledObservations = 0;
 
   while (Date.now() - startedAt < timeoutMs) {
     await closeUnexpectedTabs(page);
 
-    if (await hasExpectedAttachedFiles(uploadQuestion, filenames)) {
-      return;
-    }
-
-    const attachedCount = await countAttachedFiles(uploadQuestion, filenames);
-    if (attachedCount >= filenames.length) {
-      return;
+    if (await areAttachedGoogleFormFilesSettled(uploadQuestion, filenames)) {
+      settledObservations += 1;
+      if (settledObservations >= 2) {
+        return;
+      }
+    } else {
+      settledObservations = 0;
     }
 
     if (await isUploadPickerVisible(page)) {
       await closeUploadPickerIfOpen(page);
     }
 
-    await page.waitForTimeout(1_000);
+    await page.waitForTimeout(settledObservations > 0 ? 750 : 1_000);
   }
 
   const attachedCount = await countAttachedFiles(uploadQuestion, filenames);
+  const pendingUpload = await hasPendingGoogleFormUpload(uploadQuestion);
   throw new Error(
-    `Uploaded ID files did not all attach to the Google Form. Attached ${attachedCount}/${filenames.length}.`
+    pendingUpload
+      ? `Google Form was still processing uploaded ID files after the upload timeout. Attached ${attachedCount}/${filenames.length}.`
+      : `Uploaded ID files did not all attach to the Google Form. Attached ${attachedCount}/${filenames.length}.`
   );
+}
+
+export async function waitForGoogleFormDraftSettled(page: any, timeoutMs = 60_000) {
+  const startedAt = Date.now();
+  let settledObservations = 0;
+
+  while (Date.now() - startedAt < timeoutMs) {
+    const saving = await isGoogleFormDraftSaving(page);
+
+    if (saving) {
+      settledObservations = 0;
+    } else {
+      await page.waitForLoadState("networkidle", { timeout: 3_000 }).catch(() => undefined);
+      settledObservations += 1;
+      if (settledObservations >= 2) {
+        return;
+      }
+    }
+
+    await page.waitForTimeout(750);
+  }
+
+  throw new Error("Google Form was still saving answers and uploaded files after the save timeout.");
+}
+
+async function isGoogleFormDraftSaving(page: any) {
+  return page
+    .evaluate(() => {
+      function isVisible(element: Element) {
+        const rect = element.getBoundingClientRect();
+        const style = window.getComputedStyle(element);
+        return (
+          rect.width > 0 &&
+          rect.height > 0 &&
+          style.display !== "none" &&
+          style.visibility !== "hidden" &&
+          Number(style.opacity || "1") > 0
+        );
+      }
+
+      return Array.from(document.querySelectorAll("body *")).some((element) => {
+        if (!isVisible(element)) return false;
+        const text = (element.textContent ?? "").replace(/\s+/g, " ").trim();
+        if (!/^Saving(?:…|\.\.\.)?$/i.test(text)) return false;
+
+        return !Array.from(element.children).some((child) => {
+          const childText = (child.textContent ?? "").replace(/\s+/g, " ").trim();
+          return /^Saving(?:…|\.\.\.)?$/i.test(childText);
+        });
+      });
+    })
+    .catch(() => true);
 }
 
 async function clickPickerPrimaryActionOnce(page: any, dialog: any) {
@@ -1000,9 +1082,30 @@ async function waitForGoogleFormSubmission(page: any) {
     const state = await page
       .evaluate(() => {
         const bodyText = document.body?.innerText ?? "";
-        const requiredErrors = Array.from(document.querySelectorAll("div, span"))
-          .map((element) => element.textContent?.trim() ?? "")
-          .filter((text) => /This is a required question|Required|This question is required/i.test(text));
+        const requiredErrors = Array.from(document.querySelectorAll('div[role="listitem"]')).flatMap(
+          (question) => {
+            const hasVisibleRequiredError = Array.from(question.querySelectorAll("div, span")).some(
+              (element) => {
+                const rect = element.getBoundingClientRect();
+                const text = element.textContent?.trim() ?? "";
+                return (
+                  rect.width > 0 &&
+                  rect.height > 0 &&
+                  /^(?:Required|This is a required question|This question is required)\.?$/i.test(text)
+                );
+              }
+            );
+
+            if (!hasVisibleRequiredError) return [];
+
+            const heading = question.querySelector('[role="heading"], h1, h2, h3');
+            const label = (heading?.textContent ?? question.textContent ?? "Required field")
+              .replace(/\s+/g, " ")
+              .trim()
+              .slice(0, 160);
+            return [label || "Required field"];
+          }
+        );
 
         return {
           href: window.location.href,
@@ -1037,11 +1140,27 @@ async function waitForGoogleFormSubmission(page: any) {
 }
 
 export async function submitGoogleForm(page: any) {
-  await page.getByRole("button", { name: /^Submit$/ }).click({
-    timeout: 20_000,
-    noWaitAfter: true
-  });
-  await waitForGoogleFormSubmission(page);
+  try {
+    await page.getByRole("button", { name: /^Submit$/ }).click({
+      timeout: 20_000,
+      noWaitAfter: true
+    });
+    await waitForGoogleFormSubmission(page);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Submission receipt could not be confirmed";
+    if (/required field is still missing/i.test(message)) throw error;
+    throw new GoogleSubmissionUncertainError(message);
+  }
+}
+
+export function classifyGoogleFormFailure(error: unknown): NonNullable<GoogleFormResult["failureKind"]> {
+  if (error instanceof GoogleAuthenticationExpiredError) return "authentication_expired";
+  if (error instanceof GoogleSubmissionUncertainError) return "submission_uncertain";
+  const message = error instanceof Error ? error.message : "";
+  if (/429|rate limit|timeout|timed out|ECONNRESET|ENOTFOUND|network/i.test(message)) {
+    return "temporary_navigation";
+  }
+  return "submission_failed";
 }
 
 async function clickEmailReceiptCheckbox(page: any) {
@@ -1329,6 +1448,36 @@ async function hasExpectedAttachedFiles(uploadQuestion: any, filenames: string[]
   }
 
   return (await countAttachedFiles(uploadQuestion, filenames)) >= filenames.length;
+}
+
+export async function areAttachedGoogleFormFilesSettled(uploadQuestion: any, filenames: string[]) {
+  if (!(await hasExpectedAttachedFiles(uploadQuestion, filenames))) {
+    return false;
+  }
+
+  return !(await hasPendingGoogleFormUpload(uploadQuestion));
+}
+
+async function hasPendingGoogleFormUpload(uploadQuestion: any) {
+  return uploadQuestion
+    .evaluate((root: Element) => {
+      function isVisible(element: Element) {
+        const rect = element.getBoundingClientRect();
+        return rect.width > 0 && rect.height > 0;
+      }
+
+      const hasBusyAttachment = Array.from(root.querySelectorAll('[aria-busy="true"]')).some(isVisible);
+      const visibleText = Array.from(root.querySelectorAll("div, span"))
+        .filter(isVisible)
+        .map((element) => element.textContent?.trim() ?? "")
+        .join(" ");
+
+      return (
+        hasBusyAttachment ||
+        /(?:^|\s)(?:Uploading|Processing|Scanning)(?:\.\.\.|…)?(?:\s|$)/i.test(visibleText)
+      );
+    })
+    .catch(() => true);
 }
 
 async function countAttachedFiles(uploadQuestion: any, filenames: string[]) {

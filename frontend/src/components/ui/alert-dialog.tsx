@@ -11,10 +11,10 @@ export function AlertDialogContent({
 }: React.ComponentProps<typeof AlertDialogPrimitive.Content>) {
   return (
     <AlertDialogPrimitive.Portal>
-      <AlertDialogPrimitive.Overlay className="fixed inset-0 z-50 bg-black/40" />
+      <AlertDialogPrimitive.Overlay className="fixed inset-0 z-50 bg-ink/40" />
       <AlertDialogPrimitive.Content
         className={cn(
-          "fixed left-1/2 top-1/2 z-50 w-[calc(100%-2rem)] max-w-md -translate-x-1/2 -translate-y-1/2 rounded-lg border bg-white p-6 shadow-xl",
+          "fixed left-1/2 top-1/2 z-50 w-[calc(100%-2rem)] max-w-md -translate-x-1/2 -translate-y-1/2 rounded-xl bg-surface-raised p-6 shadow-card",
           className
         )}
         {...props}
@@ -24,10 +24,10 @@ export function AlertDialogContent({
 }
 
 export function AlertDialogTitle(props: React.ComponentProps<typeof AlertDialogPrimitive.Title>) {
-  return <AlertDialogPrimitive.Title className="text-lg font-semibold" {...props} />;
+  return <AlertDialogPrimitive.Title className="text-xl font-semibold text-ink" {...props} />;
 }
 export function AlertDialogDescription(props: React.ComponentProps<typeof AlertDialogPrimitive.Description>) {
-  return <AlertDialogPrimitive.Description className="mt-2 text-sm text-slate-600" {...props} />;
+  return <AlertDialogPrimitive.Description className="mt-2 text-sm text-ink-muted" {...props} />;
 }
 export function AlertDialogFooter({ children }: { children: React.ReactNode }) {
   return <div className="mt-6 flex justify-end gap-2">{children}</div>;

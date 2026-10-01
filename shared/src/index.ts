@@ -12,6 +12,9 @@ export const BOOKING_STATUSES = [
   "timeout"
 ] as const;
 export const SUBMISSION_STATUSES = [
+  "ai_check_pending",
+  "ai_checking",
+  "ai_review_required",
   "ready_for_review",
   "queued",
   "submitting",
@@ -23,6 +26,11 @@ export const SUBMISSION_STATUSES = [
 ] as const;
 
 export const MINOR_ID_CUTOFF = 16;
+export const SENIOR_ID_CUTOFF = 60;
+
+export function requiresGuestId(age: number, lowerCutoff = MINOR_ID_CUTOFF, upperCutoff = SENIOR_ID_CUTOFF) {
+  return age >= lowerCutoff && age < upperCutoff;
+}
 
 export const guestSchema = z.object({
   fullName: z.string().trim().min(1, "Guest name is required"),
@@ -87,7 +95,8 @@ export const publicInviteSchema = z.object({
   purpose: z.enum(PURPOSES),
   ownerName: z.string(),
   ownerContact: z.string(),
-  minorIdCutoff: z.number().int()
+  minorIdCutoff: z.number().int(),
+  seniorIdCutoff: z.number().int()
 });
 
 export type Purpose = (typeof PURPOSES)[number];
@@ -222,8 +231,11 @@ export const pricingEventSchema = z.object({
   end: z.string().regex(/^\d{2}-\d{2}$/)
 });
 
+export const PRICING_ALGORITHM = "vacancy-tiers-v1" as const;
+
 export const pricingConfigSchema = z
   .object({
+    algorithm: z.literal(PRICING_ALGORITHM),
     propertyName: z.string().trim().min(1),
     propertyId: z.coerce.number().int().positive(),
     timezone: z.literal("Asia/Manila"),
@@ -231,17 +243,7 @@ export const pricingConfigSchema = z
     baseAirbnbPrice: z.coerce.number().int().positive(),
     minimumAirbnbPrice: z.coerce.number().int().positive(),
     maximumNonEventAirbnbPrice: z.coerce.number().int().positive(),
-    rainySeasonDiscount: z.coerce.number().min(0).max(1),
-    urgentGapDays: z.coerce.number().int().min(0).max(60),
-    urgentGapDiscount: z.coerce.number().min(0).max(1),
     weekendPremium: z.coerce.number().min(0).max(1),
-    lowOccupancyThreshold: z.coerce.number().min(0).max(1),
-    lowOccupancyDiscount: z.coerce.number().min(0).max(1),
-    lowOccupancyLeadDays: z.coerce.number().int().min(0).max(365),
-    mediumOccupancyThreshold: z.coerce.number().min(0).max(1),
-    mediumOccupancyPremium: z.coerce.number().min(0).max(1),
-    highOccupancyThreshold: z.coerce.number().min(0).max(1),
-    highOccupancyPremium: z.coerce.number().min(0).max(1),
     eventBoost: z.coerce.number().min(0).max(2),
     roundTo: z.coerce.number().int().positive(),
     listings: z.array(pricingListingSchema).min(1),
@@ -255,13 +257,28 @@ export const pricingConfigSchema = z
     message: "Base price cannot exceed maximum price",
     path: ["maximumNonEventAirbnbPrice"]
   })
-  .refine((value) => value.lowOccupancyThreshold <= value.mediumOccupancyThreshold, {
-    message: "Low occupancy threshold must not exceed medium threshold",
-    path: ["lowOccupancyThreshold"]
-  })
-  .refine((value) => value.mediumOccupancyThreshold <= value.highOccupancyThreshold, {
-    message: "Medium occupancy threshold must not exceed high threshold",
-    path: ["mediumOccupancyThreshold"]
+  .superRefine((value, context) => {
+    for (const channel of ["booking.com", "agoda"]) {
+      const listings = value.listings.filter((listing) => listing.channelType.toLowerCase() === channel);
+      for (const listing of listings) {
+        if (listing.ratio < 1.2 || listing.ratio > 1.4 || listing.ratio !== listings[0]?.ratio) {
+          context.addIssue({
+            code: "custom",
+            path: ["listings"],
+            message: `${channel} must use one markup between 20% and 40% across all its listings`
+          });
+        }
+      }
+    }
+    if (
+      value.listings.some((listing) => listing.channelType.toLowerCase() === "airbnb" && listing.ratio !== 1)
+    ) {
+      context.addIssue({
+        code: "custom",
+        path: ["listings"],
+        message: "Airbnb must use the calculated nightly price without a markup"
+      });
+    }
   });
 
 export type PricingConfig = z.infer<typeof pricingConfigSchema>;
@@ -281,6 +298,9 @@ export type PricingSettings = {
 
 export type PricingDay = {
   date: string;
+  leadDays?: number;
+  tier?: string;
+  platformPrices?: Array<{ channelType: string; listingId: string; price: number }>;
   airbnbPrice: number;
   available: boolean;
   occupancyRatio: number;
@@ -314,6 +334,63 @@ export type PricingPreview = PricingRun & {
   days: PricingDay[];
 };
 
+export const airbnbDiscountRuleSchema = z
+  .object({
+    discount: z.coerce.number().int().min(0).max(100),
+    days: z.coerce.number().int().min(1).max(365)
+  })
+  .strict();
+
+const airbnbWeekdaySchema = z.coerce.number().int().min(0).max(6);
+
+export const airbnbPricingRulesPatchSchema = z
+  .object({
+    weeklyDiscount: z.coerce.number().int().min(0).max(100).optional(),
+    monthlyDiscount: z.coerce.number().int().min(0).max(100).optional(),
+    earlyBirdDiscount: z.array(airbnbDiscountRuleSchema).max(20).optional(),
+    lastMinuteDiscount: z.array(airbnbDiscountRuleSchema).max(20).optional(),
+    highRatedGuestDiscount: z.boolean().optional(),
+    mobileOnlyDiscount: z.boolean().optional(),
+    minimumStay: z.coerce.number().int().min(1).max(365).optional(),
+    maximumStay: z.coerce.number().int().min(1).max(1125).optional(),
+    advanceNotice: z.coerce.number().int().min(0).max(8760).optional(),
+    availabilityWindow: z.coerce.number().int().min(1).max(1095).optional(),
+    preparationTime: z.coerce.number().int().min(0).max(7).optional(),
+    daysOfWeekCheckIn: z.array(airbnbWeekdaySchema).max(7).optional(),
+    daysOfWeekCheckOut: z.array(airbnbWeekdaySchema).max(7).optional()
+  })
+  .strict()
+  .refine((value) => Object.keys(value).length > 0, "At least one Airbnb setting is required")
+  .refine(
+    (value) =>
+      value.minimumStay === undefined ||
+      value.maximumStay === undefined ||
+      value.minimumStay <= value.maximumStay,
+    { message: "Minimum stay cannot exceed maximum stay", path: ["minimumStay"] }
+  );
+
+export type AirbnbDiscountRule = z.infer<typeof airbnbDiscountRuleSchema>;
+export type AirbnbPricingRulesPatch = z.infer<typeof airbnbPricingRulesPatchSchema>;
+export type AirbnbPricingRules = {
+  listingId: string;
+  listingCurrency: string;
+  basePrice: number;
+  weekendPrice: number | null;
+  longTermDiscount: AirbnbDiscountRule[];
+  earlyBirdDiscount: AirbnbDiscountRule[];
+  lastMinuteDiscount: AirbnbDiscountRule[];
+  highRatedGuestDiscount: boolean;
+  mobileOnlyDiscount: boolean;
+  minimumStay: number;
+  maximumStay: number;
+  advanceNotice: number | null;
+  availabilityWindow: number;
+  preparationTime: number;
+  daysOfWeekCheckIn: number[];
+  daysOfWeekCheckOut: number[];
+  syncedAt: string;
+};
+
 export type HostexAutomationStatus = {
   webhookVerified: boolean;
   webhookVerifiedAt: string | null;
@@ -337,7 +414,18 @@ export type GuestFileView = {
   url: string;
 };
 
+export type EntrancePassChatDelivery = {
+  id: string;
+  status: string;
+  message: string;
+  emailSentAt: string | null;
+  sentAt: string | null;
+  createdAt: string;
+  lastError: string | null;
+};
+
 export type SubmissionDetail = SubmissionSummary & {
+  chatDeliveries?: EntrancePassChatDelivery[];
   buildingCode: BuildingCode;
   unitNumber: string;
   purpose: Purpose;
@@ -350,6 +438,24 @@ export type SubmissionDetail = SubmissionSummary & {
     requiresId: boolean;
     files: GuestFileView[];
   }>;
+  aiReview?: {
+    status: "pending" | "checking" | "passed" | "rejected" | "review_required";
+    model: string;
+    checkedAt?: string | null;
+    notificationSentAt?: string | null;
+    notificationError?: string | null;
+    error?: string | null;
+    results: Array<{
+      guestId: string;
+      enteredName: string;
+      extractedName?: string | null;
+      extractedNames?: string[];
+      matchedName?: string | null;
+      verdict: "match" | "clear_mismatch" | "uncertain";
+      confidence: number;
+      reason: string;
+    }>;
+  } | null;
 };
 
 export type EmailTemplate = {
@@ -362,10 +468,19 @@ export type EmailTemplateKind = (typeof EMAIL_TEMPLATE_KINDS)[number];
 export type EmailTemplateSet = Record<EmailTemplateKind, EmailTemplate>;
 
 export type SettingsStatus = {
+  autoQueue: boolean;
+  aiIdCheck: {
+    enabled: boolean;
+    configured: boolean;
+    model: string;
+    reviewEmail: string;
+  };
   connected: boolean;
   hasStorageState: boolean;
+  pendingVerification: boolean;
   expired: boolean;
   connectedAt?: string;
+  accountEmail?: string;
   lastCheck?: {
     checkedAt: string;
     valid: boolean;
@@ -376,4 +491,22 @@ export type SettingsStatus = {
     configured: boolean;
     mode: "agentmail_api";
   };
+  googleRecovery: {
+    configured: boolean;
+    enabled: boolean;
+    state: "idle" | "recovering" | "manual_required";
+    expectedAccount: string;
+    incidentId?: string;
+    lastAttemptAt?: string;
+    lastSuccessAt?: string;
+    lastError?: string;
+    leaseUntil?: string;
+    alertDelivery: {
+      attempts: number;
+      sentAt?: string;
+      error?: string;
+    };
+  };
 };
+
+export { PRICING_TIERS, pricingTier, tierPrice, channelPrice, startingPrice } from "./pricing.js";

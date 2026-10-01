@@ -12,7 +12,9 @@ import { FileInterceptor } from "@nestjs/platform-express";
 import { Roles } from "@thallesp/nestjs-better-auth";
 import { EMAIL_TEMPLATE_KINDS } from "@cozy-d-714/shared";
 import type { EmailTemplate, EmailTemplateKind } from "@cozy-d-714/shared";
+import { BackgroundJobsService } from "../jobs/background-jobs.service.js";
 import { GoogleSessionService } from "./google-session.service.js";
+import { GoogleSessionRecoveryService } from "./google-session-recovery.service.js";
 import { SettingsService } from "./settings.service.js";
 
 @Controller("api/admin/settings")
@@ -20,12 +22,30 @@ import { SettingsService } from "./settings.service.js";
 export class SettingsController {
   constructor(
     private readonly settings: SettingsService,
-    private readonly google: GoogleSessionService
+    private readonly google: GoogleSessionService,
+    private readonly googleRecovery: GoogleSessionRecoveryService,
+    private readonly jobs: BackgroundJobsService
   ) {}
 
   @Get("status")
   status() {
     return this.settings.status();
+  }
+
+  @Post("auto-queue")
+  setAutoQueue(@Body() body: { enabled?: unknown }) {
+    if (typeof body.enabled !== "boolean") {
+      throw new BadRequestException("Auto queue setting must be true or false");
+    }
+    return this.settings.setAutoQueue(body.enabled);
+  }
+
+  @Post("ai-id-check")
+  setAiIdCheck(@Body() body: { enabled?: unknown; reviewEmail?: unknown }) {
+    if (typeof body.enabled !== "boolean" || typeof body.reviewEmail !== "string") {
+      throw new BadRequestException("AI ID check setting and review email are required");
+    }
+    return this.settings.setAiIdCheck(body.enabled, body.reviewEmail);
   }
 
   @Get("email-template")
@@ -56,9 +76,23 @@ export class SettingsController {
     return this.google.saveUpload(JSON.parse(file.buffer.toString("utf8")) as unknown);
   }
 
+  // Launches Chromium, which can outlast an API request: run it in the background and poll /api/admin/jobs/:id.
   @Post("google-session/check")
   check() {
-    return this.google.check();
+    return this.jobs.start("admin.googleCheck");
+  }
+
+  @Post("google-session/auto-recovery")
+  setGoogleAutoRecovery(@Body() body: { enabled?: unknown }) {
+    if (typeof body.enabled !== "boolean") {
+      throw new BadRequestException("Automatic recovery setting must be true or false");
+    }
+    return this.googleRecovery.setEnabled(body.enabled);
+  }
+
+  @Post("google-session/recover")
+  recoverGoogleSession() {
+    return this.jobs.start("admin.googleRecover");
   }
 }
 
