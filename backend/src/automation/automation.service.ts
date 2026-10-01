@@ -76,6 +76,7 @@ export class AutomationService {
         guestEmail: true,
         purpose: true,
         status: true,
+        guests: { orderBy: { createdAt: "asc" }, select: { fullName: true } },
         runs: {
           orderBy: { createdAt: "desc" },
           take: 1,
@@ -108,7 +109,8 @@ export class AutomationService {
       await this.email.sendEntrancePass(
         submission.guestEmail,
         await this.settings.getEmailTemplate(parsePurpose(submission.purpose)),
-        this.passImages.createUrl(run.screenshotStorageKey)
+        this.passImages.createUrl(run.screenshotStorageKey),
+        { guests: submission.guests, purpose: submission.purpose }
       );
       emailAccepted = true;
       await this.chat.emailSent(deliveryId);
@@ -179,7 +181,8 @@ export class AutomationService {
           await this.email.sendEntrancePass(
             submission.guestEmail,
             await this.settings.getEmailTemplate(submission.purpose),
-            this.passImages.createUrl(result.screenshotKey)
+            this.passImages.createUrl(result.screenshotKey),
+            { guests: submission.guests, purpose: submission.purpose }
           );
           status = SubmissionStatus.SUBMITTED_EMAIL_SENT;
           await this.chat.emailSent(deliveryId);

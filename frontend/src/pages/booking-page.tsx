@@ -1,4 +1,14 @@
-import { ArrowLeft, Copy, Edit3, ExternalLink, Plus, RefreshCw, RotateCcw, Send } from "lucide-react";
+import {
+  ArrowLeft,
+  Copy,
+  Edit3,
+  ExternalLink,
+  Plus,
+  RefreshCw,
+  RotateCcw,
+  Send,
+  Link2Off
+} from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { toast } from "sonner";
@@ -15,6 +25,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { EmptyState } from "@/components/ui/empty-state";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { api } from "@/lib/api";
@@ -35,7 +46,7 @@ export function BookingPage() {
 
   useEffect(() => void load(), [load]);
 
-  if (!booking) return <p className="p-10 text-center text-sm text-slate-500">Loading booking…</p>;
+  if (!booking) return <p className="p-10 text-center text-sm text-ink-muted">Loading booking…</p>;
 
   return (
     <div className="space-y-6">
@@ -48,11 +59,11 @@ export function BookingPage() {
         <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
           <div>
             <div className="flex flex-wrap items-center gap-2">
-              <h1 className="text-2xl font-semibold text-slate-950">{booking.guestName || "Guest"}</h1>
+              <h1 className="text-2xl font-semibold text-ink">{booking.guestName || "Guest"}</h1>
               <Badge>{channelLabel(booking.channelType)}</Badge>
               <Badge>{statusLabel(booking.status)}</Badge>
             </div>
-            <p className="mt-2 text-sm text-slate-500">
+            <p className="mt-2 text-sm text-ink-muted">
               {formatDate(booking.checkIn)} – {formatDate(booking.checkOut)} · {booking.reservationCode}
             </p>
           </div>
@@ -64,9 +75,9 @@ export function BookingPage() {
 
       <div className="grid gap-5 lg:grid-cols-[1.4fr_1fr]">
         <section className="space-y-4">
-          <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
-            <h2 className="font-semibold text-slate-950">Registration history</h2>
-            <p className="text-sm text-slate-500">
+          <div className="rounded-xl border border-hairline bg-surface-raised p-5 shadow-sm">
+            <h2 className="font-semibold text-ink">Registration history</h2>
+            <p className="text-sm text-ink-muted">
               Links, submissions, and every send attempt are preserved.
             </p>
           </div>
@@ -79,15 +90,18 @@ export function BookingPage() {
             />
           ))}
           {booking.registrations.length === 0 && (
-            <p className="rounded-xl border border-dashed border-slate-300 p-10 text-center text-sm text-slate-500">
-              No links exist for this booking.
-            </p>
+            <EmptyState
+              className="rounded-xl border border-dashed border-line-strong"
+              icon={Link2Off}
+              title="No guest links yet"
+              description="Create a registration link to send this guest their check-in form."
+            />
           )}
         </section>
 
         <aside className="space-y-5">
           <form
-            className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm"
+            className="rounded-xl border border-hairline bg-surface-raised p-5 shadow-sm"
             onSubmit={async (event) => {
               event.preventDefault();
               setCreating(true);
@@ -107,17 +121,17 @@ export function BookingPage() {
             }}
           >
             <div className="flex items-center gap-2">
-              <Plus className="size-4 text-emerald-700" />
-              <h2 className="font-semibold text-slate-950">Create booking link</h2>
+              <Plus className="size-4 text-success" />
+              <h2 className="font-semibold text-ink">Create booking link</h2>
             </div>
-            <p className="mt-1 text-sm text-slate-500">Dates come from Hostex. Creating never sends.</p>
+            <p className="mt-1 text-sm text-ink-muted">Dates come from Hostex. Creating never sends.</p>
             <div className="mt-4 space-y-2">
               <Label htmlFor="booking-purpose">Purpose</Label>
               <select
                 id="booking-purpose"
                 value={purpose}
                 onChange={(event) => setPurpose(event.target.value as Purpose)}
-                className="h-11 w-full rounded-md border border-slate-300 bg-white px-3 text-sm"
+                className="h-11 w-full rounded-md border border-line-strong bg-surface-raised px-3 text-sm"
               >
                 {PURPOSES.map((value) => (
                   <option key={value}>{value}</option>
@@ -138,8 +152,8 @@ export function BookingPage() {
             </Button>
           </form>
 
-          <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
-            <h2 className="font-semibold text-slate-950">Booking details</h2>
+          <div className="rounded-xl border border-hairline bg-surface-raised p-5 shadow-sm">
+            <h2 className="font-semibold text-ink">Booking details</h2>
             <dl className="mt-4 space-y-3 text-sm">
               <Info label="Email" value={booking.guestEmail || "Unavailable"} />
               <Info label="Phone" value={booking.guestPhone || "Unavailable"} />
@@ -189,21 +203,23 @@ function RegistrationCard({
   }
 
   return (
-    <article className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
+    <article className="rounded-xl border border-hairline bg-surface-raised p-5 shadow-sm">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-start">
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-2">
-            <h3 className="font-semibold text-slate-950">{invite.purpose}</h3>
+            <h3 className="font-semibold text-ink">{invite.purpose}</h3>
             <Badge>{statusLabel(registration.submission?.status || invite.status)}</Badge>
             {automationManaged && (
-              <Badge className="border border-slate-200 bg-white text-slate-600">Scheduled Tenant</Badge>
+              <Badge className="border border-hairline bg-surface-raised text-ink-muted">
+                Scheduled Tenant
+              </Badge>
             )}
           </div>
-          <p className="mt-2 text-xs text-slate-500">
+          <p className="mt-2 text-xs text-ink-muted">
             Created {formatDateTime(invite.createdAt)} · expires {formatDateTime(invite.expiresAt)}
           </p>
           {registration.deliveries.map((delivery) => (
-            <p key={delivery.id} className="mt-2 text-xs text-slate-500">
+            <p key={delivery.id} className="mt-2 text-xs text-ink-muted">
               {statusLabel(delivery.kind)} delivery: {statusLabel(delivery.status)}
               {delivery.lastError ? ` · ${delivery.lastError}` : ""}
             </p>
@@ -240,7 +256,7 @@ function RegistrationCard({
           <AlertDialog>
             <AlertDialogTrigger asChild>
               <Button size="icon" variant="ghost" aria-label="Regenerate link" disabled={acting}>
-                <RotateCcw className="size-4 text-amber-600" />
+                <RotateCcw className="size-4 text-ink" />
               </Button>
             </AlertDialogTrigger>
             <AlertDialogContent>
@@ -274,7 +290,7 @@ function RegistrationCard({
                 void action(() => api.reconcileBookingInvite(invite.id), "Hostex conversation reconciled")
               }
             >
-              <RefreshCw className="size-4 text-sky-700" />
+              <RefreshCw className="size-4 text-primary" />
             </Button>
           )}
           {conversationReady &&
@@ -284,7 +300,7 @@ function RegistrationCard({
               <AlertDialog>
                 <AlertDialogTrigger asChild>
                   <Button size="icon" variant="ghost" aria-label="Send through Hostex" disabled={acting}>
-                    <Send className="size-4 text-emerald-700" />
+                    <Send className="size-4 text-success" />
                   </Button>
                 </AlertDialogTrigger>
                 <AlertDialogContent>
@@ -319,7 +335,7 @@ function RegistrationCard({
 
       {editing && (
         <form
-          className="mt-4 grid gap-3 border-t border-slate-100 pt-4 sm:grid-cols-[1fr_1fr_auto] sm:items-end"
+          className="mt-4 grid gap-3 border-t border-hairline pt-4 sm:grid-cols-[1fr_1fr_auto] sm:items-end"
           onSubmit={(event) => {
             event.preventDefault();
             void action(
@@ -334,7 +350,7 @@ function RegistrationCard({
               id={`purpose-${invite.id}`}
               value={purpose}
               onChange={(event) => setPurpose(event.target.value as Purpose)}
-              className="h-10 w-full rounded-md border border-slate-300 bg-white px-3 text-sm"
+              className="h-10 w-full rounded-md border border-line-strong bg-surface-raised px-3 text-sm"
             >
               {PURPOSES.map((value) => (
                 <option key={value}>{value}</option>
@@ -360,8 +376,8 @@ function RegistrationCard({
 function Info({ label, value }: { label: string; value: string }) {
   return (
     <div className="flex justify-between gap-4">
-      <dt className="text-slate-500">{label}</dt>
-      <dd className="max-w-[65%] truncate font-medium text-slate-800">{value}</dd>
+      <dt className="text-ink-muted">{label}</dt>
+      <dd className="max-w-[65%] truncate font-medium text-ink">{value}</dd>
     </div>
   );
 }

@@ -3,6 +3,7 @@ import { SubmissionStatus } from "../generated/prisma/enums.js";
 import { JobDispatcher } from "../jobs/job.dispatcher.js";
 import { PrismaService } from "../prisma/prisma.service.js";
 import { EmailService } from "../automation/email.service.js";
+import { numberedSteps, renderAlertEmail } from "../automation/email-layout.js";
 import { BrowserUseClient, expectedGoogleAccount, sanitizeBrowserUseError } from "./browser-use.client.js";
 import { GoogleSessionService } from "./google-session.service.js";
 
@@ -372,15 +373,21 @@ function manualRecoveryEmail(input: {
   settingsUrl: string;
   context?: string;
 }) {
-  return `<h1>Google session needs manual attention</h1>
-<p>Automatic recovery stopped safely. ${input.waiting} registration(s) are waiting and will not be submitted until Google is reconnected.</p>
-<p><strong>Reason:</strong> ${escapeHtml(input.error)}</p>
-${input.context ? `<p><strong>Queue context:</strong> ${escapeHtml(input.context)}</p>` : ""}
-<ol>
-  <li>On your Mac, fully quit Google Chrome.</li>
-  <li>Run the existing <code>npm run capture:google --workspace backend</code> command with the plain PMO form URL.</li>
-  <li>Open <a href="${escapeHtml(input.settingsUrl)}">Settings</a>, upload the JSON file, then click Check session.</li>
-</ol>`;
+  const context = input.context
+    ? `<p style="margin:0 0 20px;color:#5d6478;font-family:Arial,'Segoe UI',Helvetica,sans-serif;font-size:15px;line-height:22px;"><strong style="color:#0b1a3a;">Queue context:</strong> ${escapeHtml(input.context)}</p>`
+    : "";
+  return renderAlertEmail({
+    title: "Google session needs manual attention",
+    intro: `Automatic recovery stopped safely. ${input.waiting} registration(s) are waiting and will not be submitted until Google is reconnected.`,
+    bodyHtml: `<p style="margin:0 0 20px;color:#5d6478;font-family:Arial,'Segoe UI',Helvetica,sans-serif;font-size:15px;line-height:22px;"><strong style="color:#0b1a3a;">Reason:</strong> ${escapeHtml(input.error)}</p>${context}${numberedSteps(
+      [
+        "On your Mac, fully quit Google Chrome.",
+        "Run the existing <code>npm run capture:google --workspace backend</code> command with the plain PMO form URL.",
+        "Open Settings, upload the JSON file, then click Check session."
+      ]
+    )}`,
+    cta: { href: escapeHtml(input.settingsUrl), label: "Open Settings" }
+  });
 }
 
 function escapeHtml(value: string) {

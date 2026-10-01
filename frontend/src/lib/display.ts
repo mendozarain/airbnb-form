@@ -38,3 +38,11 @@ export function money(value: number | null | undefined) {
         value
       );
 }
+
+export function registrationTone(status: string): "neutral" | "info" | "success" | "warning" | "danger" {
+  if (status === "done") return "success";
+  if (status === "pending") return "info";
+  if (status === "review") return "warning";
+  if (status === "needs_registration" || status === "rejected") return "danger";
+  return "neutral";
+}

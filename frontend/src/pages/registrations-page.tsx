@@ -1,14 +1,15 @@
-import { MessageCircle, RefreshCw, Search } from "lucide-react";
+import { MessageCircle, RefreshCw, Search, SearchX, Inbox } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { toast } from "sonner";
 import type { BookingSummary, InviteSummary, SettingsStatus } from "@cozy-d-714/shared";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { EmptyState } from "@/components/ui/empty-state";
 import { Input } from "@/components/ui/input";
 import { PageHeader } from "@/components/page-header";
 import { api } from "@/lib/api";
-import { channelLabel, formatDate, statusLabel } from "@/lib/display";
+import { channelLabel, formatDate, registrationTone, statusLabel } from "@/lib/display";
 
 const filters = [
   "all",
@@ -54,7 +55,7 @@ export function RegistrationsPage() {
         description="Every guest link and submission, organized under its Hostex booking."
       />
       {googleRecovery && googleRecovery.state !== "idle" && (
-        <section className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
+        <section className="rounded-xl border border-butter bg-butter/40 p-4 text-sm text-ink">
           <p className="font-semibold">
             {googleRecovery.state === "recovering"
               ? "Reconnecting Google"
@@ -66,10 +67,10 @@ export function RegistrationsPage() {
           </p>
         </section>
       )}
-      <section className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+      <section className="rounded-xl border border-hairline bg-surface-raised p-4 shadow-sm">
         <div className="flex flex-col gap-3 lg:flex-row lg:items-center">
           <div className="relative flex-1">
-            <Search className="absolute left-3 top-3 size-4 text-slate-400" />
+            <Search className="absolute left-3 top-3 size-4 text-ink-muted" />
             <Input
               className="pl-9"
               placeholder="Search guest, email, or reservation…"
@@ -105,7 +106,7 @@ export function RegistrationsPage() {
             <button
               key={value}
               onClick={() => setFilter(value)}
-              className={`whitespace-nowrap rounded-full px-3 py-1.5 text-xs font-medium transition ${filter === value ? "bg-slate-950 text-white" : "bg-slate-100 text-slate-600 hover:bg-slate-200"}`}
+              className={`whitespace-nowrap rounded-full px-3 py-1.5 text-xs font-medium transition ${filter === value ? "bg-ink text-white" : "bg-surface text-ink-muted hover:bg-hairline"}`}
             >
               {statusLabel(value)}
             </button>
@@ -120,37 +121,39 @@ export function RegistrationsPage() {
             <Link
               key={booking.id}
               to={`/admin/bookings/${booking.id}`}
-              className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm transition hover:-translate-y-0.5 hover:border-emerald-300 hover:shadow-md"
+              className="rounded-xl border border-hairline bg-surface-raised p-5 shadow-sm transition hover:-translate-y-0.5 hover:border-success/30 hover:shadow-md"
             >
               <div className="flex items-start justify-between gap-3">
                 <div className="min-w-0">
-                  <p className="truncate text-lg font-semibold text-slate-950">
+                  <p className="truncate text-lg font-semibold text-ink">
                     {booking.guestName || "Guest name unavailable"}
                   </p>
-                  <p className="mt-1 text-sm text-slate-500">
+                  <p className="mt-1 text-sm text-ink-muted">
                     {channelLabel(booking.channelType)} · {booking.reservationCode}
                   </p>
                 </div>
-                <Badge>{statusLabel(booking.registrationStatus)}</Badge>
+                <Badge tone={registrationTone(booking.registrationStatus)}>
+                  {statusLabel(booking.registrationStatus)}
+                </Badge>
               </div>
-              <div className="mt-5 grid grid-cols-2 gap-3 rounded-lg bg-slate-50 p-3 text-sm">
+              <div className="mt-5 grid grid-cols-2 gap-3 rounded-lg bg-surface p-3 text-sm">
                 <div>
-                  <p className="text-xs text-slate-400">Check-in</p>
-                  <p className="mt-1 font-medium text-slate-800">{formatDate(booking.checkIn)}</p>
+                  <p className="text-xs text-ink-muted">Check-in</p>
+                  <p className="mt-1 font-medium text-ink">{formatDate(booking.checkIn)}</p>
                 </div>
                 <div>
-                  <p className="text-xs text-slate-400">Check-out</p>
-                  <p className="mt-1 font-medium text-slate-800">{formatDate(booking.checkOut)}</p>
+                  <p className="text-xs text-ink-muted">Check-out</p>
+                  <p className="mt-1 font-medium text-ink">{formatDate(booking.checkOut)}</p>
                 </div>
               </div>
-              <p className="mt-4 text-xs text-slate-500">
+              <p className="mt-4 text-xs text-ink-muted">
                 {booking.registrationCount} registration record(s) ·{" "}
                 {booking.conversationId ? "Hostex conversation ready" : "No Hostex conversation"}
               </p>
               {booking.registrationStatus === "pending" &&
                 googleRecovery &&
                 googleRecovery.state !== "idle" && (
-                  <p className="mt-2 text-xs font-medium text-amber-700">
+                  <p className="mt-2 text-xs font-medium text-ink">
                     {googleRecovery?.state === "recovering"
                       ? "Reconnecting Google"
                       : "Waiting for manual Google session"}
@@ -159,9 +162,17 @@ export function RegistrationsPage() {
             </Link>
           ))}
           {shown.length === 0 && (
-            <p className="col-span-full rounded-xl border border-dashed border-slate-300 p-10 text-center text-sm text-slate-500">
-              No bookings match this view.
-            </p>
+            <EmptyState
+              className="col-span-full rounded-xl border border-dashed border-line-strong"
+              icon={SearchX}
+              title="Nothing matches this view"
+              description="Try a different filter to see more bookings."
+              action={
+                <Button variant="secondary" size="sm" onClick={() => setFilter("all")}>
+                  Clear filters
+                </Button>
+              }
+            />
           )}
         </div>
       )}
@@ -179,19 +190,23 @@ function Uncategorized({
   onAssigned: () => Promise<void>;
 }) {
   return (
-    <section className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
-      <div className="border-b border-slate-100 p-5">
-        <h2 className="font-semibold text-slate-950">Uncategorized legacy links</h2>
-        <p className="text-sm text-slate-500">
+    <section className="overflow-hidden rounded-xl border border-hairline bg-surface-raised shadow-sm">
+      <div className="border-b border-hairline p-5">
+        <h2 className="font-semibold text-ink">Uncategorized legacy links</h2>
+        <p className="text-sm text-ink-muted">
           Records without one exact Hostex guest-and-date match remain here.
         </p>
       </div>
-      <div className="divide-y divide-slate-100">
+      <div className="divide-y divide-hairline">
         {invites.map((invite) => (
           <UncategorizedRow key={invite.id} invite={invite} bookings={bookings} onAssigned={onAssigned} />
         ))}
         {invites.length === 0 && (
-          <p className="p-10 text-center text-sm text-slate-500">No uncategorized records.</p>
+          <EmptyState
+            icon={Inbox}
+            title="All caught up"
+            description="Every guest link is matched to a booking."
+          />
         )}
       </div>
     </section>
@@ -214,8 +229,8 @@ function UncategorizedRow({
   return (
     <div className="flex flex-col gap-3 p-4 lg:flex-row lg:items-center">
       <div className="min-w-0 flex-1">
-        <p className="font-medium text-slate-900">{invite.purpose}</p>
-        <p className="text-sm text-slate-500">
+        <p className="font-medium text-ink">{invite.purpose}</p>
+        <p className="text-sm text-ink-muted">
           {formatDate(invite.checkIn)} – {formatDate(invite.checkOut)}
         </p>
       </div>
@@ -223,7 +238,7 @@ function UncategorizedRow({
       {candidates.length > 0 && (
         <div className="flex gap-2">
           <select
-            className="h-9 max-w-64 rounded-md border border-slate-300 bg-white px-2 text-xs"
+            className="h-9 max-w-64 rounded-md border border-line-strong bg-surface-raised px-2 text-xs"
             value={bookingId}
             onChange={(event) => setBookingId(event.target.value)}
           >

@@ -3,6 +3,8 @@ import {
   Calculator,
   CheckCircle2,
   CloudOff,
+  LineChart,
+  Percent,
   Play,
   RefreshCw,
   Save,
@@ -38,6 +40,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { EmptyState } from "@/components/ui/empty-state";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -117,7 +120,7 @@ export function PricingPage() {
   }
 
   if (loading || !settings || !config)
-    return <p className="p-10 text-center text-sm text-slate-500">Loading pricing controls…</p>;
+    return <p className="p-10 text-center text-sm text-ink-muted">Loading pricing controls…</p>;
   const weekendPrice = Math.round(config.baseAirbnbPrice * (1 + config.weekendPremium));
 
   const savePricing = (key: string, message: string) =>
@@ -152,7 +155,7 @@ export function PricingPage() {
       </div>
 
       <Tabs defaultValue="pricing" className="space-y-5">
-        <TabsList className="grid grid-cols-4 rounded-xl border-0 bg-slate-100 p-1">
+        <TabsList className="grid grid-cols-4 rounded-xl border-0 bg-surface p-1">
           {[
             ["pricing", "Pricing"],
             ["discounts", "Discounts"],
@@ -161,7 +164,7 @@ export function PricingPage() {
           ].map(([value, label]) => (
             <TabsTrigger
               key={value}
-              className="rounded-lg border-0 px-1 text-xs data-[state=active]:bg-white data-[state=active]:shadow-sm sm:px-3 sm:text-sm"
+              className="rounded-lg border-0 px-1 text-xs data-[state=active]:bg-surface-raised data-[state=active]:shadow-sm sm:px-3 sm:text-sm"
               value={value}
             >
               {label}
@@ -402,11 +405,11 @@ export function PricingPage() {
             title="Advanced automation"
             description="Event premiums, channel adjustments, history, and retry controls."
           />
-          <div className="rounded-xl border border-slate-200 bg-white p-5">
+          <div className="rounded-xl border border-hairline bg-surface-raised p-5">
             <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
               <div>
-                <h3 className="font-semibold text-slate-950">Daily 8 AM pricing run</h3>
-                <p className="mt-1 text-sm text-slate-500">
+                <h3 className="font-semibold text-ink">Daily 8 AM pricing run</h3>
+                <p className="mt-1 text-sm text-ink-muted">
                   Publishes calculated nightly prices to every configured platform.
                 </p>
               </div>
@@ -427,7 +430,7 @@ export function PricingPage() {
               </Button>
             </div>
             {!settings.automationAvailable && (
-              <p className="mt-3 text-sm text-amber-700">Automation is disabled in the server environment.</p>
+              <p className="mt-3 text-sm text-ink">Automation is disabled in the server environment.</p>
             )}
           </div>
           <AdvancedRules config={config} setConfig={setConfig} />
@@ -467,9 +470,9 @@ function PlatformMarkups({
   setConfig: (config: PricingConfig) => void;
 }) {
   return (
-    <section className="rounded-xl border border-slate-200 bg-white p-5">
-      <h3 className="font-semibold text-slate-950">Platform markups</h3>
-      <p className="mt-1 text-sm text-slate-500">
+    <section className="rounded-xl border border-hairline bg-surface-raised p-5">
+      <h3 className="font-semibold text-ink">Platform markups</h3>
+      <p className="mt-1 text-sm text-ink-muted">
         Added after the nightly tier to allow for platform costs and delayed payouts. Guest discounts and fees
         still affect your earnings.
       </p>
@@ -478,7 +481,7 @@ function PlatformMarkups({
           const listing = config.listings.find((item) => item.channelType.toLowerCase() === channel);
           if (!listing) return null;
           return (
-            <label key={channel} className="rounded-lg bg-slate-50 p-4">
+            <label key={channel} className="rounded-lg bg-surface p-4">
               <span className="text-sm font-medium">{platformLabel(channel)} markup</span>
               <div className="mt-2 flex items-center gap-2">
                 <Input
@@ -501,7 +504,7 @@ function PlatformMarkups({
                 />
                 <span>%</span>
               </div>
-              <p className="mt-2 text-xs text-slate-500">
+              <p className="mt-2 text-xs text-ink-muted">
                 20–40% · At the Airbnb floor: {money(channelPrice(config.minimumAirbnbPrice, listing.ratio))}
               </p>
             </label>
@@ -526,14 +529,14 @@ function TierTable({ config }: { config: PricingConfig }) {
       ) === index
   );
   return (
-    <section className="min-w-0 rounded-xl border border-slate-200 bg-white p-5">
-      <h3 className="font-semibold text-slate-950">Empty nights get cheaper as they approach</h3>
-      <p className="mt-1 text-sm text-slate-500">
+    <section className="min-w-0 rounded-xl border border-hairline bg-surface-raised p-5">
+      <h3 className="font-semibold text-ink">Empty nights get cheaper as they approach</h3>
+      <p className="mt-1 text-sm text-ink-muted">
         Weekday examples using your current inputs. Weekend and event premiums also fade to the minimum within
         two days.
       </p>
       {config.baseAirbnbPrice === config.minimumAirbnbPrice && (
-        <p className="mt-2 text-sm text-amber-700">
+        <p className="mt-2 text-sm text-ink">
           Base and minimum are equal, so ordinary nights have a flat price.
         </p>
       )}
@@ -558,7 +561,7 @@ function TierTable({ config }: { config: PricingConfig }) {
                 config.roundTo
               );
               return (
-                <tr key={tier.label} className="border-t border-slate-100">
+                <tr key={tier.label} className="border-t border-hairline">
                   <td className="p-2">{tier.label}</td>
                   {platforms.map((listing) => (
                     <td className="p-2 font-medium" key={listing.listingId}>
@@ -578,8 +581,8 @@ function TierTable({ config }: { config: PricingConfig }) {
 function SectionIntro({ title, description }: { title: string; description: string }) {
   return (
     <div>
-      <h2 className="text-xl font-semibold text-slate-950">{title}</h2>
-      <p className="mt-1 text-sm text-slate-500">{description}</p>
+      <h2 className="text-xl font-semibold text-ink">{title}</h2>
+      <p className="mt-1 text-sm text-ink-muted">{description}</p>
     </div>
   );
 }
@@ -596,11 +599,11 @@ function PriceCard({
   onChange: (value: number) => void;
 }) {
   return (
-    <label className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
-      <span className="font-semibold text-slate-950">{title}</span>
-      <span className="mt-1 block min-h-10 text-sm text-slate-500">{description}</span>
-      <span className="mt-4 flex items-center rounded-lg border border-slate-300 px-3 focus-within:ring-2 focus-within:ring-brand-600">
-        <span className="text-sm font-medium text-slate-500">PHP</span>
+    <label className="rounded-xl border border-hairline bg-surface-raised p-5 shadow-sm">
+      <span className="font-semibold text-ink">{title}</span>
+      <span className="mt-1 block min-h-10 text-sm text-ink-muted">{description}</span>
+      <span className="mt-4 flex items-center rounded-lg border border-line-strong px-3 focus-within:ring-2 focus-within:ring-primary">
+        <span className="text-sm font-medium text-ink-muted">PHP</span>
         <Input
           className="border-0 text-right text-xl font-semibold shadow-none focus-visible:ring-0"
           type="number"
@@ -625,9 +628,9 @@ function DiscountCard({
   onChange: (value: number) => void;
 }) {
   return (
-    <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
-      <h3 className="font-semibold text-slate-950">{title}</h3>
-      <p className="mt-1 text-sm text-slate-500">{description}</p>
+    <div className="rounded-xl border border-hairline bg-surface-raised p-5 shadow-sm">
+      <h3 className="font-semibold text-ink">{title}</h3>
+      <p className="mt-1 text-sm text-ink-muted">{description}</p>
       <label className="mt-5 flex items-end gap-2">
         <Input
           className="h-14 text-3xl font-semibold"
@@ -638,12 +641,10 @@ function DiscountCard({
           placeholder="Not set"
           onChange={(event) => onChange(Number(event.target.value))}
         />
-        <span className="pb-3 text-xl font-semibold text-slate-500">%</span>
+        <span className="pb-3 text-xl font-semibold text-ink-muted">%</span>
       </label>
       {value === null && (
-        <p className="mt-2 text-xs text-amber-700">
-          Hostex did not return this discount. Enter a value to set it.
-        </p>
+        <p className="mt-2 text-xs text-ink">Hostex did not return this discount. Enter a value to set it.</p>
       )}
     </div>
   );
@@ -661,13 +662,13 @@ function RuleCard({
   onChange: (rules: AirbnbDiscountRule[]) => void;
 }) {
   return (
-    <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
-      <h3 className="font-semibold text-slate-950">{title}</h3>
-      <p className="mt-1 text-sm text-slate-500">{description}</p>
+    <div className="rounded-xl border border-hairline bg-surface-raised p-5 shadow-sm">
+      <h3 className="font-semibold text-ink">{title}</h3>
+      <p className="mt-1 text-sm text-ink-muted">{description}</p>
       <div className="mt-4 space-y-3">
         {rules.map((rule, index) => (
           <div key={`${rule.days}-${index}`} className="grid grid-cols-[1fr_1fr_36px] gap-2">
-            <label className="text-xs text-slate-500">
+            <label className="text-xs text-ink-muted">
               Discount %
               <Input
                 className="mt-1"
@@ -684,7 +685,7 @@ function RuleCard({
                 }
               />
             </label>
-            <label className="text-xs text-slate-500">
+            <label className="text-xs text-ink-muted">
               Days before arrival
               <Input
                 className="mt-1"
@@ -712,7 +713,12 @@ function RuleCard({
           </div>
         ))}
         {rules.length === 0 && (
-          <p className="rounded-lg bg-slate-50 p-3 text-sm text-slate-500">No discount configured.</p>
+          <EmptyState
+            size="sm"
+            icon={Percent}
+            title="No discount set"
+            description="Add a rule to discount long stays or last-minute nights."
+          />
         )}
         <Button
           size="sm"
@@ -738,10 +744,10 @@ function ToggleCard({
   onChange: (checked: boolean) => void;
 }) {
   return (
-    <label className="flex cursor-pointer items-center justify-between gap-4 rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
+    <label className="flex cursor-pointer items-center justify-between gap-4 rounded-xl border border-hairline bg-surface-raised p-5 shadow-sm">
       <span>
-        <span className="font-semibold text-slate-950">{title}</span>
-        <span className="mt-1 block text-sm text-slate-500">{description}</span>
+        <span className="font-semibold text-ink">{title}</span>
+        <span className="mt-1 block text-sm text-ink-muted">{description}</span>
       </span>
       <Checkbox checked={checked} onCheckedChange={(value) => onChange(value === true)} />
     </label>
@@ -760,8 +766,8 @@ function SettingCard({
   onChange: (value: number | null) => void;
 }) {
   return (
-    <label className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
-      <span className="font-semibold text-slate-950">{label}</span>
+    <label className="rounded-xl border border-hairline bg-surface-raised p-5 shadow-sm">
+      <span className="font-semibold text-ink">{label}</span>
       <span className="mt-4 flex items-center gap-2">
         <Input
           type="number"
@@ -770,11 +776,9 @@ function SettingCard({
           placeholder="Not set"
           onChange={(event) => onChange(event.target.value === "" ? null : Number(event.target.value))}
         />
-        <span className="whitespace-nowrap text-sm text-slate-500">{suffix}</span>
+        <span className="whitespace-nowrap text-sm text-ink-muted">{suffix}</span>
       </span>
-      {value === null && (
-        <span className="mt-2 block text-xs text-amber-700">No value returned by Hostex.</span>
-      )}
+      {value === null && <span className="mt-2 block text-xs text-ink">No value returned by Hostex.</span>}
     </label>
   );
 }
@@ -789,8 +793,8 @@ function WeekdayCard({
   onChange: (days: number[]) => void;
 }) {
   return (
-    <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
-      <h3 className="font-semibold text-slate-950">{label}</h3>
+    <div className="rounded-xl border border-hairline bg-surface-raised p-5 shadow-sm">
+      <h3 className="font-semibold text-ink">{label}</h3>
       <div className="mt-4 grid grid-cols-4 gap-2 sm:grid-cols-7">
         {weekdays.map((day, index) => {
           const active = selected.includes(index);
@@ -798,7 +802,7 @@ function WeekdayCard({
             <button
               key={day}
               type="button"
-              className={`h-11 rounded-lg border text-sm font-medium ${active ? "border-brand-600 bg-brand-50 text-brand-700" : "border-slate-200 text-slate-500"}`}
+              className={`h-11 rounded-lg border text-sm font-medium ${active ? "border-primary bg-primary-soft text-primary-hover" : "border-hairline text-ink-muted"}`}
               onClick={() =>
                 onChange(active ? selected.filter((value) => value !== index) : [...selected, index].sort())
               }
@@ -825,9 +829,9 @@ function SaveBar({
 }) {
   return (
     <div
-      className={`z-10 flex flex-col gap-3 rounded-xl border border-slate-200 bg-white/95 p-4 shadow-lg backdrop-blur sm:flex-row sm:items-center sm:justify-between ${dirty ? "sm:sticky sm:bottom-3" : ""}`}
+      className={`z-10 flex flex-col gap-3 rounded-xl border border-hairline bg-surface-raised/95 p-4 shadow-lg backdrop-blur sm:flex-row sm:items-center sm:justify-between ${dirty ? "sm:sticky sm:bottom-3" : ""}`}
     >
-      <p className="text-sm text-slate-600">
+      <p className="text-sm text-ink-muted">
         {dirty ? `${text} are not saved yet.` : "Everything is up to date."}
       </p>
       <Button disabled={!dirty || working} onClick={onSave}>
@@ -848,18 +852,19 @@ function HostexUnavailable({
   retry: () => void;
 }) {
   return (
-    <div className="rounded-xl border border-amber-200 bg-amber-50 p-6">
-      <CloudOff className="size-6 text-amber-700" />
-      <h3 className="mt-3 font-semibold text-amber-950">Live Airbnb settings are unavailable</h3>
-      <p className="mt-1 text-sm text-amber-800">
-        {error || "Hostex did not return the listing settings."} Nothing can be saved until the live values
-        are loaded.
-      </p>
-      <Button className="mt-4" variant="secondary" disabled={loading} onClick={retry}>
-        <RefreshCw className={`size-4 ${loading ? "animate-spin" : ""}`} />
-        Retry
-      </Button>
-    </div>
+    <EmptyState
+      className="rounded-xl bg-butter/40"
+      tone="warning"
+      icon={CloudOff}
+      title="Live Airbnb settings are unavailable"
+      description={`${error || "Hostex did not return the listing settings."} Nothing can be saved until the live values are loaded.`}
+      action={
+        <Button variant="secondary" disabled={loading} onClick={retry}>
+          <RefreshCw className={`size-4 ${loading ? "animate-spin" : ""}`} />
+          Retry
+        </Button>
+      }
+    />
   );
 }
 
@@ -872,10 +877,8 @@ function AdvancedRules({
 }) {
   return (
     <div className="space-y-3">
-      <details className="rounded-xl border border-slate-200 bg-white p-5">
-        <summary className="cursor-pointer font-semibold text-slate-950">
-          Events, horizon, and rounding
-        </summary>
+      <details className="rounded-xl border border-hairline bg-surface-raised p-5">
+        <summary className="cursor-pointer font-semibold text-ink">Events, horizon, and rounding</summary>
         <div className="mt-5 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
           <NumberField
             label="Event increase"
@@ -897,9 +900,9 @@ function AdvancedRules({
           />
         </div>
       </details>
-      <details className="rounded-xl border border-slate-200 bg-white p-5">
-        <summary className="cursor-pointer font-semibold text-slate-950">Other platform adjustments</summary>
-        <p className="mt-2 text-sm text-slate-500">
+      <details className="rounded-xl border border-hairline bg-surface-raised p-5">
+        <summary className="cursor-pointer font-semibold text-ink">Other platform adjustments</summary>
+        <p className="mt-2 text-sm text-ink-muted">
           Shown as the percentage above or below the calculated Airbnb price.
         </p>
         <div className="mt-4 grid gap-3 sm:grid-cols-2">
@@ -920,13 +923,13 @@ function AdvancedRules({
           )}
         </div>
       </details>
-      <details className="rounded-xl border border-slate-200 bg-white p-5">
-        <summary className="cursor-pointer font-semibold text-slate-950">Recurring events</summary>
+      <details className="rounded-xl border border-hairline bg-surface-raised p-5">
+        <summary className="cursor-pointer font-semibold text-ink">Recurring events</summary>
         <div className="mt-4 space-y-3">
           {config.recurringEvents.map((event, index) => (
             <div
               key={`${event.name}-${index}`}
-              className="grid gap-2 rounded-lg bg-slate-50 p-3 sm:grid-cols-[1fr_110px_110px]"
+              className="grid gap-2 rounded-lg bg-surface p-3 sm:grid-cols-[1fr_110px_110px]"
             >
               <Input
                 aria-label="Event name"
@@ -980,13 +983,13 @@ function NumberField({
     <label>
       <Label>{label}</Label>
       <span className="mt-2 flex items-center gap-2">
-        <span className="text-sm text-slate-500">{prefix}</span>
+        <span className="text-sm text-ink-muted">{prefix}</span>
         <Input
           type="number"
           value={Number(value.toFixed(2))}
           onChange={(event) => onChange(Number(event.target.value))}
         />
-        <span className="whitespace-nowrap text-sm text-slate-500">{suffix}</span>
+        <span className="whitespace-nowrap text-sm text-ink-muted">{suffix}</span>
       </span>
     </label>
   );
@@ -1006,11 +1009,11 @@ function PreviewPanel({
   onApply: () => void;
 }) {
   return (
-    <section className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
+    <section className="rounded-xl border border-hairline bg-surface-raised p-5 shadow-sm">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <h2 className="font-semibold text-slate-950">Preview and publish now</h2>
-          <p className="mt-1 text-sm text-slate-500">
+          <h2 className="font-semibold text-ink">Preview and publish now</h2>
+          <p className="mt-1 text-sm text-ink-muted">
             Preview reads Hostex but never writes prices.{" "}
             {dirty && "Save your changes before previewing or applying."}
           </p>
@@ -1022,20 +1025,20 @@ function PreviewPanel({
       </div>
       {preview && (
         <>
-          <div className="mt-4 max-h-72 overflow-auto rounded-lg border border-slate-200">
-            <div className="divide-y divide-slate-100">
+          <div className="mt-4 max-h-72 overflow-auto rounded-lg border border-hairline">
+            <div className="divide-y divide-hairline">
               {preview.days.map((day) => (
                 <div
                   key={day.date}
                   className="flex flex-col gap-2 px-3 py-3 text-sm sm:flex-row sm:items-center sm:justify-between"
                 >
                   <div>
-                    <p className="font-medium text-slate-800">{formatDate(day.date)}</p>
-                    <p className="text-xs text-slate-500">
+                    <p className="font-medium text-ink">{formatDate(day.date)}</p>
+                    <p className="text-xs text-ink-muted">
                       {day.leadDays !== undefined && `${day.leadDays} days away · `}
                       {day.tier}
                     </p>
-                    <p className="text-xs text-slate-500">
+                    <p className="text-xs text-ink-muted">
                       {day.reasons.filter((reason) => !reason.includes("days away")).join(", ")}
                     </p>
                   </div>
@@ -1105,29 +1108,27 @@ function RunHistory({
   onRetry: (runId: string, submissionId: string) => void;
 }) {
   return (
-    <details className="rounded-xl border border-slate-200 bg-white p-5">
-      <summary className="cursor-pointer font-semibold text-slate-950">
-        History and failed-listing retries
-      </summary>
-      <div className="mt-4 divide-y divide-slate-100">
+    <details className="rounded-xl border border-hairline bg-surface-raised p-5">
+      <summary className="cursor-pointer font-semibold text-ink">History and failed-listing retries</summary>
+      <div className="mt-4 divide-y divide-hairline">
         {runs.slice(0, 8).map((run) => (
           <div key={run.id} className="py-4">
             <div className="flex items-center justify-between gap-2">
-              <span className="text-sm font-medium text-slate-800">{statusLabel(run.mode)}</span>
+              <span className="text-sm font-medium text-ink">{statusLabel(run.mode)}</span>
               <Badge>{statusLabel(run.status)}</Badge>
             </div>
-            <p className="mt-1 text-xs text-slate-500">
+            <p className="mt-1 text-xs text-ink-muted">
               {formatDateTime(run.startedAt)} · settings v{run.settingsVersion}
             </p>
             {latestSubmissions(run).map((submission) => (
-              <div key={submission.id} className="mt-2 rounded-md bg-slate-50 p-3 text-xs">
+              <div key={submission.id} className="mt-2 rounded-md bg-surface p-3 text-xs">
                 <div className="flex items-center justify-between">
                   <span>
                     {statusLabel(submission.channelType)} · attempt {submission.attempt}
                   </span>
                   <Badge>{statusLabel(submission.status)}</Badge>
                 </div>
-                {submission.error && <p className="mt-1 text-rose-600">{submission.error}</p>}
+                {submission.error && <p className="mt-1 text-danger">{submission.error}</p>}
                 {submission.status === "failed" && (
                   <AlertDialog>
                     <AlertDialogTrigger asChild>
@@ -1153,7 +1154,13 @@ function RunHistory({
             ))}
           </div>
         ))}
-        {runs.length === 0 && <p className="py-5 text-sm text-slate-500">No pricing runs yet.</p>}
+        {runs.length === 0 && (
+          <EmptyState
+            icon={LineChart}
+            title="No pricing runs yet"
+            description="Runs appear here after the first pricing update."
+          />
+        )}
       </div>
     </details>
   );
@@ -1171,10 +1178,10 @@ function Status({
   good: boolean;
 }) {
   return (
-    <div className="min-w-0 rounded-xl border border-slate-200 bg-white p-3 shadow-sm sm:p-4">
-      <Icon className={`size-4 sm:size-5 ${good ? "text-emerald-600" : "text-amber-600"}`} />
-      <p className="mt-2 truncate text-[10px] text-slate-500 sm:text-xs">{label}</p>
-      <p className="mt-1 text-xs font-semibold text-slate-950 sm:text-sm">{value}</p>
+    <div className="min-w-0 rounded-xl border border-hairline bg-surface-raised p-3 shadow-sm sm:p-4">
+      <Icon className={`size-4 sm:size-5 ${good ? "text-success" : "text-ink"}`} />
+      <p className="mt-2 truncate text-[10px] text-ink-muted sm:text-xs">{label}</p>
+      <p className="mt-1 text-xs font-semibold text-ink sm:text-sm">{value}</p>
     </div>
   );
 }

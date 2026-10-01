@@ -7,6 +7,7 @@ import { JobDispatcher } from "../jobs/job.dispatcher.js";
 import { PrismaService } from "../prisma/prisma.service.js";
 import { AI_REVIEW_MODEL, SettingsService } from "../settings/settings.service.js";
 import { StorageService } from "../storage/storage.service.js";
+import { dataTable, renderAlertEmail } from "../automation/email-layout.js";
 
 const OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions";
 const MAX_AI_FILE_BYTES = 20 * 1024 * 1024;
@@ -405,13 +406,18 @@ export class AiReviewService {
     const link = `${(process.env.PUBLIC_APP_URL ?? "").replace(/\/+$/, "")}/admin/submissions/${submissionId}`;
     const title =
       submission.status === SubmissionStatus.REJECTED ? "AI ID check rejected" : "AI ID check needs review";
-    const rows = results
-      .map(
-        (result) =>
-          `<tr><td>${escapeHtml(result.enteredName)}</td><td>${escapeHtml(result.extractedNames.join(", ") || "—")}</td><td>${escapeHtml(result.matchedName ?? "—")}</td><td>${escapeHtml(result.reason)}</td></tr>`
-      )
-      .join("");
-    const html = `<h1>${title}</h1><p>Submission ${escapeHtml(submissionId)} requires your attention.</p><table border="1" cellpadding="8" cellspacing="0"><thead><tr><th>Entered name</th><th>All extracted names</th><th>Matched name</th><th>Finding</th></tr></thead><tbody>${rows}</tbody></table><p>Model: ${escapeHtml(submission.aiReview.model)}<br>Checked: ${escapeHtml(submission.aiReview.checkedAt?.toISOString() ?? "unknown")}</p><p><a href="${escapeHtml(link)}">Open registration review</a></p>`;
+    const rows = results.map((result) => [
+      escapeHtml(result.enteredName),
+      escapeHtml(result.extractedNames.join(", ") || "—"),
+      escapeHtml(result.matchedName ?? "—"),
+      escapeHtml(result.reason)
+    ]);
+    const html = renderAlertEmail({
+      title,
+      intro: `Submission ${escapeHtml(submissionId)} requires your attention.`,
+      bodyHtml: `${dataTable(["Entered name", "All extracted names", "Matched name", "Finding"], rows)}<p style="margin:16px 0 0;color:#5d6478;font-family:Arial,'Segoe UI',Helvetica,sans-serif;font-size:14px;line-height:20px;">Model: ${escapeHtml(submission.aiReview.model)}<br />Checked: ${escapeHtml(submission.aiReview.checkedAt?.toISOString() ?? "unknown")}</p>`,
+      cta: { href: escapeHtml(link), label: "Open registration review" }
+    });
     try {
       await this.email.sendMessage({ to: reviewEmail, subject: `${title}: ${submission.guestEmail}`, html });
       await this.prisma.submissionAiReview.update({

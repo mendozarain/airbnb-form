@@ -1,12 +1,15 @@
-import { AlertTriangle, CalendarCheck, CheckCircle2, Clock3, RefreshCw, TrendingUp } from "lucide-react";
+import { CalendarCheck, CalendarX2, Clock3, RefreshCw, Sparkles, TrendingUp } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import type { BookingSummary, HostexAutomationStatus, PricingRun } from "@cozy-d-714/shared";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Card, CardHeader, CardTitle } from "@/components/ui/card";
+import { EmptyState } from "@/components/ui/empty-state";
+import { StatCard } from "@/components/ui/stat-card";
 import { PageHeader } from "@/components/page-header";
 import { api } from "@/lib/api";
-import { channelLabel, formatDate, statusLabel } from "@/lib/display";
+import { channelLabel, formatDate, registrationTone, statusLabel } from "@/lib/display";
 
 export function OverviewPage() {
   const [bookings, setBookings] = useState<BookingSummary[]>([]);
@@ -54,72 +57,88 @@ export function OverviewPage() {
         description="Bookings, guest registrations, messaging, and pricing in one place."
       />
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        <Stat
+        <StatCard
+          tone="butter"
           icon={CalendarCheck}
           label="Upcoming bookings"
           value={loading ? "—" : String(bookings.length)}
-          tone="emerald"
+          hint="Accepted and still to come"
         />
-        <Stat
+        <StatCard
+          tone="sky"
           icon={Clock3}
           label="Needs attention"
           value={loading ? "—" : String(attention.length)}
-          tone="amber"
+          hint="Registration missing or under review"
         />
-        <Stat
+        <StatCard
+          tone="mint"
           icon={TrendingUp}
           label="Booked nights"
           value={loading ? "—" : String(bookedNights)}
-          tone="blue"
+          hint="Across the next 12 months"
         />
-        <Stat
-          icon={hostex?.webhookVerified ? CheckCircle2 : AlertTriangle}
+        <StatCard
+          tone="pink"
+          icon={Sparkles}
           label="Hostex automation"
           value={hostex?.automationEnabled ? "On" : "Off"}
-          tone={hostex?.automationEnabled ? "emerald" : "slate"}
+          hint={hostex?.webhookVerified ? "Webhook verified" : "Webhook pending"}
         />
       </div>
 
       <div className="grid gap-5 xl:grid-cols-[1.5fr_1fr]">
-        <section className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
-          <div className="flex items-center justify-between border-b border-slate-100 px-5 py-4">
+        <Card className="overflow-hidden">
+          <CardHeader className="border-b border-hairline">
             <div>
-              <h2 className="font-semibold text-slate-950">Upcoming stays</h2>
-              <p className="text-sm text-slate-500">The next accepted Hostex bookings</p>
+              <CardTitle>Upcoming stays</CardTitle>
+              <p className="text-sm text-ink-muted">The next accepted Hostex bookings</p>
             </div>
             <Button asChild variant="secondary" size="sm">
               <Link to="/admin/registrations">View all</Link>
             </Button>
-          </div>
-          <div className="divide-y divide-slate-100">
+          </CardHeader>
+          <div className="divide-y divide-hairline">
             {bookings.slice(0, 6).map((booking) => (
               <Link
                 key={booking.id}
                 to={`/admin/bookings/${booking.id}`}
-                className="grid gap-2 px-5 py-4 transition hover:bg-slate-50 sm:grid-cols-[1fr_auto] sm:items-center"
+                className="grid gap-2 px-5 py-4 transition hover:bg-surface sm:grid-cols-[1fr_auto] sm:items-center"
               >
                 <div className="min-w-0">
-                  <p className="truncate font-medium text-slate-900">
+                  <p className="truncate font-medium text-ink">
                     {booking.guestName || "Guest name unavailable"}
                   </p>
-                  <p className="mt-1 text-sm text-slate-500">
+                  <p className="mt-1 text-sm text-ink-muted">
                     {formatDate(booking.checkIn)} – {formatDate(booking.checkOut)} ·{" "}
                     {channelLabel(booking.channelType)}
                   </p>
                 </div>
-                <Badge>{statusLabel(booking.registrationStatus)}</Badge>
+                <Badge tone={registrationTone(booking.registrationStatus)}>
+                  {statusLabel(booking.registrationStatus)}
+                </Badge>
               </Link>
             ))}
             {!loading && bookings.length === 0 && (
-              <p className="p-8 text-center text-sm text-slate-500">No upcoming bookings have been synced.</p>
+              <EmptyState
+                icon={CalendarX2}
+                title="No upcoming stays yet"
+                description="New accepted Hostex bookings will show up here."
+                action={
+                  <Button variant="secondary" size="sm" onClick={() => void load()}>
+                    <RefreshCw className="size-4" />
+                    Sync Hostex
+                  </Button>
+                }
+              />
             )}
           </div>
-        </section>
+        </Card>
 
-        <section className="space-y-4 rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
+        <Card className="space-y-4 p-5">
           <div>
-            <h2 className="font-semibold text-slate-950">System status</h2>
-            <p className="text-sm text-slate-500">Production safeguards and recent activity</p>
+            <CardTitle>System status</CardTitle>
+            <p className="text-sm text-ink-muted">Production safeguards and recent activity</p>
           </div>
           <StatusLine
             label="Webhook"
@@ -140,45 +159,17 @@ export function OverviewPage() {
             <RefreshCw className="size-4" />
             Refresh dashboard
           </Button>
-        </section>
+        </Card>
       </div>
-    </div>
-  );
-}
-
-function Stat({
-  icon: Icon,
-  label,
-  value,
-  tone
-}: {
-  icon: typeof CalendarCheck;
-  label: string;
-  value: string;
-  tone: string;
-}) {
-  const tones: Record<string, string> = {
-    emerald: "bg-emerald-50 text-emerald-700",
-    amber: "bg-amber-50 text-amber-700",
-    blue: "bg-blue-50 text-blue-700",
-    slate: "bg-slate-100 text-slate-600"
-  };
-  return (
-    <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
-      <div className={`mb-4 flex size-10 items-center justify-center rounded-lg ${tones[tone]}`}>
-        <Icon className="size-5" />
-      </div>
-      <p className="text-sm text-slate-500">{label}</p>
-      <p className="mt-1 text-2xl font-semibold text-slate-950">{value}</p>
     </div>
   );
 }
 
 function StatusLine({ label, value, good }: { label: string; value: string; good: boolean }) {
   return (
-    <div className="flex items-center justify-between rounded-lg bg-slate-50 px-3 py-3">
-      <span className="text-sm text-slate-600">{label}</span>
-      <span className={`text-sm font-medium ${good ? "text-emerald-700" : "text-amber-700"}`}>{value}</span>
+    <div className="flex items-center justify-between rounded-md bg-surface px-3 py-3">
+      <span className="text-sm text-ink-muted">{label}</span>
+      <Badge tone={good ? "success" : "warning"}>{value}</Badge>
     </div>
   );
 }

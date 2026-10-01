@@ -90,14 +90,14 @@ export function DashboardPage() {
 
       <section aria-labelledby="new-invite-heading">
         <div className="mb-4 flex items-center gap-2">
-          <Plus className="size-5 text-brand-700" />
+          <Plus className="size-5 text-primary-hover" />
           <h2 id="new-invite-heading" className="text-lg font-semibold">
             New guest link
           </h2>
         </div>
         <form
           onSubmit={create}
-          className="grid gap-4 rounded-lg border border-slate-200 bg-white p-4 sm:grid-cols-2 sm:items-end lg:grid-cols-[1fr_1fr_1fr_auto]"
+          className="grid gap-4 rounded-lg border border-hairline bg-surface-raised p-4 sm:grid-cols-2 sm:items-end lg:grid-cols-[1fr_1fr_1fr_auto]"
         >
           <div className="space-y-2">
             <Label htmlFor="checkIn">Check-in</Label>
@@ -111,7 +111,7 @@ export function DashboardPage() {
             <Label htmlFor="purpose">Purpose</Label>
             <select
               id="purpose"
-              className="h-11 w-full rounded-md border border-slate-300 bg-white px-3 text-sm outline-none focus:border-brand-600 focus:ring-2 focus:ring-brand-100"
+              className="h-11 w-full rounded-md border border-line-strong bg-surface-raised px-3 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary-soft"
               {...form.register("purpose")}
             >
               <option value="">Select purpose</option>
@@ -131,7 +131,7 @@ export function DashboardPage() {
           {(form.formState.errors.checkIn ||
             form.formState.errors.checkOut ||
             form.formState.errors.purpose) && (
-            <p className="text-sm text-red-600 sm:col-span-2 lg:col-span-4">
+            <p className="text-sm text-danger sm:col-span-2 lg:col-span-4">
               {form.formState.errors.checkIn?.message ??
                 form.formState.errors.checkOut?.message ??
                 form.formState.errors.purpose?.message}
@@ -139,8 +139,8 @@ export function DashboardPage() {
           )}
         </form>
         {guestUrl && (
-          <div className="mt-3 flex items-center gap-2 rounded-md border border-brand-100 bg-brand-50 p-3">
-            <span className="min-w-0 flex-1 truncate text-sm text-brand-700">{guestUrl}</span>
+          <div className="mt-3 flex items-center gap-2 rounded-md border border-primary-soft bg-primary-soft p-3">
+            <span className="min-w-0 flex-1 truncate text-sm text-primary-hover">{guestUrl}</span>
             <Button
               size="icon"
               variant="ghost"
@@ -174,8 +174,8 @@ export function DashboardPage() {
                     <Badge
                       className={
                         hostexStatus.webhookVerified
-                          ? "border-emerald-200 bg-emerald-50 text-emerald-700"
-                          : "border-amber-200 bg-amber-50 text-amber-700"
+                          ? "border-success/30 bg-success/10 text-success"
+                          : "border-butter bg-butter/40 text-ink"
                       }
                     >
                       Webhook {hostexStatus.webhookVerified ? "verified" : "pending"}
@@ -215,7 +215,7 @@ export function DashboardPage() {
           </div>
         </div>
 
-        <div className="mt-4 overflow-hidden rounded-lg border border-slate-200 bg-white">
+        <div className="mt-4 overflow-hidden rounded-lg border border-hairline bg-surface-raised">
           {loading ? (
             <div className="space-y-3 p-4">
               <Skeleton className="h-16" />
@@ -255,21 +255,21 @@ function InviteRow({ invite, onDelete }: { invite: InviteSummary; onDelete: () =
   }
 
   return (
-    <div className="flex flex-col gap-3 border-b border-slate-100 p-4 last:border-0 sm:flex-row sm:items-center">
+    <div className="flex flex-col gap-3 border-b border-hairline p-4 last:border-0 sm:flex-row sm:items-center">
       <div className="min-w-0 flex-1">
         <div className="flex items-center gap-2">
-          <CalendarDays className="size-4 text-slate-400" />
+          <CalendarDays className="size-4 text-ink-muted" />
           <span className="font-medium">
             {formatDate(invite.checkIn)} – {formatDate(invite.checkOut)}
           </span>
         </div>
-        <p className="mt-1 text-sm font-medium text-slate-700">{invite.purpose}</p>
-        <p className="mt-1 truncate text-sm text-slate-500">{invite.guestUrl}</p>
+        <p className="mt-1 text-sm font-medium text-ink-muted">{invite.purpose}</p>
+        <p className="mt-1 truncate text-sm text-ink-muted">{invite.guestUrl}</p>
         {invite.hostex && (
-          <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-slate-500">
+          <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-ink-muted">
             <span>{channelLabel(invite.hostex.channelType)}</span>
             <span>Scheduled {formatDateTime(invite.hostex.dueAt)}</span>
-            {invite.hostex.lastError && <span className="text-red-600">{invite.hostex.lastError}</span>}
+            {invite.hostex.lastError && <span className="text-danger">{invite.hostex.lastError}</span>}
           </div>
         )}
       </div>
@@ -304,7 +304,7 @@ function InviteRow({ invite, onDelete }: { invite: InviteSummary; onDelete: () =
             <AlertDialog>
               <AlertDialogTrigger asChild>
                 <Button size="icon" variant="ghost" aria-label="Send Hostex message now" disabled={acting}>
-                  <Send className="size-4 text-brand-700" />
+                  <Send className="size-4 text-primary-hover" />
                 </Button>
               </AlertDialogTrigger>
               <AlertDialogContent>
@@ -334,7 +334,7 @@ function InviteRow({ invite, onDelete }: { invite: InviteSummary; onDelete: () =
                 aria-label="Retry uncertain Hostex message"
                 disabled={acting}
               >
-                <Send className="size-4 text-amber-600" />
+                <Send className="size-4 text-ink" />
               </Button>
             </AlertDialogTrigger>
             <AlertDialogContent>
@@ -359,7 +359,7 @@ function InviteRow({ invite, onDelete }: { invite: InviteSummary; onDelete: () =
           <AlertDialog>
             <AlertDialogTrigger asChild>
               <Button size="icon" variant="ghost" aria-label="Delete link">
-                <Trash2 className="size-4 text-red-600" />
+                <Trash2 className="size-4 text-danger" />
               </Button>
             </AlertDialogTrigger>
             <AlertDialogContent>
@@ -391,11 +391,11 @@ function SubmissionRow({ submission }: { submission: SubmissionSummary }) {
   return (
     <Link
       to={`/admin/submissions/${submission.id}`}
-      className="grid gap-2 border-b border-slate-100 p-4 transition hover:bg-slate-50 last:border-0 sm:grid-cols-[1fr_auto] sm:items-center"
+      className="grid gap-2 border-b border-hairline p-4 transition hover:bg-surface last:border-0 sm:grid-cols-[1fr_auto] sm:items-center"
     >
       <div className="min-w-0">
-        <p className="truncate font-medium text-slate-900">{submission.guestEmail}</p>
-        <p className="mt-1 text-sm text-slate-500">
+        <p className="truncate font-medium text-ink">{submission.guestEmail}</p>
+        <p className="mt-1 text-sm text-ink-muted">
           {formatDate(submission.checkIn)} – {formatDate(submission.checkOut)}
         </p>
       </div>
@@ -405,7 +405,7 @@ function SubmissionRow({ submission }: { submission: SubmissionSummary }) {
 }
 
 function EmptyState({ children }: { children: React.ReactNode }) {
-  return <p className="p-8 text-center text-sm text-slate-500">{children}</p>;
+  return <p className="p-8 text-center text-sm text-ink-muted">{children}</p>;
 }
 
 function formatDate(value: string) {

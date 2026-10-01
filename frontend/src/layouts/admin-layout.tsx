@@ -34,18 +34,21 @@ export function AdminLayout() {
     });
 
   return (
-    <div className="min-h-screen bg-slate-50">
-      <header className="sticky top-0 z-30 border-b border-slate-200 bg-white/90 backdrop-blur-xl">
+    <div className="min-h-screen bg-surface">
+      <header className="sticky top-0 z-30 border-b border-hairline bg-surface-raised/90 backdrop-blur-xl">
         <div className="mx-auto flex h-16 max-w-7xl items-center gap-4 px-4 sm:px-6 lg:h-20 lg:px-8">
-          <Link to="/admin" className="min-w-0 shrink-0 lg:mr-4">
-            <p className="truncate text-sm font-semibold tracking-tight text-slate-950 lg:text-base">
-              Cozy Davao D-714
-            </p>
-            <p className="truncate text-xs text-slate-500">Operations</p>
+          <Link to="/admin" className="flex min-w-0 shrink-0 items-center gap-2.5 lg:mr-4">
+            <span className="size-3.5 shrink-0 rounded-full bg-primary" aria-hidden="true" />
+            <span className="min-w-0">
+              <span className="block truncate text-base font-semibold leading-5 text-ink">
+                Cozy Davao D-714
+              </span>
+              <span className="block truncate text-xs text-ink-muted">Operations</span>
+            </span>
           </Link>
 
           <nav className="hidden flex-1 items-center justify-center lg:flex">
-            <div className="flex items-center gap-1 rounded-xl bg-slate-100 p-1">
+            <div className="flex items-center gap-1 rounded-md bg-surface p-1">
               {navigation.map((item) => {
                 const active = isActive(item, location.pathname);
                 const Icon = item.icon;
@@ -54,11 +57,11 @@ export function AdminLayout() {
                     key={item.to}
                     to={item.to}
                     className={cn(
-                      "flex items-center gap-2 rounded-lg px-3.5 py-2 text-sm font-medium text-slate-600 transition hover:bg-white/70 hover:text-slate-950",
-                      active && "bg-white text-emerald-700 shadow-sm ring-1 ring-slate-200"
+                      "flex items-center gap-2 rounded-md px-3.5 py-2 text-sm font-semibold text-ink-muted transition hover:bg-surface-raised hover:text-ink",
+                      active && "bg-primary-soft text-primary"
                     )}
                   >
-                    <Icon className="size-4" />
+                    <Icon className="size-4" strokeWidth={1.5} />
                     {item.label}
                   </Link>
                 );
@@ -67,12 +70,7 @@ export function AdminLayout() {
           </nav>
 
           <div className="ml-auto lg:ml-4">
-            <Button
-              variant="ghost"
-              size="sm"
-              aria-label="Sign out"
-              onClick={signOut}
-            >
+            <Button variant="ghost" size="sm" aria-label="Sign out" onClick={signOut}>
               <LogOut className="size-4" />
               <span className="hidden lg:inline">Sign out</span>
             </Button>
@@ -84,7 +82,7 @@ export function AdminLayout() {
         <Outlet />
       </main>
 
-      <nav className="fixed inset-x-0 bottom-0 z-30 grid grid-cols-5 border-t border-slate-200 bg-white px-1 pb-[max(.35rem,env(safe-area-inset-bottom))] pt-1 lg:hidden">
+      <nav className="fixed inset-x-0 bottom-0 z-30 grid grid-cols-5 border-t border-hairline bg-surface-raised px-1 pb-[max(.35rem,env(safe-area-inset-bottom))] pt-1 lg:hidden">
         {navigation.map((item) => {
           const active = isActive(item, location.pathname);
           const Icon = item.icon;
@@ -93,11 +91,11 @@ export function AdminLayout() {
               key={item.to}
               to={item.to}
               className={cn(
-                "flex min-w-0 flex-col items-center gap-1 rounded-md px-1 py-2 text-[10px] font-medium text-slate-500",
-                active && "bg-emerald-50 text-emerald-700"
+                "flex min-w-0 flex-col items-center gap-1 rounded-md px-1 py-2 text-[10px] font-semibold text-ink-muted",
+                active && "bg-primary-soft text-primary"
               )}
             >
-              <Icon className="size-4" />
+              <Icon className="size-4" strokeWidth={1.5} />
               <span className="truncate">{item.label}</span>
             </Link>
           );

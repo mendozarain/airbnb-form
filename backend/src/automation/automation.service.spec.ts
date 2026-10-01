@@ -76,6 +76,7 @@ describe("AutomationService", () => {
           guestEmail: "guest@example.com",
           purpose: "Viewing",
           status: SubmissionStatus.SUBMITTED_EMAIL_SENT,
+          guests: [{ fullName: "Maria Santos" }, { fullName: "Jose Santos" }],
           runs: [{ id: "run-1", screenshotStorageKey: "screenshots/pass.png" }]
         }),
         updateMany: resolved({ count: 1 }),
@@ -123,7 +124,8 @@ describe("AutomationService", () => {
     expect(email.sendEntrancePass).toHaveBeenCalledWith(
       "guest@example.com",
       template,
-      "https://dev.example.com/api/entrance-pass/signed-token"
+      "https://dev.example.com/api/entrance-pass/signed-token",
+      { guests: [{ fullName: "Maria Santos" }, { fullName: "Jose Santos" }], purpose: "Viewing" }
     );
     expect(settings.getEmailTemplate).toHaveBeenCalledWith("Viewing");
     expect(prisma.submission.update).toHaveBeenCalledWith({
@@ -193,7 +195,8 @@ describe("email and platform confirmation integration", () => {
     expect(email.sendEntrancePass).toHaveBeenCalledWith(
       "form@example.com",
       expect.anything(),
-      "https://example.com/pass"
+      "https://example.com/pass",
+      expect.objectContaining({ guests: expect.any(Array) })
     );
     expect(chat.emailSent).toHaveBeenCalledWith("delivery-1");
     expect(chat.prepare.mock.invocationCallOrder[0]).toBeLessThan(

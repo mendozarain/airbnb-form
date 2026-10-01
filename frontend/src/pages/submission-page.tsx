@@ -8,7 +8,8 @@ import {
   RotateCcw,
   Save,
   Trash2,
-  XCircle
+  XCircle,
+  FileQuestion
 } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
@@ -27,6 +28,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { EmptyState } from "@/components/ui/empty-state";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -98,7 +100,19 @@ export function SubmissionPage() {
         <Skeleton className="h-72" />
       </div>
     );
-  if (!submission) return <p className="text-sm text-slate-600">Submission not found.</p>;
+  if (!submission)
+    return (
+      <EmptyState
+        icon={FileQuestion}
+        title="Registration not found"
+        description="It may have been removed."
+        action={
+          <Button asChild variant="secondary" size="sm">
+            <Link to="/admin/registrations">Back to registrations</Link>
+          </Button>
+        }
+      />
+    );
 
   const canReview = ["ready_for_review", "failed"].includes(submission.status);
   const canEdit = [
@@ -129,7 +143,7 @@ export function SubmissionPage() {
         }
       />
 
-      <section className="grid gap-4 rounded-lg border border-slate-200 bg-white p-4 sm:grid-cols-2 lg:grid-cols-4">
+      <section className="grid gap-4 rounded-lg border border-hairline bg-surface-raised p-4 sm:grid-cols-2 lg:grid-cols-4">
         <Info
           label={submission.purpose === "Tenant" ? "Stay" : "Visit"}
           value={`${formatDate(submission.checkIn)} – ${formatDate(submission.checkOut)}`}
@@ -137,37 +151,37 @@ export function SubmissionPage() {
         <Info label="Unit" value={`Building ${submission.buildingCode}, ${submission.unitNumber}`} />
         <Info label="Purpose" value={submission.purpose} />
         <div>
-          <p className="text-xs font-medium uppercase text-slate-500">Status</p>
+          <p className="text-xs font-medium uppercase text-ink-muted">Status</p>
           <Badge className="mt-2">{labelStatus(submission.status)}</Badge>
         </div>
       </section>
 
       {submission.latestError && (
-        <div className="rounded-md border border-red-200 bg-red-50 p-4 text-sm text-red-800">
+        <div className="rounded-md border border-danger/30 bg-danger/10 p-4 text-sm text-danger">
           {submission.latestError}
         </div>
       )}
 
       {Boolean(submission.chatDeliveries?.length) && (
-        <section className="space-y-4 rounded-lg border border-slate-200 bg-white p-4">
+        <section className="space-y-4 rounded-lg border border-hairline bg-surface-raised p-4">
           <h2 className="text-lg font-semibold">Platform email confirmations</h2>
-          <p className="text-sm text-slate-500">
+          <p className="text-sm text-ink-muted">
             Chat delivery is tracked separately. Retrying chat does not resend the email.
           </p>
           {submission.chatDeliveries?.map((delivery) => (
-            <div key={delivery.id} className="space-y-2 border-t border-slate-100 pt-3">
+            <div key={delivery.id} className="space-y-2 border-t border-hairline pt-3">
               <div className="flex flex-wrap items-center gap-3">
                 <Badge>{labelStatus(delivery.status)}</Badge>
-                <span className="text-sm text-slate-500">
+                <span className="text-sm text-ink-muted">
                   {delivery.emailSentAt
                     ? `Email sent ${new Date(delivery.emailSentAt).toLocaleString()}`
                     : "Email not confirmed sent"}
                 </span>
               </div>
               <p className="text-sm">{delivery.message}</p>
-              {delivery.lastError && <p className="text-sm text-amber-800">{delivery.lastError}</p>}
+              {delivery.lastError && <p className="text-sm text-ink">{delivery.lastError}</p>}
               {delivery.status === "waiting_email" && (
-                <p className="text-sm text-amber-800">
+                <p className="text-sm text-ink">
                   Waiting for the email outcome. If this persists, check email provider history before sending
                   another copy.
                 </p>
@@ -208,11 +222,11 @@ export function SubmissionPage() {
       )}
 
       {submission.aiReview && (
-        <section className="space-y-4 rounded-lg border border-slate-200 bg-white p-4">
+        <section className="space-y-4 rounded-lg border border-hairline bg-surface-raised p-4">
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div>
               <h2 className="text-lg font-semibold">AI ID review</h2>
-              <p className="text-sm text-slate-500">
+              <p className="text-sm text-ink-muted">
                 {submission.aiReview.model}
                 {submission.aiReview.checkedAt
                   ? ` · ${new Date(submission.aiReview.checkedAt).toLocaleString()}`
@@ -222,14 +236,14 @@ export function SubmissionPage() {
             <Badge>{labelStatus(submission.aiReview.status)}</Badge>
           </div>
           {submission.aiReview.error && (
-            <p className="rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
+            <p className="rounded-md border border-butter bg-butter/40 p-3 text-sm text-ink">
               {submission.aiReview.error}
             </p>
           )}
           {submission.aiReview.results.length > 0 && (
             <div className="overflow-x-auto">
               <table className="w-full min-w-[620px] text-left text-sm">
-                <thead className="border-b border-slate-200 text-xs uppercase text-slate-500">
+                <thead className="border-b border-hairline text-xs uppercase text-ink-muted">
                   <tr>
                     <th className="px-3 py-2">Entered name</th>
                     <th className="px-3 py-2">All extracted names</th>
@@ -240,10 +254,7 @@ export function SubmissionPage() {
                 </thead>
                 <tbody>
                   {submission.aiReview.results.map((result, index) => (
-                    <tr
-                      key={`${result.guestId}-${index}`}
-                      className="border-b border-slate-100 last:border-0"
-                    >
+                    <tr key={`${result.guestId}-${index}`} className="border-b border-hairline last:border-0">
                       <td className="px-3 py-3 font-medium">{result.enteredName}</td>
                       <td className="px-3 py-3">
                         {(result.extractedNames?.length ? result.extractedNames : [result.extractedName])
@@ -262,7 +273,7 @@ export function SubmissionPage() {
               </table>
             </div>
           )}
-          <div className="text-sm text-slate-500">
+          <div className="text-sm text-ink-muted">
             {submission.aiReview.notificationSentAt
               ? `Review notification sent ${new Date(submission.aiReview.notificationSentAt).toLocaleString()}.`
               : submission.aiReview.notificationError
@@ -299,7 +310,7 @@ export function SubmissionPage() {
           )}
         </div>
         {editing && draft ? (
-          <div className="mt-3 space-y-4 rounded-xl border border-emerald-200 bg-emerald-50/30 p-4">
+          <div className="mt-3 space-y-4 rounded-xl border border-success/30 bg-success/10/30 p-4">
             <div className="grid gap-4 sm:grid-cols-2">
               <div className="space-y-2">
                 <Label htmlFor="edit-email">Guest email</Label>
@@ -318,7 +329,7 @@ export function SubmissionPage() {
                   onChange={(event) =>
                     setDraft({ ...draft, purpose: event.target.value as SubmissionDetail["purpose"] })
                   }
-                  className="h-11 w-full rounded-md border border-slate-300 bg-white px-3 text-sm"
+                  className="h-11 w-full rounded-md border border-line-strong bg-surface-raised px-3 text-sm"
                 >
                   <option>Tenant</option>
                   <option>Visitor of Tenant</option>
@@ -327,7 +338,10 @@ export function SubmissionPage() {
               </div>
             </div>
             {draft.guests.map((guest, index) => (
-              <div key={guest.id ?? index} className="rounded-lg border border-slate-200 bg-white p-4">
+              <div
+                key={guest.id ?? index}
+                className="rounded-lg border border-hairline bg-surface-raised p-4"
+              >
                 <div className="grid gap-3 sm:grid-cols-[1fr_100px_auto]">
                   <div className="space-y-2">
                     <Label>Name</Label>
@@ -367,14 +381,14 @@ export function SubmissionPage() {
                       })
                     }
                   >
-                    <Trash2 className="size-4 text-red-600" />
+                    <Trash2 className="size-4 text-danger" />
                   </Button>
                 </div>
                 {guest.id &&
                   submission.guests
                     .find((item) => item.id === guest.id)
                     ?.files.map((file) => (
-                      <label key={file.id} className="mt-3 flex items-center gap-2 text-sm text-slate-600">
+                      <label key={file.id} className="mt-3 flex items-center gap-2 text-sm text-ink-muted">
                         <input
                           type="checkbox"
                           checked={guest.retainFileIds.includes(file.id)}
@@ -461,11 +475,11 @@ export function SubmissionPage() {
         <div className="mt-3 grid gap-4 md:grid-cols-2">
           {!editing &&
             submission.guests.map((guest) => (
-              <article key={guest.id} className="rounded-lg border border-slate-200 bg-white p-4">
+              <article key={guest.id} className="rounded-lg border border-hairline bg-surface-raised p-4">
                 <div className="flex items-start justify-between gap-3">
                   <div>
                     <h3 className="font-semibold">{guest.fullName}</h3>
-                    <p className="text-sm text-slate-500">Age {guest.age}</p>
+                    <p className="text-sm text-ink-muted">Age {guest.age}</p>
                   </div>
                   {guest.requiresId && <Badge>ID required</Badge>}
                 </div>
@@ -477,25 +491,25 @@ export function SubmissionPage() {
                         href={file.url}
                         target="_blank"
                         rel="noreferrer"
-                        className="block overflow-hidden rounded-md border border-slate-200"
+                        className="block overflow-hidden rounded-md border border-hairline"
                       >
                         {file.contentType.startsWith("image/") ? (
                           <img
                             src={file.url}
                             alt={`${guest.fullName} ID`}
-                            className="aspect-[4/3] w-full object-contain bg-slate-50"
+                            className="aspect-[4/3] w-full object-contain bg-surface"
                           />
                         ) : (
-                          <div className="p-4 text-sm text-brand-700">Open {file.filename}</div>
+                          <div className="p-4 text-sm text-primary-hover">Open {file.filename}</div>
                         )}
-                        <div className="border-t border-slate-100 px-3 py-2 text-xs text-slate-500">
+                        <div className="border-t border-hairline px-3 py-2 text-xs text-ink-muted">
                           {file.filename}
                         </div>
                       </a>
                     ))}
                   </div>
                 ) : guest.requiresId ? (
-                  <p className="mt-4 text-sm text-amber-700">The retained ID file is no longer available.</p>
+                  <p className="mt-4 text-sm text-ink">The retained ID file is no longer available.</p>
                 ) : null}
               </article>
             ))}
@@ -640,15 +654,15 @@ export function SubmissionPage() {
 function Info({ label, value }: { label: string; value: string }) {
   return (
     <div>
-      <p className="text-xs font-medium uppercase text-slate-500">{label}</p>
-      <p className="mt-1 text-sm font-medium text-slate-900">{value}</p>
+      <p className="text-xs font-medium uppercase text-ink-muted">{label}</p>
+      <p className="mt-1 text-sm font-medium text-ink">{value}</p>
     </div>
   );
 }
 
 function ActionBar({ children }: { children: React.ReactNode }) {
   return (
-    <div className="fixed inset-x-0 bottom-[calc(3.625rem+env(safe-area-inset-bottom))] z-40 grid grid-flow-col auto-cols-fr gap-2 border-t border-slate-200 bg-white p-3 shadow-[0_-8px_24px_rgba(15,23,42,0.08)] [&_button]:min-w-0 [&_button]:gap-1 [&_button]:px-2 [&_svg]:hidden sm:static sm:flex sm:justify-end sm:border-0 sm:bg-transparent sm:p-0 sm:shadow-none sm:[&_button]:gap-2 sm:[&_button]:px-4 sm:[&_svg]:block">
+    <div className="fixed inset-x-0 bottom-[calc(3.625rem+env(safe-area-inset-bottom))] z-40 grid grid-flow-col auto-cols-fr gap-2 border-t border-hairline bg-surface-raised p-3 shadow-[0_-8px_24px_rgba(15,23,42,0.08)] [&_button]:min-w-0 [&_button]:gap-1 [&_button]:px-2 [&_svg]:hidden sm:static sm:flex sm:justify-end sm:border-0 sm:bg-transparent sm:p-0 sm:shadow-none sm:[&_button]:gap-2 sm:[&_button]:px-4 sm:[&_svg]:block">
       {children}
     </div>
   );
