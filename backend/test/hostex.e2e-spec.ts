@@ -2,6 +2,7 @@ import { jest } from "@jest/globals";
 import { Test } from "@nestjs/testing";
 import request from "supertest";
 import { HostexAdminController, HostexWebhookController } from "../src/hostex/hostex.controller.js";
+import { BackgroundJobsService } from "../src/jobs/background-jobs.service.js";
 import { HostexService } from "../src/hostex/hostex.service.js";
 
 describe("Hostex endpoints", () => {
@@ -57,16 +58,20 @@ describe("Hostex endpoints", () => {
     const status = jest
       .fn<() => Promise<{ webhookVerified: boolean; automationEnabled: boolean }>>()
       .mockResolvedValue({ webhookVerified: true, automationEnabled: false });
-    const syncNow = jest
-      .fn<() => Promise<{ ok: boolean; found: number; sent: number }>>()
-      .mockResolvedValue({ ok: true, found: 1, sent: 0 });
+    const startJob = jest.fn<(name: string) => Promise<{ id: string; status: string }>>().mockResolvedValue({
+      id: "job-1",
+      status: "queued"
+    });
     const sendNow = jest.fn<() => Promise<{ status: string }>>().mockResolvedValue({ status: "SENT" });
     const reconcileInvite = jest
       .fn<() => Promise<{ ok: boolean; confirmed: boolean; status: string }>>()
       .mockResolvedValue({ ok: true, confirmed: true, status: "confirmed" });
     const module = await Test.createTestingModule({
       controllers: [HostexAdminController],
-      providers: [{ provide: HostexService, useValue: { status, syncNow, sendNow, reconcileInvite } }]
+      providers: [
+        { provide: HostexService, useValue: { status, sendNow, reconcileInvite } },
+        { provide: BackgroundJobsService, useValue: { start: startJob } }
+      ]
     }).compile();
     const app = module.createNestApplication();
     await app.init();
@@ -76,6 +81,7 @@ describe("Hostex endpoints", () => {
       .expect(200)
       .expect({ webhookVerified: true, automationEnabled: false });
     await request(app.getHttpServer()).post("/api/admin/hostex/sync").expect(201);
+    expect(startJob).toHaveBeenCalledWith("admin.hostexSync");
     await request(app.getHttpServer())
       .post("/api/admin/hostex/invites/invite-1/send")
       .send({ allowUnknownDuplicate: true })

@@ -8,6 +8,31 @@ describe("databasePoolConfig", () => {
   });
 
   it("uses a small TLS pool with an IAM token password for Aurora", async () => {
+    // The AWS SDK signer resolves credentials from process.env, not from the env object passed below, so a
+    // machine without AWS credentials (such as CI) needs them set here.
+    const saved = {
+      id: process.env.AWS_ACCESS_KEY_ID,
+      secret: process.env.AWS_SECRET_ACCESS_KEY,
+      token: process.env.AWS_SESSION_TOKEN
+    };
+    process.env.AWS_ACCESS_KEY_ID = "AKIATEST";
+    process.env.AWS_SECRET_ACCESS_KEY = "secret";
+    delete process.env.AWS_SESSION_TOKEN;
+    try {
+      await assertIamPool();
+    } finally {
+      for (const [key, value] of [
+        ["AWS_ACCESS_KEY_ID", saved.id],
+        ["AWS_SECRET_ACCESS_KEY", saved.secret],
+        ["AWS_SESSION_TOKEN", saved.token]
+      ] as const) {
+        if (value === undefined) delete process.env[key];
+        else process.env[key] = value;
+      }
+    }
+  });
+
+  async function assertIamPool() {
     const config = databasePoolConfig({
       DB_IAM_AUTH: "true",
       DB_HOST: "cluster.example.rds.amazonaws.com",
@@ -29,9 +54,11 @@ describe("databasePoolConfig", () => {
     const token = await (config.password as () => Promise<string>)();
     expect(token).toContain("cluster.example.rds.amazonaws.com:5432");
     expect(token).toContain("DBUser=cozy_app");
-  });
+  }
 
   it("requires the host and user in IAM mode", () => {
-    expect(() => databasePoolConfig({ DB_IAM_AUTH: "true", DB_USER: "cozy_app" })).toThrow("DB_HOST is required");
+    expect(() => databasePoolConfig({ DB_IAM_AUTH: "true", DB_USER: "cozy_app" })).toThrow(
+      "DB_HOST is required"
+    );
   });
 });
