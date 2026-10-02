@@ -1,0 +1,156 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: >
+  CI/CD for airbnb-form: a CodeBuild project that runs buildspec.yml (cdk deploy, migrations, frontend publish)
+  on every push to main. GitHub OIDC is blocked by this account's managed guardrails (iam:*Provider*), so the
+  build runs inside AWS under its own role and no AWS keys ever live in GitHub.
+
+  1. aws codeconnections create-connection --provider-type GitHub --connection-name cozy-d714-github
+  2. Authorize the connection once in the console (Developer Tools > Settings > Connections > Update pending connection).
+  3. aws cloudformation deploy --stack-name CozyD714Cicd --template-file infra/codebuild-cicd.yaml \
+       --capabilities CAPABILITY_NAMED_IAM --parameter-overrides ConnectionArn=<arn from step 1>
+
+Parameters:
+  ConnectionArn:
+    Type: String
+    Description: ARN of the AVAILABLE GitHub connection.
+  RepoUrl:
+    Type: String
+    Default: https://github.com/mendozarain/airbnb-form
+  Branch:
+    Type: String
+    Default: main
+  Qualifier:
+    Type: String
+    Default: hnb659fds
+    Description: CDK bootstrap qualifier (the default one).
+  AmplifyAppId:
+    Type: String
+    Default: dlgf4rsqcswz5
+  DbHost:
+    Type: String
+    Default: cozy-d714.cluster-cvomoumy6m4d.ap-southeast-2.rds.amazonaws.com
+  DbClusterResourceId:
+    Type: String
+    Default: cluster-4CAAVV4PVIXAJTVB7FWCNNY53Y
+  AppOrigin:
+    Type: String
+    Default: https://main.dlgf4rsqcswz5.amplifyapp.com
+
+Resources:
+  BuildLogs:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: /codebuild/CozyD714-Deploy
+      RetentionInDays: 30
+
+  BuildRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: CozyD714-CodeBuildDeploy
+      Description: Used by the CozyD714-Deploy CodeBuild project to deploy airbnb-form
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: codebuild.amazonaws.com
+            Action: sts:AssumeRole
+            Condition:
+              StringEquals:
+                aws:SourceAccount: !Ref AWS::AccountId
+                aws:SourceArn: !Sub arn:${AWS::Partition}:codebuild:${AWS::Region}:${AWS::AccountId}:project/CozyD714-Deploy
+      Policies:
+        - PolicyName: DeployAirbnbForm
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Sid: WriteBuildLogs
+                Effect: Allow
+                Action:
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource: !Sub arn:${AWS::Partition}:logs:${AWS::Region}:${AWS::AccountId}:log-group:/codebuild/CozyD714-Deploy:*
+              - Sid: CloneFromGitHub
+                Effect: Allow
+                Action:
+                  - codeconnections:GetConnection
+                  - codeconnections:GetConnectionToken
+                  - codeconnections:UseConnection
+                Resource: !Ref ConnectionArn
+              # `cdk deploy` does its work through the roles that `cdk bootstrap` created.
+              - Sid: AssumeCdkBootstrapRoles
+                Effect: Allow
+                Action: sts:AssumeRole
+                Resource:
+                  - !Sub arn:${AWS::Partition}:iam::${AWS::AccountId}:role/cdk-${Qualifier}-deploy-role-${AWS::AccountId}-${AWS::Region}
+                  - !Sub arn:${AWS::Partition}:iam::${AWS::AccountId}:role/cdk-${Qualifier}-file-publishing-role-${AWS::AccountId}-${AWS::Region}
+                  - !Sub arn:${AWS::Partition}:iam::${AWS::AccountId}:role/cdk-${Qualifier}-image-publishing-role-${AWS::AccountId}-${AWS::Region}
+                  - !Sub arn:${AWS::Partition}:iam::${AWS::AccountId}:role/cdk-${Qualifier}-lookup-role-${AWS::AccountId}-${AWS::Region}
+              - Sid: ReadStackOutputs
+                Effect: Allow
+                Action: cloudformation:DescribeStacks
+                Resource: !Sub arn:${AWS::Partition}:cloudformation:${AWS::Region}:${AWS::AccountId}:stack/CozyD714/*
+              - Sid: RunMigrations
+                Effect: Allow
+                Action: lambda:InvokeFunction
+                Resource: !Sub arn:${AWS::Partition}:lambda:${AWS::Region}:${AWS::AccountId}:function:CozyD714-Migrate*
+              - Sid: PublishFrontend
+                Effect: Allow
+                Action:
+                  - amplify:CreateDeployment
+                  - amplify:StartDeployment
+                  - amplify:GetJob
+                Resource:
+                  - !Sub arn:${AWS::Partition}:amplify:${AWS::Region}:${AWS::AccountId}:apps/${AmplifyAppId}/branches/${Branch}
+                  - !Sub arn:${AWS::Partition}:amplify:${AWS::Region}:${AWS::AccountId}:apps/${AmplifyAppId}/branches/${Branch}/*
+
+  DeployProject:
+    Type: AWS::CodeBuild::Project
+    Properties:
+      Name: CozyD714-Deploy
+      Description: Deploys airbnb-form to AWS when main changes
+      ServiceRole: !GetAtt BuildRole.Arn
+      # Two overlapping `cdk deploy` runs would fight over the CloudFormation stack lock.
+      ConcurrentBuildLimit: 1
+      TimeoutInMinutes: 40
+      Artifacts:
+        Type: NO_ARTIFACTS
+      Source:
+        Type: GITHUB
+        Location: !Ref RepoUrl
+        BuildSpec: buildspec.yml
+        GitCloneDepth: 1
+        ReportBuildStatus: true
+        Auth:
+          Type: CODECONNECTIONS
+          Resource: !Ref ConnectionArn
+      SourceVersion: !Sub refs/heads/${Branch}
+      # The Lambda images are linux/arm64, so build on Arm (Docker needs privileged mode).
+      Environment:
+        Type: ARM_CONTAINER
+        ComputeType: BUILD_GENERAL1_LARGE
+        Image: aws/codebuild/amazonlinux-aarch64-standard:3.0
+        PrivilegedMode: true
+        EnvironmentVariables:
+          - Name: DB_HOST
+            Value: !Ref DbHost
+          - Name: DB_CLUSTER_RESOURCE_ID
+            Value: !Ref DbClusterResourceId
+          - Name: APP_ORIGIN
+            Value: !Ref AppOrigin
+      LogsConfig:
+        CloudWatchLogs:
+          Status: ENABLED
+          GroupName: !Ref BuildLogs
+      Triggers:
+        Webhook: true
+        BuildType: BUILD
+        FilterGroups:
+          - - Type: EVENT
+              Pattern: PUSH
+            - Type: HEAD_REF
+              Pattern: !Sub ^refs/heads/${Branch}$
+
+Outputs:
+  ProjectName:
+    Value: !Ref DeployProject

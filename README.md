@@ -161,6 +161,25 @@ The Aurora cluster uses the express configuration: it has no VPC, is reached thr
 and accepts only IAM-token logins (`DB_IAM_AUTH=true`). It pauses after 5 idle minutes, so the first request after
 a quiet period waits a few seconds for it to resume.
 
+### CI/CD
+
+GitHub Actions (`.github/workflows/ci.yml`) validates every pull request: typecheck, lint, unit and e2e tests, and
+the production build. Pushes to `main` deploy through AWS CodeBuild (`buildspec.yml`), which runs `cdk deploy`, the
+`Migrate` function, and the Amplify publish. It runs under its own IAM role inside the project account, so no AWS
+keys are stored in GitHub. (The usual GitHub OIDC route is blocked: the managed guardrails deny `iam:*Provider*`.)
+
+One-time setup, from [`infra/codebuild-cicd.yaml`](infra/codebuild-cicd.yaml):
+
+```bash
+aws codeconnections create-connection --provider-type GitHub --connection-name cozy-d714-github
+# Authorize it once in the console: Developer Tools > Settings > Connections > Update pending connection
+aws cloudformation deploy --stack-name CozyD714Cicd --template-file infra/codebuild-cicd.yaml \
+  --capabilities CAPABILITY_NAMED_IAM --parameter-overrides ConnectionArn=<connection arn>
+```
+
+Watch a deploy under CodeBuild > `CozyD714-Deploy` (logs in `/codebuild/CozyD714-Deploy`); the result also shows as a
+status on the commit in GitHub. Only one build runs at a time, so two quick merges cannot fight over the stack lock.
+
 ### Moving data from Railway
 
 Freeze Railway first (`ENABLE_BACKGROUND_WORKERS=false`). Dump the data with `pg_dump --data-only
