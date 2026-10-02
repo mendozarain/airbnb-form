@@ -4,7 +4,6 @@ import { requiredEnv } from "../config/env.js";
 import {
   COLOR,
   FONT_SANS,
-  FONT_SERIF,
   GREETING_PLACEHOLDER,
   applyGreeting,
   bulletproofButton,
@@ -17,8 +16,8 @@ import {
   noteCard,
   numberedSteps,
   paragraph,
-  pastelGrid,
   row,
+  statGrid,
   textLink
 } from "./email-layout.js";
 
@@ -50,7 +49,7 @@ const mapsLink = () =>
 const keyPhotos = () =>
   KEY_PHOTOS.map(
     (photo, index) =>
-      `<img src="${photo.src}" alt="${photo.alt}" width="536" style="display:block;width:100%;max-width:536px;height:auto;margin:${index === 0 ? "16px 0 12px" : "0"};border:1px solid ${COLOR.hairline};border-radius:16px;" />`
+      `<img src="${photo.src}" alt="${photo.alt}" width="536" style="display:block;width:100%;max-width:536px;height:auto;margin:${index === 0 ? "16px 0 12px" : "0"};border-radius:24px;" />`
   ).join("");
 
 const parkingSection = () =>
@@ -75,22 +74,19 @@ export const DEFAULT_EMAIL_TEMPLATE: EmailTemplate = {
       section(
         "Quick details",
         "Your details",
-        `${pastelGrid([
-          { label: "Address", value: ADDRESS, tone: "butter", wide: true },
+        `${statGrid([
+          { label: "Address", value: ADDRESS, wide: true },
           {
             label: "WiFi",
-            value: `<strong>Name:</strong> Bldg.D_714<br /><strong>Password:</strong> cloud@731`,
-            tone: "sky"
+            value: `<strong>Name:</strong> Bldg.D_714<br /><strong>Password:</strong> cloud@731`
           },
           {
             label: "Keys",
-            value: "Collect and return them at the lobby designated mailbox: <strong>714</strong>.",
-            tone: "mint"
+            value: "Collect and return them at the lobby designated mailbox: <strong>714</strong>."
           },
           {
             label: "Pass",
             value: "Keep the PMO registration image above ready when entering the premises.",
-            tone: "pink",
             wide: true
           }
         ])}${paragraph("You are about 5 minutes from DGT and 5 minutes from SM Ecoland, so food trips, quick errands, and essentials are close by.", "20px 0 0")}${mapsLink()}`
@@ -105,15 +101,15 @@ export const DEFAULT_EMAIL_TEMPLATE: EmailTemplate = {
           "<strong>Main door:</strong> use the key with wordings at the back, twist left until you hear 2 clicks, then turn back to center to remove.",
           "Upon entering, turn on the big main switch on the left side of the power box.",
           "When checking out, leave the keys inside mailbox <strong>714</strong>."
-        ])}<div style="margin:28px 0 0;padding:22px;background:${COLOR.primarySoft};border-radius:24px;"><p style="margin:0 0 6px;color:${COLOR.primary};font-family:${FONT_SANS};font-size:13px;line-height:16px;font-weight:bold;letter-spacing:1.04px;text-transform:uppercase;">Finding your keys</p><h3 style="margin:0 0 10px;font-family:${FONT_SERIF};color:${COLOR.ink};font-size:24px;line-height:30px;font-weight:normal;">Mailbox 714</h3>${paragraph("Look for designated mailbox <strong>714</strong> in the lobby, then open it to collect the key set shown below.", "0")}${keyPhotos()}</div>`
+        ])}<div style="margin:28px 0 0;padding:22px;background:${COLOR.sunken};border-radius:24px;">${eyebrow("Finding your keys")}<h3 style="margin:0 0 10px;font-family:${FONT_SANS};color:${COLOR.ink};font-size:22px;line-height:28px;font-weight:600;letter-spacing:-0.01em;">Mailbox 714</h3>${paragraph("Look for designated mailbox <strong>714</strong> in the lobby, then open it to collect the key set shown below.", "0")}${keyPhotos()}</div>`
       ),
       divider(),
       section(
         "Your stay",
         "Inside the unit",
-        `${pastelGrid([
-          { label: "Guests", value: "6", tone: "mint", stat: true },
-          { label: "Bedrooms", value: "2", tone: "pink", stat: true }
+        `${statGrid([
+          { label: "Guests", value: "6", stat: true },
+          { label: "Bedrooms", value: "2", stat: true }
         ])}${paragraph("Good for up to 6 guests, with 2 bedrooms, a balcony, fully equipped kitchen, and complete furnishings. Enjoy the Smart TV, high-speed WiFi, mini karaoke, toilet and bath, free swimming pool and basketball court access. Free street parking and paid parking on premises may be available.", "20px 0 0")}`
       ),
       divider(),
@@ -145,7 +141,7 @@ export const DEFAULT_EMAIL_TEMPLATE: EmailTemplate = {
       section(
         "Good to know",
         "Frequently asked",
-        `<p style="margin:0 0 6px;color:${COLOR.ink};font-family:${FONT_SANS};font-size:16px;line-height:24px;font-weight:bold;">Is there parking?</p>${paragraph("Yes. Free parking is outside the premises. Paid parking is ₱250 per night; please message the host if you would like to avail parking. If you availed parking, let the guard know the unit and building number: Unit 714, Building D. They will assign your parking spot.", "0 0 20px")}<p style="margin:0 0 6px;color:${COLOR.ink};font-family:${FONT_SANS};font-size:16px;line-height:24px;font-weight:bold;">Is early check-in possible?</p>${paragraph("Yes, as long as the unit does not currently have a guest staying. Message the host for details.", "0")}`
+        `<p style="margin:0 0 6px;color:${COLOR.ink};font-family:${FONT_SANS};font-size:17px;line-height:24px;font-weight:500;">Is there parking?</p>${paragraph("Yes. Free parking is outside the premises. Paid parking is ₱250 per night; please message the host if you would like to avail parking. If you availed parking, let the guard know the unit and building number: Unit 714, Building D. They will assign your parking spot.", "0 0 20px")}<p style="margin:0 0 6px;color:${COLOR.ink};font-family:${FONT_SANS};font-size:17px;line-height:24px;font-weight:500;">Is early check-in possible?</p>${paragraph("Yes, as long as the unit does not currently have a guest staying. Message the host for details.", "0")}`
       )
     ].join("\n")
   })
@@ -166,9 +162,9 @@ export const DEFAULT_VISITOR_VIEWING_EMAIL_TEMPLATE: EmailTemplate = {
       section(
         "Your visit details",
         "Stay connected",
-        pastelGrid([
-          { label: "Network", value: "<strong>Bldg.D_714</strong>", tone: "sky" },
-          { label: "Password", value: "<strong>cloud@731</strong>", tone: "mint" }
+        statGrid([
+          { label: "Network", value: "<strong>Bldg.D_714</strong>" },
+          { label: "Password", value: "<strong>cloud@731</strong>" }
         ])
       ),
       divider(),
@@ -254,12 +250,12 @@ export class EmailService {
 export function addEntrancePassImage(templateHtml: string, imageUrl: string) {
   const safeUrl = escapeHtmlAttribute(imageUrl);
   const passCard = `
-  <div style="background:${COLOR.primarySoft};padding:28px 20px 30px;border-radius:24px;text-align:center;">
-    <p style="margin:0 0 8px;color:${COLOR.primary};font-family:${FONT_SANS};font-size:13px;line-height:16px;font-weight:bold;letter-spacing:1.04px;text-transform:uppercase;">Ready at the gate</p>
-    <h2 style="margin:0 0 8px;font-family:${FONT_SERIF};color:${COLOR.ink};font-size:32px;line-height:38px;font-weight:normal;">Your entrance pass</h2>
+  <div style="background:${COLOR.sunken};padding:28px 20px 30px;border-radius:24px;text-align:center;">
+    <p style="margin:0 0 6px;color:${COLOR.muted};font-family:${FONT_SANS};font-size:14px;line-height:20px;font-weight:500;">Ready at the gate</p>
+    <h2 style="margin:0 0 8px;font-family:${FONT_SANS};color:${COLOR.ink};font-size:26px;line-height:32px;font-weight:600;letter-spacing:-0.02em;">Your entrance pass</h2>
     <p style="margin:0 0 18px;font-family:${FONT_SANS};color:${COLOR.muted};font-size:16px;line-height:24px;">Tap the image to open the sharp full-size version.</p>
     <a href="${safeUrl}" target="_blank" style="display:block;text-decoration:none;">
-      <img src="${safeUrl}" alt="Matina Enclaves entrance pass" width="430" style="display:block;width:100%;max-width:430px;height:auto;margin:0 auto;border:1px solid ${COLOR.hairline};border-radius:24px;" />
+      <img src="${safeUrl}" alt="Matina Enclaves entrance pass" width="430" style="display:block;width:100%;max-width:430px;height:auto;margin:0 auto;border-radius:24px;" />
     </a>
     <div style="margin:22px 0 0;">${bulletproofButton({ href: safeUrl, label: "Open entrance pass full size" })}</div>
   </div>`;

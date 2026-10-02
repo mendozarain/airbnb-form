@@ -1,31 +1,34 @@
 /**
- * Email-safe building blocks for the Confetti design system.
+ * Email-safe building blocks for the Signal design system.
  * Email clients ignore CSS variables and web fonts unevenly, so everything is
- * table based with the light-theme hex values inlined and Georgia/Arial fallbacks.
+ * table based with the light-theme hex values inlined and Helvetica/Arial fallbacks.
+ * Structure: product name, status pill, headline, one paragraph, stats, one black pill button, footer.
  */
 
 export const GREETING_PLACEHOLDER = "{{greeting_name}}";
 
 export const COLOR = {
-  surface: "#f6f7f9",
+  surface: "#ecebe7",
   raised: "#ffffff",
-  ink: "#0b1a3a",
-  muted: "#5d6478",
-  hairline: "#e3e6ee",
-  primary: "#0057e6",
-  primarySoft: "#e8f0ff",
-  accent: "#ff6a3d",
-  pink: "#f2bfd2",
-  mint: "#cfe8b8",
-  sky: "#a9daec",
-  butter: "#fbdc6e",
-  danger: "#c9302c"
+  sunken: "#f3f2ef",
+  ink: "#111111",
+  muted: "#66655f",
+  hairline: "#e2e1dc",
+  primary: "#111111",
+  onPrimary: "#ffffff",
+  onAccent: "#111111",
+  yellow: "#fccb0f",
+  yellowSoft: "#fff3c4",
+  orange: "#f7a21b",
+  green: "#1fb156",
+  mint: "#3ddc97",
+  danger: "#b42318"
 } as const;
 
-export const FONT_SANS = "Arial,'Segoe UI',Helvetica,sans-serif";
-export const FONT_SERIF = "Georgia,'Times New Roman',serif";
+export const FONT_SANS = "'Helvetica Neue',Helvetica,Arial,sans-serif";
+export const FONT_MONO = "Menlo,Consolas,'SFMono-Regular',monospace";
 
-export type Tone = "pink" | "mint" | "sky" | "butter";
+export type PillTone = "pending" | "attention" | "done" | "sent" | "neutral";
 
 export function escapeHtml(value: string) {
   return value
@@ -68,58 +71,44 @@ export function applyGreeting(template: { subject: string; html: string }, name:
   };
 }
 
-const TONE: Record<Tone, string> = {
-  pink: COLOR.pink,
-  mint: COLOR.mint,
-  sky: COLOR.sky,
-  butter: COLOR.butter
+const PILL: Record<PillTone, string> = {
+  pending: COLOR.yellow,
+  attention: COLOR.orange,
+  done: COLOR.green,
+  sent: COLOR.mint,
+  neutral: COLOR.sunken
 };
 
-export function eyebrow(text: string, color: string = COLOR.primary) {
-  return `<p style="margin:0 0 8px;color:${color};font-family:${FONT_SANS};font-size:13px;line-height:16px;font-weight:bold;letter-spacing:1.04px;text-transform:uppercase;">${text}</p>`;
+/** Status pill: colour says the state, the word always says it too. */
+export function statusPill(text: string, tone: PillTone = "done") {
+  return `<span style="display:inline-block;padding:7px 14px;border-radius:999px;background:${PILL[tone]};color:${COLOR.onAccent};font-family:${FONT_SANS};font-size:15px;line-height:20px;font-weight:500;"><span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${COLOR.onAccent};margin-right:8px;vertical-align:1px;"></span>${text}</span>`;
 }
 
-export function heading(text: string, size = 32) {
-  return `<h2 style="margin:0 0 16px;font-family:${FONT_SERIF};color:${COLOR.ink};font-size:${size}px;line-height:${Math.round(size * 1.18)}px;font-weight:normal;">${text}</h2>`;
+/** A small muted label above a heading. */
+export function eyebrow(text: string, color: string = COLOR.muted) {
+  return `<p style="margin:0 0 6px;color:${color};font-family:${FONT_SANS};font-size:14px;line-height:20px;font-weight:500;">${text}</p>`;
+}
+
+export function heading(text: string, size = 26) {
+  return `<h2 style="margin:0 0 16px;font-family:${FONT_SANS};color:${COLOR.ink};font-size:${size}px;line-height:${Math.round(size * 1.24)}px;font-weight:600;letter-spacing:-0.02em;">${text}</h2>`;
 }
 
 export function paragraph(html: string, margin = "0 0 16px") {
   return `<p style="margin:${margin};color:${COLOR.muted};font-family:${FONT_SANS};font-size:16px;line-height:24px;">${html}</p>`;
 }
 
-/** A coloured text link. Used for secondary actions so each email keeps one primary button. */
+/** A text link. Used for secondary actions so each email keeps one primary button. */
 export function textLink(href: string, label: string) {
-  return `<a href="${href}" target="_blank" style="color:${COLOR.primary};font-family:${FONT_SANS};font-size:15px;font-weight:bold;text-decoration:underline;">${label}</a>`;
+  return `<a href="${href}" target="_blank" style="color:${COLOR.ink};font-family:${FONT_SANS};font-size:16px;font-weight:500;text-decoration:underline;">${label}</a>`;
 }
 
-/** Bulletproof button: a table cell with a link, never an image. */
+/** Bulletproof button: a black pill table cell with a link, never an image. */
 export function bulletproofButton({ href, label }: { href: string; label: string }) {
-  return `<table role="presentation" cellpadding="0" cellspacing="0" border="0" align="center" style="margin:0 auto;"><tr><td align="center" bgcolor="${COLOR.primary}" style="background:${COLOR.primary};border-radius:12px;"><a href="${href}" target="_blank" style="display:inline-block;padding:16px 28px;color:#ffffff;font-family:${FONT_SANS};font-size:13px;line-height:16px;font-weight:bold;letter-spacing:1.04px;text-transform:uppercase;text-decoration:none;border-radius:12px;">${label}</a></td></tr></table>`;
+  return `<table role="presentation" cellpadding="0" cellspacing="0" border="0" align="center" style="margin:0 auto;"><tr><td align="center" bgcolor="${COLOR.primary}" style="background:${COLOR.primary};border-radius:999px;"><a href="${href}" target="_blank" style="display:inline-block;padding:16px 32px;color:${COLOR.onPrimary};font-family:${FONT_SANS};font-size:18px;line-height:24px;font-weight:500;text-decoration:none;border-radius:999px;">${label}</a></td></tr></table>`;
 }
 
-/** A sprinkle of confetti made of inline spans (SVG is stripped by Gmail). */
-export function confettiRow() {
-  const dot = (color: string, size: number, lift: number) =>
-    `<span style="display:inline-block;width:${size}px;height:${size}px;border-radius:50%;background:${color};margin:0 9px;position:relative;top:${lift}px;"></span>`;
-  const dash = (color: string, rotate: number, lift: number) =>
-    `<span style="display:inline-block;width:14px;height:4px;border-radius:2px;background:${color};margin:0 9px;position:relative;top:${lift}px;transform:rotate(${rotate}deg);"></span>`;
-  return `<div style="font-size:0;line-height:0;text-align:center;padding:0 0 22px;" aria-hidden="true">${[
-    dash(COLOR.accent, 30, 4),
-    dot(COLOR.butter, 7, -6),
-    dash(COLOR.primary, -35, 6),
-    dot(COLOR.pink, 6, 0),
-    dash(COLOR.mint, 20, -4),
-    dot(COLOR.accent, 6, 8),
-    dash(COLOR.butter, -25, 0),
-    dot(COLOR.primary, 7, -5),
-    dash(COLOR.pink, 40, 5),
-    dot(COLOR.mint, 6, -2),
-    dash(COLOR.accent, -20, 7)
-  ].join("")}</div>`;
-}
-
-export function brandRow(name = "Cozy Davao D-714") {
-  return `<tr><td style="padding:0 8px 20px;font-family:${FONT_SANS};font-size:18px;line-height:24px;font-weight:bold;color:${COLOR.ink};"><span style="display:inline-block;width:14px;height:14px;border-radius:50%;background:${COLOR.primary};vertical-align:-1px;margin-right:8px;"></span>${name}</td></tr>`;
+export function brandRow(name = "Cozy Davao D-714", reference = "Unit 714 · Building D") {
+  return `<tr><td style="padding:0 8px 20px;font-family:${FONT_SANS};font-size:18px;line-height:24px;font-weight:600;color:${COLOR.ink};">${name}<span style="font-family:${FONT_MONO};font-size:14px;line-height:20px;font-weight:normal;color:${COLOR.muted};margin-left:10px;">${reference}</span></td></tr>`;
 }
 
 /** A full-width row inside the white panel. */
@@ -134,42 +123,34 @@ export function divider() {
 export type GridItem = {
   label: string;
   value: string;
-  tone: Tone;
   wide?: boolean;
-  /** Render the value as a big number (stat card). */
+  /** Render the value as a big number. */
   stat?: boolean;
 };
 
-function gridCell(item: GridItem, width: string, colspan = 1) {
+function gridCell(item: GridItem, colspan: number, border: string) {
   const value = item.stat
-    ? `<p style="margin:0;font-family:${FONT_SANS};font-size:36px;line-height:40px;font-weight:bold;color:${COLOR.ink};">${item.value}</p>`
-    : `<p style="margin:0;font-family:${FONT_SANS};font-size:15px;line-height:22px;color:${COLOR.ink};">${item.value}</p>`;
-  return `<td valign="top" colspan="${colspan}" width="${width}" style="width:${width};background:${TONE[item.tone]};border-radius:24px;padding:20px;">${eyebrow(item.label, COLOR.ink).replace("margin:0 0 8px", "margin:0 0 6px")}${value}</td>`;
+    ? `<p style="margin:2px 0 0;font-family:${FONT_SANS};font-size:32px;line-height:38px;font-weight:600;letter-spacing:-0.02em;color:${COLOR.ink};">${item.value}</p>`
+    : `<p style="margin:2px 0 0;font-family:${FONT_SANS};font-size:16px;line-height:24px;font-weight:500;color:${COLOR.ink};">${item.value}</p>`;
+  return `<td valign="top" colspan="${colspan}" style="padding:14px 18px;${border}"><p style="margin:0;font-family:${FONT_SANS};font-size:14px;line-height:20px;color:${COLOR.muted};">${item.label}</p>${value}</td>`;
 }
 
-/** Flat pastel cards. Consecutive non-wide items pair up into two columns. */
-export function pastelGrid(items: GridItem[]) {
-  // A zero-height sizing row fixes the 49% / 2% / 49% columns for every row below.
-  const rows: string[] = [
-    `<tr><td width="49%" style="width:49%;height:0;font-size:0;line-height:0;"></td><td width="2%" style="width:2%;height:0;font-size:0;line-height:0;"></td><td width="49%" style="width:49%;height:0;font-size:0;line-height:0;"></td></tr>`
-  ];
+/** Signal stat grid: one bordered panel of label/value cells. Consecutive non-wide items pair up. */
+export function statGrid(items: GridItem[]) {
+  const rows: string[] = [];
+  const line = `1px solid ${COLOR.hairline}`;
   for (let i = 0; i < items.length; i += 1) {
     const item = items[i];
     const next = items[i + 1];
+    const top = rows.length ? `border-top:${line};` : "";
     if (item.wide || !next || next.wide) {
-      rows.push(`<tr>${gridCell(item, "100%", 3)}</tr>`);
+      rows.push(`<tr>${gridCell(item, 2, top)}</tr>`);
     } else {
-      rows.push(
-        `<tr>${gridCell(item, "49%")}<td width="2%" style="width:2%;font-size:0;line-height:0;">&nbsp;</td>${gridCell(next, "49%")}</tr>`
-      );
+      rows.push(`<tr>${gridCell(item, 1, top)}${gridCell(next, 1, `${top}border-left:${line};`)}</tr>`);
       i += 1;
     }
-    if (i < items.length - 1)
-      rows.push(
-        `<tr><td colspan="3" height="12" style="height:12px;font-size:0;line-height:0;">&nbsp;</td></tr>`
-      );
   }
-  return `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="width:100%;border-collapse:separate;table-layout:fixed;">${rows.join("")}</table>`;
+  return `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="width:100%;border:${line};border-radius:20px;border-collapse:separate;table-layout:fixed;">${rows.join("")}</table>`;
 }
 
 export function numberedSteps(items: string[]) {
@@ -177,14 +158,14 @@ export function numberedSteps(items: string[]) {
   return `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">${items
     .map(
       (html, index) =>
-        `<tr><td valign="top" style="width:44px;padding:0 12px ${index === last ? 0 : 18}px 0;"><span style="display:inline-block;width:32px;height:32px;border-radius:50%;background:${COLOR.primary};color:#ffffff;text-align:center;line-height:32px;font-family:${FONT_SANS};font-size:14px;font-weight:bold;">${index + 1}</span></td><td valign="top" style="padding:4px 0 ${index === last ? 0 : 18}px;color:${COLOR.ink};font-family:${FONT_SANS};font-size:16px;line-height:24px;">${html}</td></tr>`
+        `<tr><td valign="top" style="width:44px;padding:0 12px ${index === last ? 0 : 18}px 0;"><span style="display:inline-block;width:32px;height:32px;border-radius:50%;background:${COLOR.primary};color:${COLOR.onPrimary};text-align:center;line-height:32px;font-family:${FONT_MONO};font-size:14px;">${index + 1}</span></td><td valign="top" style="padding:4px 0 ${index === last ? 0 : 18}px;color:${COLOR.ink};font-family:${FONT_SANS};font-size:16px;line-height:24px;">${html}</td></tr>`
     )
     .join("")}</table>`;
 }
 
-/** A bordered note: bold title over muted text. */
+/** A sunken row: medium title over muted text. */
 export function noteCard(title: string, body: string, last = false) {
-  return `<div style="margin:0 0 ${last ? 0 : 12}px;padding:16px 18px;border:1px solid ${COLOR.hairline};border-radius:16px;color:${COLOR.muted};font-family:${FONT_SANS};font-size:15px;line-height:23px;"><strong style="color:${COLOR.ink};">${title}</strong><br />${body}</div>`;
+  return `<div style="margin:0 0 ${last ? 0 : 12}px;padding:16px 20px;background:${COLOR.sunken};border-radius:24px;color:${COLOR.muted};font-family:${FONT_SANS};font-size:15px;line-height:23px;"><strong style="color:${COLOR.ink};font-size:17px;font-weight:500;">${title}</strong><br />${body}</div>`;
 }
 
 /** The whole email document: surface background, 600px column, rounded white panel. */
@@ -224,7 +205,7 @@ export function emailShell({
               </td>
             </tr>
             <tr>
-              <td align="center" style="padding:24px 20px 0;color:${COLOR.muted};font-family:${FONT_SANS};font-size:14px;line-height:20px;">${footerHtml}</td>
+              <td style="padding:24px 8px 0;color:${COLOR.muted};font-family:${FONT_SANS};font-size:14px;line-height:20px;">${footerHtml}</td>
             </tr>
           </table>
         </td>
@@ -234,11 +215,21 @@ export function emailShell({
 </html>`;
 }
 
-/** The hero: confetti, a big serif greeting and a smaller serif line. */
-export function heroRows({ greeting, headline, lead }: { greeting: string; headline: string; lead: string }) {
+/** The hero: status pill, a display greeting, a headline and one short paragraph. */
+export function heroRows({
+  greeting,
+  headline,
+  lead,
+  status = "Registration confirmed"
+}: {
+  greeting: string;
+  headline: string;
+  lead: string;
+  status?: string;
+}) {
   return row(
-    `${confettiRow()}<h1 style="margin:0;text-align:center;font-family:${FONT_SERIF};color:${COLOR.ink};font-size:40px;line-height:44px;font-weight:normal;letter-spacing:-0.4px;">${greeting}</h1><p style="margin:8px 0 0;text-align:center;font-family:${FONT_SERIF};color:${COLOR.ink};font-size:26px;line-height:32px;">${headline}</p><p style="margin:16px auto 0;max-width:440px;text-align:center;color:${COLOR.muted};font-family:${FONT_SANS};font-size:16px;line-height:24px;">${lead}</p>`,
-    "40px 32px 16px"
+    `${statusPill(status, "done")}<h1 style="margin:20px 0 0;font-family:${FONT_SANS};color:${COLOR.ink};font-size:40px;line-height:44px;font-weight:600;letter-spacing:-0.03em;">${greeting}</h1><p style="margin:10px 0 0;font-family:${FONT_SANS};color:${COLOR.ink};font-size:22px;line-height:28px;font-weight:500;letter-spacing:-0.01em;">${headline}</p><p style="margin:14px 0 0;color:${COLOR.muted};font-family:${FONT_SANS};font-size:16px;line-height:24px;">${lead}</p>`,
+    "32px 32px 16px"
   );
 }
 
@@ -258,8 +249,8 @@ export function renderAlertEmail({
 }) {
   const rows = [
     row(
-      `${eyebrow("Admin alert")}<h1 style="margin:0 0 12px;font-family:${FONT_SERIF};color:${COLOR.ink};font-size:32px;line-height:38px;font-weight:normal;">${title}</h1>${paragraph(intro, "0")}`,
-      "36px 32px 8px"
+      `${statusPill("Needs attention", "attention")}<h1 style="margin:18px 0 12px;font-family:${FONT_SANS};color:${COLOR.ink};font-size:32px;line-height:36px;font-weight:600;letter-spacing:-0.02em;">${title}</h1>${paragraph(intro, "0")}`,
+      "32px 32px 8px"
     ),
     row(bodyHtml, "16px 32px 8px"),
     cta ? row(bulletproofButton(cta), "16px 32px 8px") : ""
@@ -277,7 +268,7 @@ export function dataTable(headers: string[], rows: string[][]) {
   const th = headers
     .map(
       (h) =>
-        `<th align="left" style="padding:10px 12px;word-break:break-word;background:${COLOR.primarySoft};color:${COLOR.ink};font-family:${FONT_SANS};font-size:13px;line-height:16px;font-weight:bold;">${h}</th>`
+        `<th align="left" style="padding:10px 12px;word-break:break-word;background:${COLOR.sunken};color:${COLOR.muted};font-family:${FONT_SANS};font-size:14px;line-height:20px;font-weight:500;">${h}</th>`
     )
     .join("");
   const body = rows

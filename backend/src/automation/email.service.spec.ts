@@ -138,9 +138,10 @@ describe("EmailService", () => {
     expect(DEFAULT_VISITOR_VIEWING_EMAIL_TEMPLATE.html).not.toMatch(/\battach(?:ed|ment)\b/i);
   });
 
-  it("uses the Confetti design with a greeting placeholder and the pass slot", () => {
+  it("uses the Signal design with a greeting placeholder and the pass slot", () => {
     for (const template of [DEFAULT_EMAIL_TEMPLATE, DEFAULT_VISITOR_VIEWING_EMAIL_TEMPLATE]) {
-      expect(template.html).toContain("#0057e6");
+      expect(template.html).toContain("#ecebe7");
+      expect(template.html).not.toMatch(/Georgia|#0057e6/);
       expect(template.html).toContain("Hello {{greeting_name}}");
       expect(template.html).toContain("<!-- entrance-pass-slot -->");
     }
