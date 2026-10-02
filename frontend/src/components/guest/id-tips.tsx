@@ -12,9 +12,9 @@ export function IdTips() {
       {tips.map(({ icon: Icon, text }) => (
         <li
           key={text}
-          className="flex flex-col items-center gap-1 rounded-md bg-surface p-2 text-center text-xs text-ink-muted"
+          className="flex flex-col items-center gap-1.5 rounded-sm bg-surface-sunken p-3 text-center text-xs text-ink-muted"
         >
-          <Icon className="size-4 text-primary" strokeWidth={1.5} aria-hidden="true" />
+          <Icon className="size-4 text-ink" strokeWidth={1.75} aria-hidden="true" />
           {text}
         </li>
       ))}

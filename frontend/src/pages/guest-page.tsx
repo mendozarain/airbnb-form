@@ -1,16 +1,18 @@
 import {
+  ArrowLeft,
   ArrowRight,
-  Calendar,
   Camera,
   Check,
   Clock,
   Hash,
+  Hourglass,
   IdCard,
   LinkIcon,
-  Loader2,
   Mail,
   Pencil,
   Plus,
+  Send,
+  Sparkles,
   Trash2,
   User,
   Users
@@ -22,13 +24,18 @@ import { toast } from "sonner";
 import { guestSubmissionSchema, requiresGuestId, type PublicInvite } from "@cozy-d-714/shared";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Confetti } from "@/components/ui/confetti";
 import { EmptyState } from "@/components/ui/empty-state";
 import { IconField } from "@/components/ui/field";
 import { Stepper } from "@/components/guest/stepper";
 import { Checklist, StepIntro } from "@/components/guest/step-intro";
 import { IdTips } from "@/components/guest/id-tips";
+import { ActionBar } from "@/components/ui/action-bar";
+import { Badge } from "@/components/ui/badge";
+import { LoadingBlock } from "@/components/ui/loading";
 import { Skeleton } from "@/components/ui/skeleton";
+import { StatGrid } from "@/components/ui/stat-grid";
+import { StatusHero } from "@/components/ui/status-hero";
+import { Timeline } from "@/components/ui/timeline";
 import { api } from "@/lib/api";
 
 type FormValues = {
@@ -43,7 +50,7 @@ export function GuestPage() {
   const [step, setStep] = useState(0);
   const [loading, setLoading] = useState(true);
   const [completedStatus, setCompletedStatus] = useState<string | null>(null);
-  const [uploading, setUploading] = useState("");
+  const [uploading, setUploading] = useState<number | null>(null);
   const [errors, setErrors] = useState<{ email?: string; guests?: Record<number, string> }>({});
   const [previews, setPreviews] = useState<Record<number, { url: string; name: string; image: boolean }>>({});
   const form = useForm<FormValues>({
@@ -91,7 +98,7 @@ export function GuestPage() {
   }
 
   async function upload(index: number, file: File) {
-    setUploading(file.name);
+    setUploading(index);
     try {
       const result = await api.uploadFile(token, file);
       form.setValue(`guests.${index}.idFileKey`, result.key, { shouldDirty: true });
@@ -103,7 +110,7 @@ export function GuestPage() {
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Upload failed");
     } finally {
-      setUploading("");
+      setUploading(null);
     }
   }
 
@@ -123,18 +130,24 @@ export function GuestPage() {
 
   if (loading)
     return (
-      <main className="mx-auto max-w-3xl p-4 sm:p-8">
-        <Skeleton className="h-24" />
-        <Skeleton className="mt-5 h-96" />
+      <main aria-busy="true" className="mx-auto min-h-screen max-w-2xl px-4 pt-6 sm:px-6 sm:pt-10">
+        <section className="relative overflow-hidden rounded-xl bg-surface-raised p-6 sm:p-8">
+          <div className="sg-loadbar" aria-hidden="true" />
+          <Skeleton className="h-5 w-40" />
+          <Skeleton className="mt-4 h-9 w-3/4" />
+          <Skeleton className="mt-3 h-4 w-full" />
+          <Skeleton shape="block" className="mt-6 h-16 w-full" />
+        </section>
+        <LoadingBlock label="Opening your registration…" className="mt-4" />
       </main>
     );
   if (!invite)
     return (
-      <main className="flex min-h-screen items-center justify-center bg-lavender p-4">
-        <div className="w-full max-w-md rounded-xl bg-surface-raised p-6 shadow-card">
+      <main className="flex min-h-screen items-center justify-center bg-surface p-4">
+        <div className="w-full max-w-md rounded-xl bg-surface-raised p-6">
           <EmptyState
             icon={LinkIcon}
-            tone="error"
+            tone="attention"
             title="This link has expired"
             description="It may have been used already. Please message your host and they'll send you a fresh link."
           />
@@ -146,35 +159,26 @@ export function GuestPage() {
   const idHint = `Guests under ${invite.minorIdCutoff} or aged ${invite.seniorIdCutoff}+ don't need an ID.`;
 
   return (
-    <main className="mx-auto min-h-screen max-w-2xl px-4 pb-32 pt-6 sm:px-6 sm:pb-10 sm:pt-10">
-      <header className="rounded-xl bg-surface-raised px-6 pb-6 pt-8 text-center shadow-card">
-        <Confetti />
-        <p className="text-label text-primary">Cozy Davao D-714</p>
-        <h1 className="font-display mt-2 text-[32px] leading-[38px] text-ink sm:text-[44px] sm:leading-[50px]">
-          Welcome! Let's get you registered
-        </h1>
-        <p className="mt-2 text-sm text-ink-muted">
-          It only takes a couple of minutes. Building management needs these details before you arrive.
-        </p>
-        <div className="mt-5 grid grid-cols-3 gap-2 text-left text-ink">
-          <div className="rounded-md bg-butter p-3">
-            <Calendar className="size-4" strokeWidth={1.5} aria-hidden="true" />
-            <p className="mt-1 text-xs font-semibold">Check-in</p>
-            <p className="text-sm font-bold">{formatDate(invite.checkIn)}</p>
-          </div>
-          <div className="rounded-md bg-sky p-3">
-            <Calendar className="size-4" strokeWidth={1.5} aria-hidden="true" />
-            <p className="mt-1 text-xs font-semibold">Check-out</p>
-            <p className="text-sm font-bold">{formatDate(invite.checkOut)}</p>
-          </div>
-          <div className="rounded-md bg-mint p-3">
-            <Hash className="size-4" strokeWidth={1.5} aria-hidden="true" />
-            <p className="mt-1 text-xs font-semibold">Unit</p>
-            <p className="text-sm font-bold">
-              {invite.buildingCode}-{invite.unitNumber}
-            </p>
-          </div>
+    <main className="mx-auto min-h-screen max-w-2xl px-4 pb-36 pt-6 sm:px-6 sm:pb-10 sm:pt-10">
+      <header className="sg-enter rounded-xl bg-surface-raised p-6 sm:p-8">
+        <div className="flex items-center gap-3">
+          <span className="size-3.5 rounded-full bg-yellow" aria-hidden="true" />
+          <p className="text-heading-s text-ink">Cozy Davao D-714</p>
         </div>
+        <h1 className="mt-5 text-[32px] leading-9 font-semibold tracking-tight text-ink sm:text-display">
+          Register your stay
+        </h1>
+        <p className="mt-3 text-base text-ink-muted">
+          It takes about two minutes. Building management needs these details before you arrive.
+        </p>
+        <StatGrid
+          className="mt-6"
+          items={[
+            { label: "Check-in", value: formatDate(invite.checkIn), mono: true },
+            { label: "Check-out", value: formatDate(invite.checkOut), mono: true },
+            { label: "Unit", value: `${invite.buildingCode}-${invite.unitNumber}`, mono: true }
+          ]}
+        />
       </header>
 
       <Stepper
@@ -187,7 +191,7 @@ export function GuestPage() {
 
       <form onSubmit={submit}>
         {step === 0 && (
-          <section className="space-y-6 rounded-xl bg-surface-raised p-5 shadow-card sm:p-8">
+          <section className="sg-enter space-y-6 rounded-xl bg-surface-raised p-5 sm:p-8">
             <StepIntro
               icon={Mail}
               title="Where should we send your entrance pass?"
@@ -202,8 +206,8 @@ export function GuestPage() {
               error={errors.email}
               {...form.register("guestEmail", { required: true })}
             />
-            <div className="rounded-lg bg-primary-soft p-5">
-              <p className="text-label mb-3 text-primary">Before you start</p>
+            <div className="rounded-lg bg-surface-sunken p-5">
+              <p className="mb-4 text-title text-ink">Before you start</p>
               <Checklist
                 items={[
                   { icon: Users, text: "Full name and age of everyone staying" },
@@ -215,14 +219,14 @@ export function GuestPage() {
                 ]}
               />
             </div>
-            <p className="text-sm text-ink-muted">
-              Purpose of visit: <span className="font-semibold text-ink">{invite.purpose}</span>
+            <p className="flex flex-wrap items-center gap-2 text-sm text-ink-muted">
+              Purpose of visit <Badge>{invite.purpose}</Badge>
             </p>
           </section>
         )}
 
         {step === 1 && (
-          <section className="space-y-4">
+          <section className="sg-enter space-y-4">
             <StepIntro
               icon={Users}
               title="Who is staying?"
@@ -233,10 +237,10 @@ export function GuestPage() {
               const needsId = requiresGuestId(age, invite.minorIdCutoff, invite.seniorIdCutoff);
               const guestError = errors.guests?.[index];
               return (
-                <article key={field.id} className="rounded-xl bg-surface-raised p-5 shadow-card">
+                <article key={field.id} className="sg-enter rounded-xl bg-surface-raised p-5 sm:p-6">
                   <div className="flex items-center justify-between">
-                    <h3 className="flex items-center gap-2 text-lg font-semibold text-ink">
-                      <span className="flex size-7 items-center justify-center rounded-full bg-primary-soft text-sm text-primary">
+                    <h3 className="flex items-center gap-3 text-title text-ink">
+                      <span className="grid size-9 place-items-center rounded-full bg-mint text-sm font-semibold text-on-accent">
                         {index + 1}
                       </span>
                       Guest {index + 1}
@@ -246,11 +250,11 @@ export function GuestPage() {
                       <Button
                         type="button"
                         size="icon"
-                        variant="ghost"
+                        variant="secondary"
                         aria-label={`Remove guest ${index + 1}`}
                         onClick={() => guests.remove(index)}
                       >
-                        <Trash2 className="size-4 text-danger" strokeWidth={1.5} />
+                        <Trash2 className="size-4 text-danger" strokeWidth={1.75} />
                       </Button>
                     )}
                   </div>
@@ -274,9 +278,9 @@ export function GuestPage() {
                   </div>
                   {needsId ? (
                     <div className="mt-5">
-                      <p className="text-sm font-semibold text-ink">Valid ID</p>
+                      <p className="text-sm font-medium text-ink-muted">Valid ID</p>
                       {previews[index] ? (
-                        <div className="mt-2 flex items-center gap-3 rounded-md bg-success/10 p-3">
+                        <div className="mt-2 flex items-center gap-3 rounded-lg bg-surface-sunken p-3">
                           {previews[index].image ? (
                             <img
                               src={previews[index].url}
@@ -284,19 +288,19 @@ export function GuestPage() {
                               className="size-14 rounded-sm object-cover"
                             />
                           ) : (
-                            <div className="flex size-14 items-center justify-center rounded-sm bg-surface-raised text-xs font-semibold text-success">
+                            <div className="flex size-14 items-center justify-center rounded-sm bg-surface-raised text-xs font-semibold text-ink">
                               PDF
                             </div>
                           )}
                           <span className="min-w-0 flex-1">
-                            <span className="flex items-center gap-1 text-sm font-semibold text-success">
+                            <Badge tone="done" pop className="h-7 px-3">
                               <Check className="size-4" /> ID uploaded
-                            </span>
-                            <span className="block truncate text-xs text-ink-muted">
+                            </Badge>
+                            <span className="mt-1 block truncate text-xs text-ink-muted">
                               {previews[index].name}
                             </span>
                           </span>
-                          <label className="cursor-pointer text-sm font-semibold text-primary hover:underline">
+                          <label className="inline-flex h-10 cursor-pointer items-center rounded-full bg-surface-raised px-4 text-sm font-medium text-ink hover:bg-hairline">
                             Replace
                             <input
                               type="file"
@@ -311,7 +315,7 @@ export function GuestPage() {
                         </div>
                       ) : (
                         <>
-                          <label className="mt-2 flex min-h-28 cursor-pointer flex-col items-center justify-center rounded-lg border-2 border-dashed border-primary/40 bg-primary-soft p-4 text-center hover:border-primary">
+                          <label className="mt-2 flex min-h-28 cursor-pointer flex-col items-center justify-center rounded-lg border-2 border-dashed border-line-strong bg-surface-sunken p-4 text-center hover:border-primary">
                             <input
                               type="file"
                               className="sr-only"
@@ -321,13 +325,16 @@ export function GuestPage() {
                                 if (file) void upload(index, file);
                               }}
                             />
-                            {uploading ? (
-                              <Loader2 className="size-6 animate-spin text-primary" />
+                            {uploading === index ? (
+                              <span className="sg-spinner sg-spinner--ring size-6" aria-hidden="true" />
                             ) : (
-                              <Camera className="size-6 text-primary" strokeWidth={1.5} />
+                              <Camera className="size-6 text-ink" strokeWidth={1.75} />
                             )}
-                            <span className="mt-1 text-sm font-semibold text-ink">
-                              Tap to take a photo or upload
+                            <span
+                              className="mt-1.5 text-sm font-medium text-ink"
+                              role={uploading === index ? "status" : undefined}
+                            >
+                              {uploading === index ? "Uploading…" : "Tap to take a photo or upload"}
                             </span>
                             <span className="text-xs text-ink-muted">Image or PDF, up to 100 MB</span>
                           </label>
@@ -336,12 +343,15 @@ export function GuestPage() {
                       )}
                     </div>
                   ) : (
-                    <p className="mt-4 flex items-center gap-2 text-sm text-ink-muted">
-                      <Check className="size-4 text-success" /> No ID needed for this guest.
+                    <p className="mt-4 text-sm text-ink-muted">
+                      <Badge tone="done" className="mr-2 h-7">
+                        <Check className="size-4" /> No ID needed
+                      </Badge>
+                      for this guest.
                     </p>
                   )}
                   {guestError && (
-                    <p role="alert" className="mt-4 text-sm font-semibold text-danger">
+                    <p role="alert" className="mt-4 text-sm font-medium text-danger">
                       {guestError}
                     </p>
                   )}
@@ -363,9 +373,9 @@ export function GuestPage() {
         )}
 
         {step === 2 && (
-          <section className="space-y-5">
+          <section className="sg-enter space-y-5">
             <StepIntro icon={Check} title="Almost done" text="Check the details, tick the box, and submit." />
-            <div className="divide-y divide-hairline rounded-xl bg-surface-raised shadow-card">
+            <div className="divide-y divide-hairline rounded-xl bg-surface-raised">
               <Review label="Email" value={values.guestEmail} onEdit={() => setStep(0)} />
               {values.guests.map((guest, index) => (
                 <Review
@@ -376,42 +386,52 @@ export function GuestPage() {
                 />
               ))}
             </div>
-            <label className="flex cursor-pointer items-start gap-3 rounded-xl bg-surface-raised p-5 shadow-card">
+            <label className="flex cursor-pointer items-start gap-3 rounded-xl bg-surface-raised p-5">
               <Checkbox
                 className="mt-0.5 size-6"
                 checked={values.acceptedRules}
                 onCheckedChange={(checked) => form.setValue("acceptedRules", checked === true)}
               />
-              <span className="text-sm text-ink">
+              <span className="text-base text-ink">
                 I confirm the information is accurate and may be submitted to building management.
               </span>
             </label>
           </section>
         )}
 
-        <div className="fixed inset-x-0 bottom-0 z-20 flex items-center justify-between gap-3 border-t border-hairline bg-surface-raised p-3 sm:static sm:mt-7 sm:border-0 sm:bg-transparent sm:p-0">
+        <ActionBar className="sm:mt-6">
           <Button
             type="button"
-            variant="link"
+            size="icon"
+            variant="secondary"
+            aria-label="Back"
             className={step === 0 ? "invisible" : ""}
             onClick={() => {
               setErrors({});
               setStep((value) => Math.max(0, value - 1));
             }}
           >
-            Back
+            <ArrowLeft className="size-5" />
           </Button>
           {step < 2 ? (
-            <Button type="button" size="lg" onClick={() => void next()}>
+            <Button type="button" size="lg" className="flex-1" onClick={() => void next()}>
               Continue
-              <ArrowRight className="size-4" />
+              <ArrowRight className="size-5" />
             </Button>
           ) : (
-            <Button type="submit" size="lg" disabled={!values.acceptedRules || form.formState.isSubmitting}>
-              {form.formState.isSubmitting && <Loader2 className="size-4 animate-spin" />}Submit registration
+            <Button
+              type="submit"
+              size="lg"
+              className="flex-1"
+              disabled={!values.acceptedRules}
+              loading={form.formState.isSubmitting}
+              loadingText="Submitting…"
+            >
+              <Send className="size-5" />
+              Submit registration
             </Button>
           )}
-        </div>
+        </ActionBar>
       </form>
     </main>
   );
@@ -419,33 +439,69 @@ export function GuestPage() {
 
 function Review({ label, value, onEdit }: { label: string; value: string; onEdit: () => void }) {
   return (
-    <div className="flex items-center gap-3 p-4">
+    <div className="flex items-center gap-3 p-4 sm:p-5">
       <div className="grid min-w-0 flex-1 gap-1 sm:grid-cols-[110px_1fr]">
         <span className="text-sm text-ink-muted">{label}</span>
-        <span className="break-words text-sm font-semibold text-ink">{value}</span>
+        <span className="break-words text-base font-medium text-ink">{value}</span>
       </div>
-      <button
-        type="button"
-        onClick={onEdit}
-        className="flex items-center gap-1 text-sm font-semibold text-primary hover:underline"
-      >
+      <Button type="button" size="sm" variant="secondary" onClick={onEdit}>
         <Pencil className="size-3.5" /> Edit
-      </button>
+      </Button>
     </div>
   );
 }
 
 function Done() {
+  const submitted = new Intl.DateTimeFormat("en-AU", {
+    day: "numeric",
+    month: "short",
+    hour: "numeric",
+    minute: "2-digit",
+    timeZone: "Asia/Manila"
+  }).format(new Date());
+  const day = new Intl.DateTimeFormat("en-AU", {
+    day: "numeric",
+    month: "short",
+    timeZone: "Asia/Manila"
+  }).format(new Date());
   return (
-    <main className="flex min-h-screen items-center justify-center bg-lavender p-4">
-      <div className="w-full max-w-md rounded-xl bg-surface-raised p-6 text-center shadow-card sm:p-8">
-        <Confetti />
-        <div className="mx-auto flex size-14 items-center justify-center rounded-full bg-success/10">
-          <Check className="size-7 text-success" />
-        </div>
-        <h1 className="font-display mt-4 text-[32px] leading-[38px] text-ink">Thank you!</h1>
-        <p className="mt-2 text-sm text-ink-muted">We've received your registration.</p>
-      </div>
+    <main className="mx-auto min-h-screen max-w-2xl space-y-5 px-4 py-6 sm:px-6 sm:py-10">
+      <StatusHero
+        chipIcon={Check}
+        chip="Registration received"
+        title="Pending review"
+        sub={<span className="text-mono">Submitted · {submitted}</span>}
+        stats={[
+          { label: "Next step", value: "Building management review" },
+          { label: "We'll email", value: "Your entrance pass" }
+        ]}
+      />
+      <section
+        className="sg-enter rounded-xl bg-surface-raised p-5 sm:p-6"
+        style={{ "--i": 2 } as React.CSSProperties}
+      >
+        <h2 className="mb-5 text-heading-s text-ink sm:text-xl sm:font-semibold">What happens next</h2>
+        <Timeline
+          items={[
+            { date: "Soon", icon: Sparkles, title: "Entrance pass emailed", meta: "Sent once approved" },
+            {
+              date: day,
+              icon: Hourglass,
+              title: "Building management review",
+              meta: "In progress",
+              tone: "yellow",
+              live: true
+            },
+            {
+              date: day,
+              icon: Send,
+              title: "Registration submitted",
+              meta: "Thanks, we have everything we need",
+              tone: "mint"
+            }
+          ]}
+        />
+      </section>
     </main>
   );
 }

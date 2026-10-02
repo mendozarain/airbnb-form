@@ -39,10 +39,22 @@ export function money(value: number | null | undefined) {
       );
 }
 
-export function registrationTone(status: string): "neutral" | "info" | "success" | "warning" | "danger" {
-  if (status === "done") return "success";
-  if (status === "pending") return "info";
-  if (status === "review") return "warning";
-  if (status === "needs_registration" || status === "rejected") return "danger";
+export type Tone = "neutral" | "pending" | "attention" | "ready" | "done" | "sent" | "ai" | "danger";
+
+export function registrationTone(status: string): Tone {
+  if (status === "done") return "done";
+  if (status === "pending") return "pending";
+  if (status === "review") return "ready";
+  if (status === "needs_registration") return "attention";
+  if (status === "rejected") return "danger";
+  return "neutral";
+}
+
+export function submissionTone(status: string): Tone {
+  if (["submitted_email_sent", "submitted", "approved", "done"].includes(status)) return "done";
+  if (["queued", "submitting", "ai_check_pending"].includes(status)) return "pending";
+  if (["ai_review_required", "failed", "submitted_email_failed"].includes(status)) return "attention";
+  if (status === "ready_for_review") return "ready";
+  if (status === "rejected") return "danger";
   return "neutral";
 }

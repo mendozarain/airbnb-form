@@ -44,6 +44,8 @@ import { EmptyState } from "@/components/ui/empty-state";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { LoadError, LoadingCard } from "@/components/ui/loading";
+import { ActionBar } from "@/components/ui/action-bar";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { PageHeader } from "@/components/page-header";
 import { api } from "@/lib/api";
@@ -61,6 +63,7 @@ export function PricingPage() {
   const [airbnbDraft, setAirbnbDraft] = useState<AirbnbDraft | null>(null);
   const [airbnbError, setAirbnbError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [working, setWorking] = useState<string | null>(null);
 
   async function loadLocal() {
@@ -83,9 +86,15 @@ export function PricingPage() {
     }
   }
 
-  useEffect(() => {
-    void Promise.all([loadLocal(), loadAirbnb()]).finally(() => setLoading(false));
-  }, []);
+  function loadAll() {
+    setLoading(true);
+    setLoadError(null);
+    void Promise.all([loadLocal(), loadAirbnb()])
+      .catch((error) => setLoadError(error instanceof Error ? error.message : "Could not load pricing"))
+      .finally(() => setLoading(false));
+  }
+
+  useEffect(loadAll, []);
 
   const pricingDirty = Boolean(
     settings && config && JSON.stringify(settings.config) !== JSON.stringify(config)
@@ -119,8 +128,8 @@ export function PricingPage() {
     });
   }
 
-  if (loading || !settings || !config)
-    return <p className="p-10 text-center text-sm text-ink-muted">Loading pricing controls…</p>;
+  if (loadError && (!settings || !config)) return <LoadError message={loadError} onRetry={loadAll} />;
+  if (loading || !settings || !config) return <LoadingCard label="Loading pricing controls…" rows={4} />;
   const weekendPrice = Math.round(config.baseAirbnbPrice * (1 + config.weekendPremium));
 
   const savePricing = (key: string, message: string) =>
@@ -155,18 +164,14 @@ export function PricingPage() {
       </div>
 
       <Tabs defaultValue="pricing" className="space-y-5">
-        <TabsList className="grid grid-cols-4 rounded-xl border-0 bg-surface p-1">
+        <TabsList className="grid grid-cols-4">
           {[
             ["pricing", "Pricing"],
             ["discounts", "Discounts"],
             ["availability", "Availability"],
             ["automation", "Automation"]
           ].map(([value, label]) => (
-            <TabsTrigger
-              key={value}
-              className="rounded-lg border-0 px-1 text-xs data-[state=active]:bg-surface-raised data-[state=active]:shadow-sm sm:px-3 sm:text-sm"
-              value={value}
-            >
+            <TabsTrigger key={value} className="px-1 text-xs sm:px-3 sm:text-sm" value={value}>
               {label}
             </TabsTrigger>
           ))}
@@ -405,10 +410,10 @@ export function PricingPage() {
             title="Advanced automation"
             description="Event premiums, channel adjustments, history, and retry controls."
           />
-          <div className="rounded-xl border border-hairline bg-surface-raised p-5">
+          <div className="rounded-xl bg-surface-raised p-5">
             <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
               <div>
-                <h3 className="font-semibold text-ink">Daily 8 AM pricing run</h3>
+                <h3 className="text-title text-ink">Daily 8 AM pricing run</h3>
                 <p className="mt-1 text-sm text-ink-muted">
                   Publishes calculated nightly prices to every configured platform.
                 </p>
@@ -470,8 +475,8 @@ function PlatformMarkups({
   setConfig: (config: PricingConfig) => void;
 }) {
   return (
-    <section className="rounded-xl border border-hairline bg-surface-raised p-5">
-      <h3 className="font-semibold text-ink">Platform markups</h3>
+    <section className="rounded-xl bg-surface-raised p-5">
+      <h3 className="text-title text-ink">Platform markups</h3>
       <p className="mt-1 text-sm text-ink-muted">
         Added after the nightly tier to allow for platform costs and delayed payouts. Guest discounts and fees
         still affect your earnings.
@@ -529,8 +534,8 @@ function TierTable({ config }: { config: PricingConfig }) {
       ) === index
   );
   return (
-    <section className="min-w-0 rounded-xl border border-hairline bg-surface-raised p-5">
-      <h3 className="font-semibold text-ink">Empty nights get cheaper as they approach</h3>
+    <section className="min-w-0 rounded-xl bg-surface-raised p-5">
+      <h3 className="text-title text-ink">Empty nights get cheaper as they approach</h3>
       <p className="mt-1 text-sm text-ink-muted">
         Weekday examples using your current inputs. Weekend and event premiums also fade to the minimum within
         two days.
@@ -581,7 +586,7 @@ function TierTable({ config }: { config: PricingConfig }) {
 function SectionIntro({ title, description }: { title: string; description: string }) {
   return (
     <div>
-      <h2 className="text-xl font-semibold text-ink">{title}</h2>
+      <h2 className="text-heading-s text-ink sm:text-xl sm:font-semibold">{title}</h2>
       <p className="mt-1 text-sm text-ink-muted">{description}</p>
     </div>
   );
@@ -599,13 +604,13 @@ function PriceCard({
   onChange: (value: number) => void;
 }) {
   return (
-    <label className="rounded-xl border border-hairline bg-surface-raised p-5 shadow-sm">
-      <span className="font-semibold text-ink">{title}</span>
+    <label className="rounded-xl bg-surface-raised p-5">
+      <span className="text-title text-ink">{title}</span>
       <span className="mt-1 block min-h-10 text-sm text-ink-muted">{description}</span>
-      <span className="mt-4 flex items-center rounded-lg border border-line-strong px-3 focus-within:ring-2 focus-within:ring-primary">
+      <span className="mt-4 flex items-center rounded-sm border border-line-strong bg-surface-raised px-4 focus-within:outline-2 focus-within:outline-offset-1 focus-within:outline-primary">
         <span className="text-sm font-medium text-ink-muted">PHP</span>
         <Input
-          className="border-0 text-right text-xl font-semibold shadow-none focus-visible:ring-0"
+          className="h-12 border-0 text-right text-xl font-semibold focus:outline-0"
           type="number"
           min="1"
           value={value}
@@ -628,8 +633,8 @@ function DiscountCard({
   onChange: (value: number) => void;
 }) {
   return (
-    <div className="rounded-xl border border-hairline bg-surface-raised p-5 shadow-sm">
-      <h3 className="font-semibold text-ink">{title}</h3>
+    <div className="rounded-xl bg-surface-raised p-5">
+      <h3 className="text-title text-ink">{title}</h3>
       <p className="mt-1 text-sm text-ink-muted">{description}</p>
       <label className="mt-5 flex items-end gap-2">
         <Input
@@ -662,8 +667,8 @@ function RuleCard({
   onChange: (rules: AirbnbDiscountRule[]) => void;
 }) {
   return (
-    <div className="rounded-xl border border-hairline bg-surface-raised p-5 shadow-sm">
-      <h3 className="font-semibold text-ink">{title}</h3>
+    <div className="rounded-xl bg-surface-raised p-5">
+      <h3 className="text-title text-ink">{title}</h3>
       <p className="mt-1 text-sm text-ink-muted">{description}</p>
       <div className="mt-4 space-y-3">
         {rules.map((rule, index) => (
@@ -705,7 +710,7 @@ function RuleCard({
               aria-label={`Remove ${title} rule`}
               className="mt-5"
               size="icon"
-              variant="ghost"
+              variant="secondary"
               onClick={() => onChange(rules.filter((_, itemIndex) => itemIndex !== index))}
             >
               <Trash2 className="size-4" />
@@ -744,9 +749,9 @@ function ToggleCard({
   onChange: (checked: boolean) => void;
 }) {
   return (
-    <label className="flex cursor-pointer items-center justify-between gap-4 rounded-xl border border-hairline bg-surface-raised p-5 shadow-sm">
+    <label className="flex cursor-pointer items-center justify-between gap-4 rounded-xl bg-surface-raised p-5">
       <span>
-        <span className="font-semibold text-ink">{title}</span>
+        <span className="text-title text-ink">{title}</span>
         <span className="mt-1 block text-sm text-ink-muted">{description}</span>
       </span>
       <Checkbox checked={checked} onCheckedChange={(value) => onChange(value === true)} />
@@ -766,8 +771,8 @@ function SettingCard({
   onChange: (value: number | null) => void;
 }) {
   return (
-    <label className="rounded-xl border border-hairline bg-surface-raised p-5 shadow-sm">
-      <span className="font-semibold text-ink">{label}</span>
+    <label className="rounded-xl bg-surface-raised p-5">
+      <span className="text-title text-ink">{label}</span>
       <span className="mt-4 flex items-center gap-2">
         <Input
           type="number"
@@ -793,8 +798,8 @@ function WeekdayCard({
   onChange: (days: number[]) => void;
 }) {
   return (
-    <div className="rounded-xl border border-hairline bg-surface-raised p-5 shadow-sm">
-      <h3 className="font-semibold text-ink">{label}</h3>
+    <div className="rounded-xl bg-surface-raised p-5">
+      <h3 className="text-title text-ink">{label}</h3>
       <div className="mt-4 grid grid-cols-4 gap-2 sm:grid-cols-7">
         {weekdays.map((day, index) => {
           const active = selected.includes(index);
@@ -802,7 +807,8 @@ function WeekdayCard({
             <button
               key={day}
               type="button"
-              className={`h-11 rounded-lg border text-sm font-medium ${active ? "border-primary bg-primary-soft text-primary-hover" : "border-hairline text-ink-muted"}`}
+              aria-pressed={active}
+              className={`h-11 rounded-full text-sm font-medium transition-colors ${active ? "bg-primary text-on-primary" : "bg-surface-sunken text-ink-muted hover:text-ink"}`}
               onClick={() =>
                 onChange(active ? selected.filter((value) => value !== index) : [...selected, index].sort())
               }
@@ -828,17 +834,15 @@ function SaveBar({
   onSave: () => void;
 }) {
   return (
-    <div
-      className={`z-10 flex flex-col gap-3 rounded-xl border border-hairline bg-surface-raised/95 p-4 shadow-lg backdrop-blur sm:flex-row sm:items-center sm:justify-between ${dirty ? "sm:sticky sm:bottom-3" : ""}`}
-    >
-      <p className="text-sm text-ink-muted">
+    <ActionBar fixed={false} className={`justify-between ${dirty ? "sm:sticky sm:bottom-4 z-10" : ""}`}>
+      <p className="min-w-0 flex-1 text-sm text-ink-muted">
         {dirty ? `${text} are not saved yet.` : "Everything is up to date."}
       </p>
-      <Button disabled={!dirty || working} onClick={onSave}>
+      <Button disabled={!dirty} loading={working} loadingText="Saving…" onClick={onSave}>
         <Save className="size-4" />
-        {working ? "Saving…" : "Save changes"}
+        Save changes
       </Button>
-    </div>
+    </ActionBar>
   );
 }
 
@@ -853,14 +857,14 @@ function HostexUnavailable({
 }) {
   return (
     <EmptyState
-      className="rounded-xl bg-butter/40"
-      tone="warning"
+      className="rounded-xl bg-yellow-soft"
+      tone="attention"
       icon={CloudOff}
       title="Live Airbnb settings are unavailable"
       description={`${error || "Hostex did not return the listing settings."} Nothing can be saved until the live values are loaded.`}
       action={
-        <Button variant="secondary" disabled={loading} onClick={retry}>
-          <RefreshCw className={`size-4 ${loading ? "animate-spin" : ""}`} />
+        <Button variant="secondary" loading={loading} loadingText="Retrying…" onClick={retry}>
+          <RefreshCw className="size-4" />
           Retry
         </Button>
       }
@@ -877,7 +881,7 @@ function AdvancedRules({
 }) {
   return (
     <div className="space-y-3">
-      <details className="rounded-xl border border-hairline bg-surface-raised p-5">
+      <details className="rounded-xl bg-surface-raised p-5">
         <summary className="cursor-pointer font-semibold text-ink">Events, horizon, and rounding</summary>
         <div className="mt-5 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
           <NumberField
@@ -900,7 +904,7 @@ function AdvancedRules({
           />
         </div>
       </details>
-      <details className="rounded-xl border border-hairline bg-surface-raised p-5">
+      <details className="rounded-xl bg-surface-raised p-5">
         <summary className="cursor-pointer font-semibold text-ink">Other platform adjustments</summary>
         <p className="mt-2 text-sm text-ink-muted">
           Shown as the percentage above or below the calculated Airbnb price.
@@ -923,7 +927,7 @@ function AdvancedRules({
           )}
         </div>
       </details>
-      <details className="rounded-xl border border-hairline bg-surface-raised p-5">
+      <details className="rounded-xl bg-surface-raised p-5">
         <summary className="cursor-pointer font-semibold text-ink">Recurring events</summary>
         <div className="mt-4 space-y-3">
           {config.recurringEvents.map((event, index) => (
@@ -1009,7 +1013,7 @@ function PreviewPanel({
   onApply: () => void;
 }) {
   return (
-    <section className="rounded-xl border border-hairline bg-surface-raised p-5 shadow-sm">
+    <section className="rounded-xl bg-surface-raised p-5">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h2 className="font-semibold text-ink">Preview and publish now</h2>
@@ -1108,7 +1112,7 @@ function RunHistory({
   onRetry: (runId: string, submissionId: string) => void;
 }) {
   return (
-    <details className="rounded-xl border border-hairline bg-surface-raised p-5">
+    <details className="rounded-xl bg-surface-raised p-5">
       <summary className="cursor-pointer font-semibold text-ink">History and failed-listing retries</summary>
       <div className="mt-4 divide-y divide-hairline">
         {runs.slice(0, 8).map((run) => (
@@ -1121,7 +1125,7 @@ function RunHistory({
               {formatDateTime(run.startedAt)} · settings v{run.settingsVersion}
             </p>
             {latestSubmissions(run).map((submission) => (
-              <div key={submission.id} className="mt-2 rounded-md bg-surface p-3 text-xs">
+              <div key={submission.id} className="mt-2 rounded-lg bg-surface-sunken p-3 text-xs">
                 <div className="flex items-center justify-between">
                   <span>
                     {statusLabel(submission.channelType)} · attempt {submission.attempt}
@@ -1178,10 +1182,14 @@ function Status({
   good: boolean;
 }) {
   return (
-    <div className="min-w-0 rounded-xl border border-hairline bg-surface-raised p-3 shadow-sm sm:p-4">
-      <Icon className={`size-4 sm:size-5 ${good ? "text-success" : "text-ink"}`} />
-      <p className="mt-2 truncate text-[10px] text-ink-muted sm:text-xs">{label}</p>
-      <p className="mt-1 text-xs font-semibold text-ink sm:text-sm">{value}</p>
+    <div className="min-w-0 rounded-xl bg-surface-raised p-3 sm:p-5">
+      <span
+        className={`grid size-9 place-items-center rounded-full sm:size-11 ${good ? "bg-green text-on-accent" : "bg-orange text-on-accent"}`}
+      >
+        <Icon className="size-4 sm:size-5" strokeWidth={1.75} />
+      </span>
+      <p className="mt-3 truncate text-xs text-ink-muted sm:text-sm">{label}</p>
+      <p className="mt-0.5 text-sm font-medium text-ink sm:text-base">{value}</p>
     </div>
   );
 }

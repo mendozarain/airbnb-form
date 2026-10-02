@@ -1,8 +1,10 @@
 import {
   ArrowLeft,
+  Clock,
+  ShieldCheck,
+  Sparkles,
   CheckCircle2,
   Edit3,
-  Loader2,
   Mail,
   Plus,
   RotateCcw,
@@ -31,7 +33,9 @@ import { Button } from "@/components/ui/button";
 import { EmptyState } from "@/components/ui/empty-state";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Skeleton } from "@/components/ui/skeleton";
+import { ActionBar as FloatingBar } from "@/components/ui/action-bar";
+import { LoadingCard } from "@/components/ui/loading";
+import { StatusHero } from "@/components/ui/status-hero";
 import { api } from "@/lib/api";
 
 type Detail = SubmissionDetail & { latestError?: string | null };
@@ -93,13 +97,7 @@ export function SubmissionPage() {
     }
   }
 
-  if (loading)
-    return (
-      <div className="space-y-4">
-        <Skeleton className="h-20" />
-        <Skeleton className="h-72" />
-      </div>
-    );
+  if (loading) return <LoadingCard label="Loading registration…" rows={3} />;
   if (!submission)
     return (
       <EmptyState
@@ -143,28 +141,29 @@ export function SubmissionPage() {
         }
       />
 
-      <section className="grid gap-4 rounded-lg border border-hairline bg-surface-raised p-4 sm:grid-cols-2 lg:grid-cols-4">
-        <Info
-          label={submission.purpose === "Tenant" ? "Stay" : "Visit"}
-          value={`${formatDate(submission.checkIn)} – ${formatDate(submission.checkOut)}`}
-        />
-        <Info label="Unit" value={`Building ${submission.buildingCode}, ${submission.unitNumber}`} />
-        <Info label="Purpose" value={submission.purpose} />
-        <div>
-          <p className="text-xs font-medium uppercase text-ink-muted">Status</p>
-          <Badge className="mt-2">{labelStatus(submission.status)}</Badge>
-        </div>
-      </section>
+      <StatusHero
+        plain={!isRunning && submission.status !== "ai_check_pending"}
+        chipIcon={isRunning ? Clock : ShieldCheck}
+        chip={labelStatus(submission.status)}
+        title={isRunning ? "Submitting to building management" : heroTitle(submission.status)}
+        sub={<span className="text-mono">{submission.guestEmail}</span>}
+        stats={[
+          {
+            label: submission.purpose === "Tenant" ? "Stay" : "Visit",
+            value: `${formatDate(submission.checkIn)} – ${formatDate(submission.checkOut)}`
+          },
+          { label: "Unit", value: `Building ${submission.buildingCode}, ${submission.unitNumber}` },
+          { label: "Purpose", value: submission.purpose }
+        ]}
+      />
 
       {submission.latestError && (
-        <div className="rounded-md border border-danger/30 bg-danger/10 p-4 text-sm text-danger">
-          {submission.latestError}
-        </div>
+        <div className="rounded-xl bg-surface-raised p-5 text-base text-danger">{submission.latestError}</div>
       )}
 
       {Boolean(submission.chatDeliveries?.length) && (
-        <section className="space-y-4 rounded-lg border border-hairline bg-surface-raised p-4">
-          <h2 className="text-lg font-semibold">Platform email confirmations</h2>
+        <section className="sg-enter space-y-4 rounded-xl bg-surface-raised p-5 sm:p-6">
+          <h2 className="text-heading-s">Platform email confirmations</h2>
           <p className="text-sm text-ink-muted">
             Chat delivery is tracked separately. Retrying chat does not resend the email.
           </p>
@@ -222,10 +221,16 @@ export function SubmissionPage() {
       )}
 
       {submission.aiReview && (
-        <section className="space-y-4 rounded-lg border border-hairline bg-surface-raised p-4">
+        <section className="sg-enter space-y-4 rounded-xl bg-surface-raised p-5 sm:p-6">
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div>
-              <h2 className="text-lg font-semibold">AI ID review</h2>
+              <h2 className="flex items-center gap-2 text-heading-s">
+                AI ID review{" "}
+                <Badge tone="ai">
+                  <Sparkles className="size-4" />
+                  AI-generated
+                </Badge>
+              </h2>
               <p className="text-sm text-ink-muted">
                 {submission.aiReview.model}
                 {submission.aiReview.checkedAt
@@ -236,14 +241,14 @@ export function SubmissionPage() {
             <Badge>{labelStatus(submission.aiReview.status)}</Badge>
           </div>
           {submission.aiReview.error && (
-            <p className="rounded-md border border-butter bg-butter/40 p-3 text-sm text-ink">
+            <p className="rounded-lg border bg-yellow-soft p-3 text-sm text-ink">
               {submission.aiReview.error}
             </p>
           )}
           {submission.aiReview.results.length > 0 && (
             <div className="overflow-x-auto">
               <table className="w-full min-w-[620px] text-left text-sm">
-                <thead className="border-b border-hairline text-xs uppercase text-ink-muted">
+                <thead className="border-b border-hairline text-xs text-ink-muted">
                   <tr>
                     <th className="px-3 py-2">Entered name</th>
                     <th className="px-3 py-2">All extracted names</th>
@@ -285,7 +290,7 @@ export function SubmissionPage() {
 
       <section>
         <div className="flex items-center justify-between gap-3">
-          <h2 className="text-lg font-semibold">Guests</h2>
+          <h2 className="text-heading-s">Guests</h2>
           {canEdit && !editing && (
             <Button
               variant="secondary"
@@ -310,7 +315,7 @@ export function SubmissionPage() {
           )}
         </div>
         {editing && draft ? (
-          <div className="mt-3 space-y-4 rounded-xl border border-success/30 bg-success/10/30 p-4">
+          <div className="mt-3 space-y-4 rounded-xl border border-transparent bg-surface-sunken p-4">
             <div className="grid gap-4 sm:grid-cols-2">
               <div className="space-y-2">
                 <Label htmlFor="edit-email">Guest email</Label>
@@ -329,7 +334,7 @@ export function SubmissionPage() {
                   onChange={(event) =>
                     setDraft({ ...draft, purpose: event.target.value as SubmissionDetail["purpose"] })
                   }
-                  className="h-11 w-full rounded-md border border-line-strong bg-surface-raised px-3 text-sm"
+                  className="h-11 w-full rounded-lg border border-line-strong bg-surface-raised px-3 text-sm"
                 >
                   <option>Tenant</option>
                   <option>Visitor of Tenant</option>
@@ -338,10 +343,7 @@ export function SubmissionPage() {
               </div>
             </div>
             {draft.guests.map((guest, index) => (
-              <div
-                key={guest.id ?? index}
-                className="rounded-lg border border-hairline bg-surface-raised p-4"
-              >
+              <div key={guest.id ?? index} className="rounded-xl bg-surface-raised p-4">
                 <div className="grid gap-3 sm:grid-cols-[1fr_100px_auto]">
                   <div className="space-y-2">
                     <Label>Name</Label>
@@ -370,7 +372,7 @@ export function SubmissionPage() {
                   </div>
                   <Button
                     size="icon"
-                    variant="ghost"
+                    variant="secondary"
                     className="self-end"
                     aria-label="Remove guest"
                     disabled={draft.guests.length === 1}
@@ -447,7 +449,7 @@ export function SubmissionPage() {
               </Button>
               <div className="flex gap-2">
                 <Button
-                  variant="ghost"
+                  variant="secondary"
                   onClick={() => {
                     setEditing(false);
                     setDraft(null);
@@ -475,7 +477,7 @@ export function SubmissionPage() {
         <div className="mt-3 grid gap-4 md:grid-cols-2">
           {!editing &&
             submission.guests.map((guest) => (
-              <article key={guest.id} className="rounded-lg border border-hairline bg-surface-raised p-4">
+              <article key={guest.id} className="rounded-xl bg-surface-raised p-4">
                 <div className="flex items-start justify-between gap-3">
                   <div>
                     <h3 className="font-semibold">{guest.fullName}</h3>
@@ -491,7 +493,7 @@ export function SubmissionPage() {
                         href={file.url}
                         target="_blank"
                         rel="noreferrer"
-                        className="block overflow-hidden rounded-md border border-hairline"
+                        className="block overflow-hidden rounded-lg border border-hairline"
                       >
                         {file.contentType.startsWith("image/") ? (
                           <img
@@ -574,10 +576,11 @@ export function SubmissionPage() {
               </AlertDialogContent>
             </AlertDialog>
             <Button
-              disabled={acting}
+              loading={acting}
+              loadingText="Confirming…"
               onClick={() => void act(() => api.confirmSubmission(id), "Submission queued")}
             >
-              {acting ? <Loader2 className="size-4 animate-spin" /> : <CheckCircle2 className="size-4" />}
+              <CheckCircle2 className="size-4" />
               Confirm
             </Button>
           </>
@@ -605,20 +608,22 @@ export function SubmissionPage() {
               </Button>
             )}
             <Button
-              disabled={acting}
+              loading={acting}
+              loadingText="Approving…"
               onClick={() => void act(() => api.approveAiReview(id), "AI review overridden and queued")}
             >
-              {acting ? <Loader2 className="size-4 animate-spin" /> : <CheckCircle2 className="size-4" />}
+              <CheckCircle2 className="size-4" />
               Approve &amp; queue
             </Button>
           </>
         )}
         {canRetryEmail && (
           <Button
-            disabled={acting}
+            loading={acting}
+            loadingText="Sending…"
             onClick={() => void act(() => api.retrySubmissionEmail(id), "Entrance pass emailed")}
           >
-            {acting ? <Loader2 className="size-4 animate-spin" /> : <Mail className="size-4" />}
+            <Mail className="size-4" />
             Retry email
           </Button>
         )}
@@ -651,20 +656,20 @@ export function SubmissionPage() {
   );
 }
 
-function Info({ label, value }: { label: string; value: string }) {
-  return (
-    <div>
-      <p className="text-xs font-medium uppercase text-ink-muted">{label}</p>
-      <p className="mt-1 text-sm font-medium text-ink">{value}</p>
-    </div>
-  );
+function heroTitle(status: string) {
+  if (status === "submitted_email_sent") return "Submitted and entrance pass sent";
+  if (status === "ready_for_review") return "Ready for your review";
+  if (status === "rejected") return "Registration rejected";
+  if (status === "ai_review_required") return "AI check needs your review";
+  if (status === "failed" || status === "submitted_email_failed") return "Needs attention";
+  return labelStatus(status);
 }
 
 function ActionBar({ children }: { children: React.ReactNode }) {
   return (
-    <div className="fixed inset-x-0 bottom-[calc(3.625rem+env(safe-area-inset-bottom))] z-40 grid grid-flow-col auto-cols-fr gap-2 border-t border-hairline bg-surface-raised p-3 shadow-[0_-8px_24px_rgba(15,23,42,0.08)] [&_button]:min-w-0 [&_button]:gap-1 [&_button]:px-2 [&_svg]:hidden sm:static sm:flex sm:justify-end sm:border-0 sm:bg-transparent sm:p-0 sm:shadow-none sm:[&_button]:gap-2 sm:[&_button]:px-4 sm:[&_svg]:block">
+    <FloatingBar className="bottom-[calc(5.25rem+env(safe-area-inset-bottom))] flex-wrap justify-end lg:bottom-4 sm:static">
       {children}
-    </div>
+    </FloatingBar>
   );
 }
 

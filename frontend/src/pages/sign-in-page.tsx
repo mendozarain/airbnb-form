@@ -1,12 +1,11 @@
 import { zodResolver } from "@hookform/resolvers/zod";
-import { Loader2, Lock, Mail } from "lucide-react";
+import { Lock, Mail } from "lucide-react";
 import { useEffect } from "react";
 import { useForm } from "react-hook-form";
 import { useNavigate } from "react-router-dom";
 import { toast } from "sonner";
 import { z } from "zod";
 import { Button } from "@/components/ui/button";
-import { Confetti } from "@/components/ui/confetti";
 import { IconField } from "@/components/ui/field";
 import { authClient } from "@/lib/auth-client";
 
@@ -37,15 +36,15 @@ export function SignInPage() {
   });
 
   return (
-    <main className="flex min-h-screen items-center justify-center bg-lavender px-4 py-10">
-      <section className="relative w-full max-w-sm overflow-hidden rounded-xl bg-surface-raised p-6 shadow-card sm:p-8">
-        <div className="pt-2 text-center">
-          <Confetti />
-          <p className="text-label text-primary">Admin</p>
-          <h1 className="font-display mt-2 text-[44px] leading-[50px] text-ink">Welcome back</h1>
-          <p className="mt-2 text-sm text-ink-muted">Sign in to manage bookings and guest registrations.</p>
+    <main className="flex min-h-screen items-center justify-center bg-surface px-4 py-10">
+      <section className="sg-enter w-full max-w-md rounded-xl bg-surface-raised p-6 sm:p-8">
+        <div className="flex items-center gap-3">
+          <span className="size-3.5 rounded-full bg-yellow" aria-hidden="true" />
+          <p className="text-heading-s text-ink">Cozy Davao D-714</p>
         </div>
-        <form className="mt-8 space-y-5" onSubmit={submit} noValidate>
+        <h1 className="mt-6 text-[32px] leading-9 font-semibold tracking-tight text-ink">Sign in</h1>
+        <p className="mt-2 text-base text-ink-muted">Manage bookings and guest registrations.</p>
+        <form className="mt-7 space-y-5" onSubmit={submit} noValidate>
           <IconField
             icon={Mail}
             label="Email"
@@ -64,8 +63,12 @@ export function SignInPage() {
             error={form.formState.errors.password?.message}
             {...form.register("password")}
           />
-          <Button size="lg" className="w-full" disabled={form.formState.isSubmitting}>
-            {form.formState.isSubmitting && <Loader2 className="size-4 animate-spin" />}
+          <Button
+            size="lg"
+            className="w-full"
+            loading={form.formState.isSubmitting}
+            loadingText="Signing in…"
+          >
             Sign in
           </Button>
         </form>

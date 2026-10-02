@@ -1,12 +1,13 @@
 import type { LucideIcon } from "lucide-react";
 import type { ReactNode } from "react";
 import { cn } from "@/lib/utils";
-import { Confetti } from "./confetti";
 
-const circles = {
-  neutral: "bg-primary-soft text-primary",
-  warning: "bg-butter text-ink",
-  error: "bg-danger/10 text-danger"
+const badges = {
+  neutral: null,
+  pending: "bg-yellow",
+  attention: "bg-orange",
+  done: "bg-green",
+  ai: "bg-purple"
 } as const;
 
 export function EmptyState({
@@ -23,34 +24,44 @@ export function EmptyState({
   description?: string;
   action?: ReactNode;
   size?: "sm" | "md";
-  tone?: keyof typeof circles;
+  tone?: keyof typeof badges;
   className?: string;
 }) {
   const small = size === "sm";
+  const badge = badges[tone];
   return (
     <div
       role="status"
-      className={cn(
-        "flex flex-col items-center text-center",
-        small ? "gap-2 p-4" : "gap-3 px-6 py-10",
-        className
-      )}
+      className={cn("flex flex-col items-center text-center", small ? "gap-2 p-4" : "px-6 py-10", className)}
     >
-      {!small && <Confetti className="max-w-[16rem]" />}
-      <div
+      <div className={cn("relative", small ? "mb-1 size-14" : "mb-5 size-24")}>
+        <span className="absolute inset-0 rounded-full bg-surface-sunken" />
+        <span className="absolute inset-0 grid place-items-center text-ink">
+          <Icon
+            className={cn("sg-float", small ? "size-6" : "size-9")}
+            strokeWidth={1.75}
+            aria-hidden="true"
+          />
+        </span>
+        {badge && (
+          <span
+            className={cn("sg-pop absolute right-0.5 top-1.5 size-6 rounded-full", badge)}
+            style={{ animationDelay: ".3s" }}
+          />
+        )}
+      </div>
+      <p
         className={cn(
-          "flex items-center justify-center rounded-full",
-          small ? "size-10" : "size-14",
-          circles[tone]
+          "text-ink",
+          small ? "text-base font-medium" : "text-[22px] leading-7 font-semibold tracking-tight"
         )}
       >
-        <Icon className={small ? "size-5" : "size-7"} strokeWidth={1.5} aria-hidden="true" />
-      </div>
-      <p className={cn("font-semibold text-ink", small ? "text-sm" : "text-xl")}>{title}</p>
+        {title}
+      </p>
       {description && (
-        <p className={cn("max-w-sm text-ink-muted", small ? "text-xs" : "text-sm")}>{description}</p>
+        <p className={cn("max-w-xs text-ink-muted", small ? "text-sm" : "mt-2 text-base")}>{description}</p>
       )}
-      {action && <div className="mt-1">{action}</div>}
+      {action && <div className="mt-5">{action}</div>}
     </div>
   );
 }
