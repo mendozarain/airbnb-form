@@ -1,4 +1,4 @@
-import { CheckCircle2, Loader2, RefreshCw, Upload, XCircle } from "lucide-react";
+import { RefreshCw, Upload } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
 import type {
@@ -15,7 +15,7 @@ import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Skeleton } from "@/components/ui/skeleton";
+import { LoadingCard } from "@/components/ui/loading";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import { api } from "@/lib/api";
@@ -102,16 +102,10 @@ export function SettingsPage() {
   const template = templates[activeTemplate];
   const dirty = !templatesEqual(template, savedTemplates[activeTemplate]);
 
-  if (loading && !status)
-    return (
-      <div className="space-y-4">
-        <Skeleton className="h-20" />
-        <Skeleton className="h-48" />
-      </div>
-    );
+  if (loading && !status) return <LoadingCard label="Loading settings…" rows={5} />;
 
   return (
-    <div className="space-y-8">
+    <div className="space-y-7">
       <PageHeader
         title="Settings"
         description="Connections, safety switches, and the email sent after PMO submission."
@@ -125,10 +119,10 @@ export function SettingsPage() {
 
       <section className="space-y-4">
         <div>
-          <h2 className="text-lg font-semibold">Connections</h2>
+          <h2 className="text-heading-s text-ink">Connections</h2>
           <p className="text-sm text-ink-muted">Live connection health without exposing credentials.</p>
         </div>
-        <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
+        <div className="grid gap-3 rounded-xl bg-surface-raised p-5 sm:p-5">
           <Connection
             title="Google session"
             connected={Boolean(status?.connected)}
@@ -174,12 +168,8 @@ export function SettingsPage() {
           />
         </div>
         <div className="flex flex-wrap gap-2 text-xs text-ink-muted">
-          <Badge className="border border-hairline bg-surface-raised text-ink-muted">
-            Guest messages: {hostex?.automationEnabled ? "enabled" : "off"}
-          </Badge>
-          <Badge className="border border-hairline bg-surface-raised text-ink-muted">
-            Pricing rules: v{pricing?.version ?? "—"}
-          </Badge>
+          <Badge>Guest messages: {hostex?.automationEnabled ? "enabled" : "off"}</Badge>
+          <Badge>Pricing rules: v{pricing?.version ?? "—"}</Badge>
         </div>
         <div className="flex flex-wrap gap-2">
           <label className="inline-flex">
@@ -194,7 +184,7 @@ export function SettingsPage() {
                 event.target.value = "";
               }}
             />
-            <span className="inline-flex h-10 items-center gap-2 rounded-md bg-primary px-4 text-sm font-semibold text-white hover:bg-primary-hover">
+            <span className="inline-flex h-10 cursor-pointer items-center gap-2 rounded-full bg-primary px-4 text-sm font-medium text-on-primary transition-transform active:scale-[.96] hover:bg-primary-hover">
               <Upload className="size-4" />
               Upload session
             </span>
@@ -204,11 +194,11 @@ export function SettingsPage() {
             disabled={acting || !status?.hasStorageState}
             onClick={() => void run(() => api.checkGoogle(), "Google session checked")}
           >
-            {acting ? <Loader2 className="size-4 animate-spin" /> : <RefreshCw className="size-4" />}Check
-            session
+            <RefreshCw className="size-4" />
+            Check session
           </Button>
         </div>
-        <div className="rounded-xl border border-hairline bg-surface-raised p-4 shadow-sm">
+        <div className="rounded-xl bg-surface-raised p-5">
           <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
             <label className="flex cursor-pointer items-start gap-3">
               <Checkbox
@@ -224,7 +214,7 @@ export function SettingsPage() {
                 }
               />
               <span className="space-y-1">
-                <span className="block font-medium">Recover Google automatically</span>
+                <span className="block text-title">Recover Google automatically</span>
                 <span className="block text-sm text-ink-muted">
                   Uses only the 1Password item for {status?.googleRecovery.expectedAccount} when the PMO form
                   redirects to Google login.
@@ -232,12 +222,14 @@ export function SettingsPage() {
               </span>
             </label>
             <Badge
-              className={
+              dot
+              live={status?.googleRecovery.state === "recovering"}
+              tone={
                 status?.googleRecovery.state === "recovering"
-                  ? "bg-butter/40 text-ink"
+                  ? "pending"
                   : status?.googleRecovery.state === "manual_required"
-                    ? "bg-danger/10 text-danger"
-                    : "bg-success/10 text-success"
+                    ? "attention"
+                    : "done"
               }
             >
               {status?.googleRecovery.state === "recovering"
@@ -268,19 +260,19 @@ export function SettingsPage() {
               disabled={acting}
               onClick={() => void run(() => api.retryGoogleRecovery(), "Google recovery attempt completed")}
             >
-              {acting ? <Loader2 className="size-4 animate-spin" /> : <RefreshCw className="size-4" />}
+              <RefreshCw className="size-4" />
               Retry automatic recovery
             </Button>
           )}
         </div>
       </section>
 
-      <section className="space-y-4 border-t border-hairline pt-7">
+      <section className="space-y-4">
         <div>
-          <h2 className="text-lg font-semibold">Registration workflow</h2>
+          <h2 className="text-heading-s text-ink">Registration workflow</h2>
           <p className="text-sm text-ink-muted">Choose whether new guest registrations need admin review.</p>
         </div>
-        <label className="flex cursor-pointer items-start gap-3 rounded-lg border border-hairline bg-surface-raised p-4">
+        <label className="flex cursor-pointer items-start gap-3 rounded-xl bg-surface-raised p-5">
           <Checkbox
             checked={status?.autoQueue ?? true}
             disabled={acting}
@@ -292,14 +284,14 @@ export function SettingsPage() {
             }
           />
           <span className="space-y-1">
-            <span className="block font-medium">Auto queue new registrations</span>
+            <span className="block text-title">Auto queue new registrations</span>
             <span className="block text-sm text-ink-muted">
               When enabled, a guest submission is queued for PMO processing immediately without pressing
               Confirm. This is enabled by default.
             </span>
           </span>
         </label>
-        <div className="space-y-4 rounded-lg border border-hairline bg-surface-raised p-4">
+        <div className="space-y-4 rounded-xl bg-surface-raised p-5">
           <label className="flex cursor-pointer items-start gap-3">
             <Checkbox
               checked={status?.aiIdCheck.enabled ?? true}
@@ -312,7 +304,7 @@ export function SettingsPage() {
               }
             />
             <span className="space-y-1">
-              <span className="block font-medium">Check required IDs with AI</span>
+              <span className="block text-title">Check required IDs with AI</span>
               <span className="block text-sm text-ink-muted">
                 Required IDs are checked before Auto Queue. Clear name mismatches are rejected; uncertain
                 results are held for manual review.
@@ -349,16 +341,16 @@ export function SettingsPage() {
         </div>
       </section>
 
-      <section className="space-y-4 border-t border-hairline pt-7">
+      <section className="space-y-4">
         <div>
-          <h2 className="text-lg font-semibold">Guest email</h2>
+          <h2 className="text-heading-s text-ink">Guest email</h2>
           <p className="text-sm text-ink-muted">
             Each message shows the entrance pass inline with a button for the full-size image. No file is
             attached.
           </p>
         </div>
         <Tabs value={activeTemplate} onValueChange={(value) => setActiveTemplate(value as EmailTemplateKind)}>
-          <TabsList>
+          <TabsList className="sm:max-w-md">
             <TabsTrigger value="tenant">
               Tenant{templatesEqual(templates.tenant, savedTemplates.tenant) ? "" : " •"}
             </TabsTrigger>
@@ -368,7 +360,7 @@ export function SettingsPage() {
             </TabsTrigger>
           </TabsList>
         </Tabs>
-        <div className="space-y-4 rounded-lg border border-hairline bg-surface-raised p-4">
+        <div className="space-y-4 rounded-xl bg-surface-raised p-5">
           <p className="text-sm text-ink-muted">
             {activeTemplate === "tenant"
               ? "Complete arrival, check-in, appliance, and stay guide for tenants."
@@ -397,15 +389,20 @@ export function SettingsPage() {
           </div>
           <div className="flex items-center justify-between gap-3">
             <span className="text-sm text-ink-muted">{dirty ? "Unsaved changes" : "All changes saved"}</span>
-            <Button disabled={acting || !dirty} onClick={() => void saveActiveTemplate()}>
+            <Button
+              disabled={!dirty}
+              loading={acting}
+              loadingText="Saving…"
+              onClick={() => void saveActiveTemplate()}
+            >
               Save {activeTemplate === "tenant" ? "Tenant" : "Visitor / Viewing"}
             </Button>
           </div>
         </div>
-        <details className="rounded-lg border border-hairline bg-surface-raised p-4">
+        <details className="rounded-xl bg-surface-raised p-5">
           <summary className="cursor-pointer text-sm font-medium">Preview email</summary>
           <div
-            className="mt-4 overflow-hidden rounded-md border border-hairline"
+            className="mt-4 overflow-hidden rounded-lg border border-hairline"
             dangerouslySetInnerHTML={{ __html: template.html.replaceAll("{{greeting_name}}", "Maria") }}
           />
         </details>
@@ -420,15 +417,14 @@ function templatesEqual(left: EmailTemplate, right: EmailTemplate) {
 
 function Connection({ title, connected, detail }: { title: string; connected: boolean; detail: string }) {
   return (
-    <div className="rounded-lg border border-hairline bg-surface-raised p-4">
-      <div className="flex items-center justify-between gap-3">
-        <h3 className="font-medium">{title}</h3>
-        <Badge tone={connected ? "success" : "warning"}>
-          {connected ? <CheckCircle2 className="mr-1 size-3" /> : <XCircle className="mr-1 size-3" />}
-          {connected ? "Connected" : "Needs setup"}
-        </Badge>
+    <div className="sg-row flex flex-col gap-2 rounded-lg bg-surface-sunken p-4 sm:flex-row sm:items-center sm:gap-4 sm:px-5">
+      <div className="min-w-0 flex-1">
+        <h3 className="text-title text-ink">{title}</h3>
+        <p className="mt-0.5 text-sm text-ink-muted">{detail}</p>
       </div>
-      <p className="mt-2 text-sm text-ink-muted">{detail}</p>
+      <Badge tone={connected ? "done" : "attention"} dot>
+        {connected ? "Connected" : "Needs setup"}
+      </Badge>
     </div>
   );
 }

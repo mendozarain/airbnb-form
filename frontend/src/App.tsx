@@ -1,6 +1,6 @@
 import { lazy, Suspense } from "react";
 import { Navigate, Route, Routes } from "react-router-dom";
-import { Skeleton } from "@/components/ui/skeleton";
+import { LoadingBlock } from "@/components/ui/loading";
 
 const AdminLayout = lazy(() =>
   import("@/layouts/admin-layout").then((module) => ({ default: module.AdminLayout }))
@@ -35,8 +35,8 @@ export function App() {
   return (
     <Suspense
       fallback={
-        <div className="mx-auto max-w-6xl p-5">
-          <Skeleton className="h-20 w-full" />
+        <div className="grid min-h-screen place-items-center">
+          <LoadingBlock label="Loading…" />
         </div>
       }
     >

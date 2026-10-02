@@ -28,8 +28,18 @@ import { Button } from "@/components/ui/button";
 import { EmptyState } from "@/components/ui/empty-state";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { LoadError, LoadingCard } from "@/components/ui/loading";
+import { Select } from "@/components/ui/select";
+import { StatGrid } from "@/components/ui/stat-grid";
 import { api } from "@/lib/api";
-import { channelLabel, formatDate, formatDateTime, statusLabel } from "@/lib/display";
+import {
+  channelLabel,
+  formatDate,
+  formatDateTime,
+  registrationTone,
+  statusLabel,
+  submissionTone
+} from "@/lib/display";
 
 export function BookingPage() {
   const { id = "" } = useParams();
@@ -40,44 +50,71 @@ export function BookingPage() {
   );
   const [creating, setCreating] = useState(false);
 
+  const [error, setError] = useState<string | null>(null);
+
   const load = useCallback(async () => {
-    setBooking((await api.getBooking(id)).booking);
+    setError(null);
+    try {
+      setBooking((await api.getBooking(id)).booking);
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "Could not load this booking");
+    }
   }, [id]);
 
   useEffect(() => void load(), [load]);
 
-  if (!booking) return <p className="p-10 text-center text-sm text-ink-muted">Loading booking…</p>;
+  if (!booking)
+    return error ? (
+      <LoadError message={error} onRetry={() => void load()} />
+    ) : (
+      <LoadingCard label="Loading booking…" rows={3} />
+    );
+  const nights = Math.max(
+    0,
+    Math.round((Date.parse(booking.checkOut) - Date.parse(booking.checkIn)) / 86_400_000)
+  );
 
   return (
     <div className="space-y-6">
       <div>
-        <Button asChild variant="ghost" size="sm" className="-ml-2 mb-3">
+        <Button asChild variant="secondary" size="sm" className="mb-4">
           <Link to="/admin/registrations">
             <ArrowLeft className="size-4" /> Registrations
           </Link>
         </Button>
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-          <div>
-            <div className="flex flex-wrap items-center gap-2">
-              <h1 className="text-2xl font-semibold text-ink">{booking.guestName || "Guest"}</h1>
-              <Badge>{channelLabel(booking.channelType)}</Badge>
-              <Badge>{statusLabel(booking.status)}</Badge>
+        <section className="sg-enter rounded-xl bg-surface-raised p-5 sm:p-6">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+            <div className="min-w-0">
+              <h1 className="text-[28px] leading-8 font-semibold tracking-tight text-ink sm:text-heading-xl">
+                {booking.guestName || "Guest"}
+              </h1>
+              <div className="mt-3 flex flex-wrap items-center gap-2">
+                <Badge>{channelLabel(booking.channelType)}</Badge>
+                <Badge tone={registrationTone(booking.status)}>{statusLabel(booking.status)}</Badge>
+                <span className="text-mono text-ink-muted">{booking.reservationCode}</span>
+              </div>
             </div>
-            <p className="mt-2 text-sm text-ink-muted">
-              {formatDate(booking.checkIn)} – {formatDate(booking.checkOut)} · {booking.reservationCode}
-            </p>
+            <Button variant="secondary" onClick={() => void load()}>
+              <RefreshCw className="size-4" /> Refresh
+            </Button>
           </div>
-          <Button variant="secondary" onClick={() => void load()}>
-            <RefreshCw className="size-4" /> Refresh
-          </Button>
-        </div>
+          <StatGrid
+            className="mt-5"
+            items={[
+              { label: "Check-in", value: formatDate(booking.checkIn), mono: true },
+              { label: "Check-out", value: formatDate(booking.checkOut), mono: true },
+              { label: "Nights", value: String(nights) },
+              { label: "Guests", value: String(booking.numberOfGuests ?? "—") }
+            ]}
+          />
+        </section>
       </div>
 
       <div className="grid gap-5 lg:grid-cols-[1.4fr_1fr]">
         <section className="space-y-4">
-          <div className="rounded-xl border border-hairline bg-surface-raised p-5 shadow-sm">
-            <h2 className="font-semibold text-ink">Registration history</h2>
-            <p className="text-sm text-ink-muted">
+          <div className="px-1">
+            <h2 className="text-heading-s text-ink">Registration history</h2>
+            <p className="mt-0.5 text-sm text-ink-muted">
               Links, submissions, and every send attempt are preserved.
             </p>
           </div>
@@ -91,7 +128,7 @@ export function BookingPage() {
           ))}
           {booking.registrations.length === 0 && (
             <EmptyState
-              className="rounded-xl border border-dashed border-line-strong"
+              className="rounded-xl bg-surface-raised"
               icon={Link2Off}
               title="No guest links yet"
               description="Create a registration link to send this guest their check-in form."
@@ -101,7 +138,7 @@ export function BookingPage() {
 
         <aside className="space-y-5">
           <form
-            className="rounded-xl border border-hairline bg-surface-raised p-5 shadow-sm"
+            className="rounded-xl bg-surface-raised p-5 sm:p-6"
             onSubmit={async (event) => {
               event.preventDefault();
               setCreating(true);
@@ -121,22 +158,21 @@ export function BookingPage() {
             }}
           >
             <div className="flex items-center gap-2">
-              <Plus className="size-4 text-success" />
-              <h2 className="font-semibold text-ink">Create booking link</h2>
+              <Plus className="size-4 text-green" />
+              <h2 className="text-heading-s text-ink">Create booking link</h2>
             </div>
             <p className="mt-1 text-sm text-ink-muted">Dates come from Hostex. Creating never sends.</p>
             <div className="mt-4 space-y-2">
               <Label htmlFor="booking-purpose">Purpose</Label>
-              <select
+              <Select
                 id="booking-purpose"
                 value={purpose}
                 onChange={(event) => setPurpose(event.target.value as Purpose)}
-                className="h-11 w-full rounded-md border border-line-strong bg-surface-raised px-3 text-sm"
               >
                 {PURPOSES.map((value) => (
                   <option key={value}>{value}</option>
                 ))}
-              </select>
+              </Select>
             </div>
             <div className="mt-4 space-y-2">
               <Label htmlFor="booking-expiry">Expires</Label>
@@ -147,13 +183,13 @@ export function BookingPage() {
                 onChange={(event) => setExpiresAt(event.target.value)}
               />
             </div>
-            <Button className="mt-4 w-full" disabled={creating}>
-              <Plus className="size-4" /> {creating ? "Creating…" : "Create and copy"}
+            <Button className="mt-5 w-full" loading={creating} loadingText="Creating…">
+              <Plus className="size-4" /> Create and copy
             </Button>
           </form>
 
-          <div className="rounded-xl border border-hairline bg-surface-raised p-5 shadow-sm">
-            <h2 className="font-semibold text-ink">Booking details</h2>
+          <div className="rounded-xl bg-surface-raised p-5 sm:p-6">
+            <h2 className="text-heading-s text-ink">Booking details</h2>
             <dl className="mt-4 space-y-3 text-sm">
               <Info label="Email" value={booking.guestEmail || "Unavailable"} />
               <Info label="Phone" value={booking.guestPhone || "Unavailable"} />
@@ -203,17 +239,15 @@ function RegistrationCard({
   }
 
   return (
-    <article className="rounded-xl border border-hairline bg-surface-raised p-5 shadow-sm">
+    <article className="sg-enter rounded-xl bg-surface-raised p-5 sm:p-6">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-start">
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-2">
-            <h3 className="font-semibold text-ink">{invite.purpose}</h3>
-            <Badge>{statusLabel(registration.submission?.status || invite.status)}</Badge>
-            {automationManaged && (
-              <Badge className="border border-hairline bg-surface-raised text-ink-muted">
-                Scheduled Tenant
-              </Badge>
-            )}
+            <h3 className="text-title text-ink">{invite.purpose}</h3>
+            <Badge tone={submissionTone(registration.submission?.status || invite.status)}>
+              {statusLabel(registration.submission?.status || invite.status)}
+            </Badge>
+            {automationManaged && <Badge tone="sent">Scheduled Tenant</Badge>}
           </div>
           <p className="mt-2 text-xs text-ink-muted">
             Created {formatDateTime(invite.createdAt)} · expires {formatDateTime(invite.expiresAt)}
@@ -229,7 +263,7 @@ function RegistrationCard({
         <div className="flex flex-wrap gap-1">
           <Button
             size="icon"
-            variant="ghost"
+            variant="secondary"
             aria-label="Copy link"
             disabled={!invite.guestUrl}
             onClick={() => {
@@ -242,12 +276,17 @@ function RegistrationCard({
             <Copy className="size-4" />
           </Button>
           {editable && (
-            <Button size="icon" variant="ghost" aria-label="Edit link" onClick={() => setEditing(!editing)}>
+            <Button
+              size="icon"
+              variant="secondary"
+              aria-label="Edit link"
+              onClick={() => setEditing(!editing)}
+            >
               <Edit3 className="size-4" />
             </Button>
           )}
           {registration.submission && (
-            <Button asChild size="icon" variant="ghost" aria-label="Open registration">
+            <Button asChild size="icon" variant="secondary" aria-label="Open registration">
               <Link to={`/admin/submissions/${registration.submission.id}`}>
                 <ExternalLink className="size-4" />
               </Link>
@@ -255,7 +294,7 @@ function RegistrationCard({
           )}
           <AlertDialog>
             <AlertDialogTrigger asChild>
-              <Button size="icon" variant="ghost" aria-label="Regenerate link" disabled={acting}>
+              <Button size="icon" variant="secondary" aria-label="Regenerate link" disabled={acting}>
                 <RotateCcw className="size-4 text-ink" />
               </Button>
             </AlertDialogTrigger>
@@ -283,7 +322,7 @@ function RegistrationCard({
           {canReconcile && (
             <Button
               size="icon"
-              variant="ghost"
+              variant="secondary"
               aria-label="Reconcile Hostex delivery"
               disabled={acting}
               onClick={() =>
@@ -299,8 +338,8 @@ function RegistrationCard({
             latestManual?.status !== "confirmed" && (
               <AlertDialog>
                 <AlertDialogTrigger asChild>
-                  <Button size="icon" variant="ghost" aria-label="Send through Hostex" disabled={acting}>
-                    <Send className="size-4 text-success" />
+                  <Button size="icon" variant="secondary" aria-label="Send through Hostex" disabled={acting}>
+                    <Send className="size-4 text-green" />
                   </Button>
                 </AlertDialogTrigger>
                 <AlertDialogContent>
@@ -346,16 +385,15 @@ function RegistrationCard({
         >
           <div className="space-y-2">
             <Label htmlFor={`purpose-${invite.id}`}>Purpose</Label>
-            <select
+            <Select
               id={`purpose-${invite.id}`}
               value={purpose}
               onChange={(event) => setPurpose(event.target.value as Purpose)}
-              className="h-10 w-full rounded-md border border-line-strong bg-surface-raised px-3 text-sm"
             >
               {PURPOSES.map((value) => (
                 <option key={value}>{value}</option>
               ))}
-            </select>
+            </Select>
           </div>
           <div className="space-y-2">
             <Label htmlFor={`expires-${invite.id}`}>Expires</Label>
@@ -366,7 +404,9 @@ function RegistrationCard({
               onChange={(event) => setExpiresAt(event.target.value)}
             />
           </div>
-          <Button disabled={acting}>Save</Button>
+          <Button loading={acting} loadingText="Saving…">
+            Save
+          </Button>
         </form>
       )}
     </article>

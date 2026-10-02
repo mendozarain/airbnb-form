@@ -1,0 +1,25 @@
+version: 0.2
+
+# AWS CodeBuild deploy for the CozyD714 stack. Runs on every push to main (see infra/codebuild-cicd.yaml).
+# GitHub Actions (.github/workflows/ci.yml) validates pull requests; this only deploys what was merged.
+# DB_HOST, DB_CLUSTER_RESOURCE_ID and APP_ORIGIN are set as project environment variables.
+
+phases:
+  install:
+    runtime-versions:
+      nodejs: 22
+    commands:
+      - command -v zip >/dev/null || dnf install -y zip
+      - npm ci
+  build:
+    commands:
+      - |
+        npm run deploy --workspace infra -- --require-approval never \
+          -c dbHost="$DB_HOST" -c dbClusterResourceId="$DB_CLUSTER_RESOURCE_ID" -c appOrigin="$APP_ORIGIN"
+      - |
+        FUNCTION="$(aws cloudformation describe-stacks --stack-name CozyD714 \
+          --query "Stacks[0].Outputs[?OutputKey=='MigrateFunction'].OutputValue" --output text)"
+        aws lambda invoke --function-name "$FUNCTION" --cli-read-timeout 600 /tmp/migrate.json > /dev/null
+        cat /tmp/migrate.json
+        grep -q '"ok":true' /tmp/migrate.json
+      - infra/scripts/deploy-frontend.sh

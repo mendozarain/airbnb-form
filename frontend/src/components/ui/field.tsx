@@ -9,7 +9,7 @@ type Props = InputHTMLAttributes<HTMLInputElement> & {
   error?: string;
 };
 
-/** Confetti underline-only field with a leading outline icon. */
+/** Signal text field: boxed input with a leading outline icon. */
 export const IconField = forwardRef<HTMLInputElement, Props>(function IconField(
   { icon: Icon, label, hint, error, className, id, ...props },
   ref
@@ -19,16 +19,16 @@ export const IconField = forwardRef<HTMLInputElement, Props>(function IconField(
   const helpId = `${inputId}-help`;
   return (
     <div className={className}>
-      <label htmlFor={inputId} className="text-sm font-semibold text-ink">
+      <label htmlFor={inputId} className="text-sm font-medium text-ink-muted">
         {label}
       </label>
       <div
         className={cn(
-          "group mt-1 flex items-center gap-3 border-b py-3 text-ink-muted focus-within:border-b-2 focus-within:text-primary",
-          error ? "border-danger text-danger" : "border-line-strong focus-within:border-primary"
+          "mt-2 flex h-13 items-center gap-3 rounded-sm border bg-surface-raised px-4 text-ink-muted focus-within:outline-2 focus-within:outline-offset-1 focus-within:outline-primary",
+          error ? "border-danger text-danger" : "border-line-strong"
         )}
       >
-        <Icon className="size-5 shrink-0" strokeWidth={1.5} aria-hidden="true" />
+        <Icon className="size-5 shrink-0" strokeWidth={1.75} aria-hidden="true" />
         <input
           ref={ref}
           id={inputId}
