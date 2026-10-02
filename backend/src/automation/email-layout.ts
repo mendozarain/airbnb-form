@@ -28,8 +28,11 @@ export const COLOR = {
 export const FONT_SANS = "'Helvetica Neue',Helvetica,Arial,sans-serif";
 export const FONT_MONO = "Menlo,Consolas,'SFMono-Regular',monospace";
 
-/** Icons and illustrations are PNGs served by the frontend (see scripts/generate-email-icons.mjs). */
-export const EMAIL_ASSET_BASE = "https://main.dlgf4rsqcswz5.amplifyapp.com/email";
+/**
+ * Icons and illustrations are PNGs (see scripts/generate-email-icons.mjs) in a public-read S3 bucket.
+ * Only the email/ prefix is public. Sync with: aws s3 sync frontend/public/email s3://<bucket>/email
+ */
+export const EMAIL_ASSET_BASE = "https://cozy-d714-email-assets-460047018105.s3.ap-southeast-2.amazonaws.com/email";
 
 export type EmailIcon =
   | "map-pin"
