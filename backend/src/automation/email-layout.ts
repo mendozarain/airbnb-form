@@ -28,6 +28,45 @@ export const COLOR = {
 export const FONT_SANS = "'Helvetica Neue',Helvetica,Arial,sans-serif";
 export const FONT_MONO = "Menlo,Consolas,'SFMono-Regular',monospace";
 
+/** Icons and illustrations are PNGs served by the frontend (see scripts/generate-email-icons.mjs). */
+export const EMAIL_ASSET_BASE = "https://main.dlgf4rsqcswz5.amplifyapp.com/email";
+
+export type EmailIcon =
+  | "map-pin"
+  | "wifi"
+  | "key"
+  | "ticket"
+  | "door-open"
+  | "users"
+  | "bed"
+  | "stove"
+  | "hood"
+  | "tv"
+  | "speaker"
+  | "mic"
+  | "car"
+  | "clock"
+  | "mailbox"
+  | "pool"
+  | "power"
+  | "help"
+  | "badge-check";
+
+/** A round outline icon. Emails cannot use SVG, so this is a PNG with alt text. */
+export function iconDisc(name: EmailIcon, alt: string, size = 48, onSunken = false) {
+  return `<img src="${EMAIL_ASSET_BASE}/icons/${name}${onSunken ? "-on-sunken" : ""}.png" alt="${alt}" width="${size}" height="${size}" style="display:block;width:${size}px;height:${size}px;border:0;border-radius:50%;" />`;
+}
+
+/** Icon on the left, content on the right. */
+export function withIcon(icon: string, size: number, content: string, gap = 14) {
+  return `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0"><tr><td valign="top" width="${size + gap}" style="width:${size + gap}px;padding:0 ${gap}px 0 0;">${icon}</td><td valign="top">${content}</td></tr></table>`;
+}
+
+/** The hero line drawing: Building D, the Unit 714 door and a key. */
+export function heroIllustration() {
+  return `<img src="${EMAIL_ASSET_BASE}/hero.png" alt="Illustration of Building D with a key and a location pin" width="536" style="display:block;width:100%;max-width:536px;height:auto;border:0;border-radius:24px;" />`;
+}
+
 export type PillTone = "pending" | "attention" | "done" | "sent" | "neutral";
 
 export function escapeHtml(value: string) {
@@ -121,6 +160,7 @@ export function divider() {
 }
 
 export type GridItem = {
+  icon?: EmailIcon;
   label: string;
   value: string;
   wide?: boolean;
@@ -132,7 +172,8 @@ function gridCell(item: GridItem, colspan: number, border: string) {
   const value = item.stat
     ? `<p style="margin:2px 0 0;font-family:${FONT_SANS};font-size:32px;line-height:38px;font-weight:600;letter-spacing:-0.02em;color:${COLOR.ink};">${item.value}</p>`
     : `<p style="margin:2px 0 0;font-family:${FONT_SANS};font-size:16px;line-height:24px;font-weight:500;color:${COLOR.ink};">${item.value}</p>`;
-  return `<td valign="top" colspan="${colspan}" style="padding:14px 18px;${border}"><p style="margin:0;font-family:${FONT_SANS};font-size:14px;line-height:20px;color:${COLOR.muted};">${item.label}</p>${value}</td>`;
+  const text = `<p style="margin:0;font-family:${FONT_SANS};font-size:14px;line-height:20px;color:${COLOR.muted};">${item.label}</p>${value}`;
+  return `<td valign="top" colspan="${colspan}" style="padding:14px 18px;${border}">${item.icon ? withIcon(iconDisc(item.icon, "", 36), 36, text, 12) : text}</td>`;
 }
 
 /** Signal stat grid: one bordered panel of label/value cells. Consecutive non-wide items pair up. */
@@ -164,8 +205,9 @@ export function numberedSteps(items: string[]) {
 }
 
 /** A sunken row: medium title over muted text. */
-export function noteCard(title: string, body: string, last = false) {
-  return `<div style="margin:0 0 ${last ? 0 : 12}px;padding:16px 20px;background:${COLOR.sunken};border-radius:24px;color:${COLOR.muted};font-family:${FONT_SANS};font-size:15px;line-height:23px;"><strong style="color:${COLOR.ink};font-size:17px;font-weight:500;">${title}</strong><br />${body}</div>`;
+export function noteCard(title: string, body: string, last = false, icon?: EmailIcon) {
+  const text = `<strong style="color:${COLOR.ink};font-size:17px;font-weight:500;">${title}</strong><br />${body}`;
+  return `<div style="margin:0 0 ${last ? 0 : 12}px;padding:16px 20px;background:${COLOR.sunken};border-radius:24px;color:${COLOR.muted};font-family:${FONT_SANS};font-size:15px;line-height:23px;">${icon ? withIcon(iconDisc(icon, "", 44, true), 44, text, 14) : text}</div>`;
 }
 
 /** The whole email document: surface background, 600px column, rounded white panel. */
@@ -220,15 +262,17 @@ export function heroRows({
   greeting,
   headline,
   lead,
-  status = "Registration confirmed"
+  status = "Registration confirmed",
+  illustration = true
 }: {
   greeting: string;
   headline: string;
   lead: string;
   status?: string;
+  illustration?: boolean;
 }) {
   return row(
-    `${statusPill(status, "done")}<h1 style="margin:20px 0 0;font-family:${FONT_SANS};color:${COLOR.ink};font-size:40px;line-height:44px;font-weight:600;letter-spacing:-0.03em;">${greeting}</h1><p style="margin:10px 0 0;font-family:${FONT_SANS};color:${COLOR.ink};font-size:22px;line-height:28px;font-weight:500;letter-spacing:-0.01em;">${headline}</p><p style="margin:14px 0 0;color:${COLOR.muted};font-family:${FONT_SANS};font-size:16px;line-height:24px;">${lead}</p>`,
+    `${statusPill(status, "done")}<h1 style="margin:20px 0 0;font-family:${FONT_SANS};color:${COLOR.ink};font-size:40px;line-height:44px;font-weight:600;letter-spacing:-0.03em;">${greeting}</h1><p style="margin:10px 0 0;font-family:${FONT_SANS};color:${COLOR.ink};font-size:22px;line-height:28px;font-weight:500;letter-spacing:-0.01em;">${headline}</p><p style="margin:14px 0 0;color:${COLOR.muted};font-family:${FONT_SANS};font-size:16px;line-height:24px;">${lead}</p>${illustration ? `<div style="margin:24px 0 0;">${heroIllustration()}</div>` : ""}`,
     "32px 32px 16px"
   );
 }

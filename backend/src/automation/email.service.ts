@@ -5,6 +5,9 @@ import {
   COLOR,
   FONT_SANS,
   GREETING_PLACEHOLDER,
+  iconDisc,
+  withIcon,
+  type EmailIcon,
   applyGreeting,
   bulletproofButton,
   divider,
@@ -40,8 +43,10 @@ const KEY_PHOTOS = [
 const GREETING = `Hello ${GREETING_PLACEHOLDER}`;
 const SLOT = "<!-- entrance-pass-slot -->";
 
-const section = (eyebrowText: string, title: string, content: string) =>
-  row(`${eyebrow(eyebrowText)}${heading(title)}${content}`);
+const section = (eyebrowText: string, title: string, content: string, icon?: EmailIcon) =>
+  row(
+    `${icon ? withIcon(iconDisc(icon, "", 52), 52, `${eyebrow(eyebrowText)}${heading(title, 26).replace("margin:0 0 16px", "margin:0")}`, 16) : `${eyebrow(eyebrowText)}${heading(title)}`}<div style="height:${icon ? 20 : 0}px;line-height:${icon ? 20 : 0}px;font-size:0;">&nbsp;</div>${content}`
+  );
 
 const mapsLink = () =>
   `<p style="margin:16px 0 0;">${textLink(MAPS_URL, "Open location in Google Maps")}</p>`;
@@ -56,7 +61,8 @@ const parkingSection = () =>
   section(
     "Parking",
     "Parking options",
-    `${paragraph(`<strong style="color:${COLOR.ink};">Free parking</strong> is available outside the premises.`, "0 0 12px")}${paragraph(`<strong style="color:${COLOR.ink};">Paid parking</strong> is ₱250 per night. Message the host if you would like to avail parking. If arranged, tell the guard <strong style="color:${COLOR.ink};">Unit 714, Building D</strong> so they can assign your parking spot.`, "0")}`
+    `${paragraph(`<strong style="color:${COLOR.ink};">Free parking</strong> is available outside the premises.`, "0 0 12px")}${paragraph(`<strong style="color:${COLOR.ink};">Paid parking</strong> is ₱250 per night. Message the host if you would like to avail parking. If arranged, tell the guard <strong style="color:${COLOR.ink};">Unit 714, Building D</strong> so they can assign your parking spot.`, "0")}`,
+    "car"
   );
 
 export const DEFAULT_EMAIL_TEMPLATE: EmailTemplate = {
@@ -75,21 +81,25 @@ export const DEFAULT_EMAIL_TEMPLATE: EmailTemplate = {
         "Quick details",
         "Your details",
         `${statGrid([
-          { label: "Address", value: ADDRESS, wide: true },
+          { icon: "map-pin", label: "Address", value: ADDRESS, wide: true },
           {
+            icon: "wifi",
             label: "WiFi",
             value: `<strong>Name:</strong> Bldg.D_714<br /><strong>Password:</strong> cloud@731`
           },
           {
+            icon: "key",
             label: "Keys",
             value: "Collect and return them at the lobby designated mailbox: <strong>714</strong>."
           },
           {
+            icon: "ticket",
             label: "Pass",
             value: "Keep the PMO registration image above ready when entering the premises.",
             wide: true
           }
-        ])}${paragraph("You are about 5 minutes from DGT and 5 minutes from SM Ecoland, so food trips, quick errands, and essentials are close by.", "20px 0 0")}${mapsLink()}`
+        ])}${paragraph("You are about 5 minutes from DGT and 5 minutes from SM Ecoland, so food trips, quick errands, and essentials are close by.", "20px 0 0")}${mapsLink()}`,
+        "badge-check"
       ),
       divider(),
       section(
@@ -101,16 +111,18 @@ export const DEFAULT_EMAIL_TEMPLATE: EmailTemplate = {
           "<strong>Main door:</strong> use the key with wordings at the back, twist left until you hear 2 clicks, then turn back to center to remove.",
           "Upon entering, turn on the big main switch on the left side of the power box.",
           "When checking out, leave the keys inside mailbox <strong>714</strong>."
-        ])}<div style="margin:28px 0 0;padding:22px;background:${COLOR.sunken};border-radius:24px;">${eyebrow("Finding your keys")}<h3 style="margin:0 0 10px;font-family:${FONT_SANS};color:${COLOR.ink};font-size:22px;line-height:28px;font-weight:600;letter-spacing:-0.01em;">Mailbox 714</h3>${paragraph("Look for designated mailbox <strong>714</strong> in the lobby, then open it to collect the key set shown below.", "0")}${keyPhotos()}</div>`
+        ])}<div style="margin:28px 0 0;padding:22px;background:${COLOR.sunken};border-radius:24px;">${withIcon(iconDisc("mailbox", "", 48, true), 48, `${eyebrow("Finding your keys")}<h3 style="margin:0;font-family:${FONT_SANS};color:${COLOR.ink};font-size:22px;line-height:28px;font-weight:600;letter-spacing:-0.01em;">Mailbox 714</h3>`, 14)}<div style="height:12px;line-height:12px;font-size:0;">&nbsp;</div>${paragraph("Look for designated mailbox <strong>714</strong> in the lobby, then open it to collect the key set shown below.", "0")}${keyPhotos()}</div>`,
+        "door-open"
       ),
       divider(),
       section(
         "Your stay",
         "Inside the unit",
         `${statGrid([
-          { label: "Guests", value: "6", stat: true },
-          { label: "Bedrooms", value: "2", stat: true }
-        ])}${paragraph("Good for up to 6 guests, with 2 bedrooms, a balcony, fully equipped kitchen, and complete furnishings. Enjoy the Smart TV, high-speed WiFi, mini karaoke, toilet and bath, free swimming pool and basketball court access. Free street parking and paid parking on premises may be available.", "20px 0 0")}`
+          { icon: "users", label: "Guests", value: "6", stat: true },
+          { icon: "bed", label: "Bedrooms", value: "2", stat: true }
+        ])}${paragraph("Good for up to 6 guests, with 2 bedrooms, a balcony, fully equipped kitchen, and complete furnishings. Enjoy the Smart TV, high-speed WiFi, mini karaoke, toilet and bath, free swimming pool and basketball court access. Free street parking and paid parking on premises may be available.", "20px 0 0")}`,
+        "bed"
       ),
       divider(),
       section(
@@ -119,29 +131,38 @@ export const DEFAULT_EMAIL_TEMPLATE: EmailTemplate = {
         [
           noteCard(
             "Induction stove",
-            "Before use, turn on the only switch that is down upon entering on the power box. Long press the on button, then control heat by dragging the bars. Heat 4-7 is usually enough for regular cooking. Turn off when not in use to help conserve electricity."
+            "Before use, turn on the only switch that is down upon entering on the power box. Long press the on button, then control heat by dragging the bars. Heat 4-7 is usually enough for regular cooking. Turn off when not in use to help conserve electricity.",
+            false,
+            "stove"
           ),
-          noteCard("Oven hood", "Tap 2 times to turn on, then adjust the level accordingly."),
+          noteCard("Oven hood", "Tap 2 times to turn on, then adjust the level accordingly.", false, "hood"),
           noteCard(
             "TV",
-            "Everything is already plugged in. Please do not unplug anything. Press the button on the bottom-right side behind the TV to power on or off."
+            "Everything is already plugged in. Please do not unplug anything. Press the button on the bottom-right side behind the TV to power on or off.",
+            false,
+            "tv"
           ),
           noteCard(
             "Speaker",
-            "Long press the power icon on the right side of the speaker at the top portion of the circle until you hear a sound. Adjust volume with the left and right buttons."
+            "Long press the power icon on the right side of the speaker at the top portion of the circle until you hear a sound. Adjust volume with the left and right buttons.",
+            false,
+            "speaker"
           ),
           noteCard(
             "Karaoke",
             "Voice and music come out of different speakers. The karaoke unit is inside the TV console. Turn on the switch at the back. Use AirPlay to connect YouTube to the TV. If AirPlay is not supported, use the YouTube app on the TV.",
-            true
+            true,
+            "mic"
           )
-        ].join("")
+        ].join(""),
+        "power"
       ),
       divider(),
       section(
         "Good to know",
         "Frequently asked",
-        `<p style="margin:0 0 6px;color:${COLOR.ink};font-family:${FONT_SANS};font-size:17px;line-height:24px;font-weight:500;">Is there parking?</p>${paragraph("Yes. Free parking is outside the premises. Paid parking is ₱250 per night; please message the host if you would like to avail parking. If you availed parking, let the guard know the unit and building number: Unit 714, Building D. They will assign your parking spot.", "0 0 20px")}<p style="margin:0 0 6px;color:${COLOR.ink};font-family:${FONT_SANS};font-size:17px;line-height:24px;font-weight:500;">Is early check-in possible?</p>${paragraph("Yes, as long as the unit does not currently have a guest staying. Message the host for details.", "0")}`
+        `${withIcon(iconDisc("car", "", 40), 40, `<p style="margin:0 0 6px;color:${COLOR.ink};font-family:${FONT_SANS};font-size:17px;line-height:24px;font-weight:500;">Is there parking?</p>${paragraph("Yes. Free parking is outside the premises. Paid parking is ₱250 per night; please message the host if you would like to avail parking. If you availed parking, let the guard know the unit and building number: Unit 714, Building D. They will assign your parking spot.", "0")}`, 12)}<div style="height:20px;line-height:20px;font-size:0;">&nbsp;</div>${withIcon(iconDisc("clock", "", 40), 40, `<p style="margin:0 0 6px;color:${COLOR.ink};font-family:${FONT_SANS};font-size:17px;line-height:24px;font-weight:500;">Is early check-in possible?</p>${paragraph("Yes, as long as the unit does not currently have a guest staying. Message the host for details.", "0")}`, 12)}`,
+        "help"
       )
     ].join("\n")
   })
@@ -163,12 +184,13 @@ export const DEFAULT_VISITOR_VIEWING_EMAIL_TEMPLATE: EmailTemplate = {
         "Your visit details",
         "Stay connected",
         statGrid([
-          { label: "Network", value: "<strong>Bldg.D_714</strong>" },
-          { label: "Password", value: "<strong>cloud@731</strong>" }
-        ])
+          { icon: "wifi", label: "Network", value: "<strong>Bldg.D_714</strong>" },
+          { icon: "key", label: "Password", value: "<strong>cloud@731</strong>" }
+        ]),
+        "wifi"
       ),
       divider(),
-      section("Location", "Find Unit 714", `${paragraph(ADDRESS, "0")}${mapsLink()}`),
+      section("Location", "Find Unit 714", `${paragraph(ADDRESS, "0")}${mapsLink()}`, "map-pin"),
       divider(),
       parkingSection()
     ].join("\n")
@@ -251,6 +273,7 @@ export function addEntrancePassImage(templateHtml: string, imageUrl: string) {
   const safeUrl = escapeHtmlAttribute(imageUrl);
   const passCard = `
   <div style="background:${COLOR.sunken};padding:28px 20px 30px;border-radius:24px;text-align:center;">
+    <div style="margin:0 auto 14px;width:52px;">${iconDisc("ticket", "", 52, true)}</div>
     <p style="margin:0 0 6px;color:${COLOR.muted};font-family:${FONT_SANS};font-size:14px;line-height:20px;font-weight:500;">Ready at the gate</p>
     <h2 style="margin:0 0 8px;font-family:${FONT_SANS};color:${COLOR.ink};font-size:26px;line-height:32px;font-weight:600;letter-spacing:-0.02em;">Your entrance pass</h2>
     <p style="margin:0 0 18px;font-family:${FONT_SANS};color:${COLOR.muted};font-size:16px;line-height:24px;">Tap the image to open the sharp full-size version.</p>
