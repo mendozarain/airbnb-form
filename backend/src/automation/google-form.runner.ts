@@ -3,6 +3,7 @@ import { chromium } from "playwright";
 import { Buffer } from "node:buffer";
 import type { BuildingCode, Purpose } from "@cozy-d-714/shared";
 import { requiredEnv } from "../config/env.js";
+import { chromiumLaunchOptions } from "./browser-launch.js";
 import { StorageService } from "../storage/storage.service.js";
 import { GoogleSessionService } from "../settings/google-session.service.js";
 
@@ -75,7 +76,7 @@ export class GoogleFormRunner {
       };
     }
 
-    const browser = await chromium.launch({ headless: true });
+    const browser = await chromium.launch(chromiumLaunchOptions());
     const context = await browser.newContext({
       storageState: session.state as any,
       viewport: ENTRANCE_PASS_CAPTURE_PROFILE.viewport,

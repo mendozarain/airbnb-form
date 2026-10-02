@@ -1,6 +1,7 @@
 import { BadRequestException, Injectable } from "@nestjs/common";
 import { chromium } from "playwright";
 import { requiredEnv } from "../config/env.js";
+import { chromiumLaunchOptions } from "../automation/browser-launch.js";
 import { PrismaService } from "../prisma/prisma.service.js";
 import { StorageService } from "../storage/storage.service.js";
 import { expectedGoogleAccount } from "./browser-use.client.js";
@@ -143,7 +144,7 @@ export class GoogleSessionService {
   }
 
   async verifyStorageState(storageState: StorageState) {
-    const browser = await chromium.launch({ headless: true });
+    const browser = await chromium.launch(chromiumLaunchOptions());
     const context = await browser.newContext({ storageState: storageState as never });
     const page = await context.newPage();
     try {
