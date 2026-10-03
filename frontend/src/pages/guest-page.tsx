@@ -38,6 +38,9 @@ import { StatusHero } from "@/components/ui/status-hero";
 import { Timeline } from "@/components/ui/timeline";
 import { api } from "@/lib/api";
 
+type GuestErrors = { name?: string; age?: string; id?: string };
+type FormErrors = { email?: string; guests?: Record<number, GuestErrors> };
+
 type FormValues = {
   guestEmail: string;
   guests: Array<{ fullName: string; age: number; idFileKey?: string }>;
@@ -51,7 +54,7 @@ export function GuestPage() {
   const [loading, setLoading] = useState(true);
   const [completedStatus, setCompletedStatus] = useState<string | null>(null);
   const [uploading, setUploading] = useState<number | null>(null);
-  const [errors, setErrors] = useState<{ email?: string; guests?: Record<number, string> }>({});
+  const [errors, setErrors] = useState<FormErrors>({});
   const [previews, setPreviews] = useState<Record<number, { url: string; name: string; image: boolean }>>({});
   const form = useForm<FormValues>({
     defaultValues: {
@@ -71,31 +74,71 @@ export function GuestPage() {
       .finally(() => setLoading(false));
   }, [token]);
 
-  async function next() {
-    if (step === 0) {
-      const valid = await form.trigger("guestEmail");
-      if (!valid || !form.getValues("guestEmail").includes("@")) {
-        setErrors({ email: "Enter a valid email so we know where to send your pass." });
-        return;
-      }
+  function validate(forStep: number): FormErrors {
+    if (forStep === 0) {
+      const email = form.getValues("guestEmail").trim();
+      if (!email) return { email: "Add your email so we know where to send your pass." };
+      if (!/^\S+@\S+\.\S+$/.test(email)) return { email: "Enter a valid email, like you@example.com." };
     }
-    if (step === 1 && invite) {
-      const guestErrors: Record<number, string> = {};
-      values.guests.forEach((guest, index) => {
-        if (!guest.fullName.trim()) guestErrors[index] = "Add this guest's full name.";
-        else if (!(guest.age >= 0)) guestErrors[index] = "Add this guest's age.";
+    if (forStep === 1 && invite) {
+      const guestErrors: Record<number, GuestErrors> = {};
+      form.getValues("guests").forEach((guest, index) => {
+        const found: GuestErrors = {};
+        if (!guest.fullName.trim()) found.name = "Add this guest's full name.";
+        if (!(guest.age >= 0)) found.age = "Add this guest's age.";
         else if (requiresGuestId(guest.age, invite.minorIdCutoff, invite.seniorIdCutoff) && !guest.idFileKey)
-          guestErrors[index] = "Upload a photo of this guest's ID.";
+          found.id = "Upload a photo of this guest's ID.";
+        if (Object.keys(found).length) guestErrors[index] = found;
       });
-      if (Object.keys(guestErrors).length) {
-        setErrors({ guests: guestErrors });
-        return;
-      }
+      if (Object.keys(guestErrors).length) return { guests: guestErrors };
+    }
+    return {};
+  }
+
+  async function next() {
+    const found = validate(step);
+    if (found.email || found.guests) {
+      setErrors(found);
+      return;
     }
     setErrors({});
     setStep((value) => Math.min(2, value + 1));
     window.scrollTo({ top: 0, behavior: "smooth" });
   }
+
+  // After a failed Continue, bring the first problem into view and focus it.
+  useEffect(() => {
+    if (!errors.email && !errors.guests) return;
+    const first = document.querySelector<HTMLElement>('[aria-invalid="true"], [data-field-error]');
+    if (!first) return;
+    first.scrollIntoView({ behavior: "smooth", block: "center" });
+    if (first instanceof HTMLInputElement) first.focus({ preventScroll: true });
+  }, [errors]);
+
+  // Clear a message as soon as that field is fixed (never add new ones until Continue is pressed).
+  const snapshot = JSON.stringify(values);
+  useEffect(() => {
+    setErrors((current) => {
+      if (!current.email && !current.guests) return current;
+      const fresh = validate(step);
+      const next: FormErrors = {};
+      if (current.email && fresh.email) next.email = fresh.email;
+      if (current.guests) {
+        const guestsNext: Record<number, GuestErrors> = {};
+        for (const [key, was] of Object.entries(current.guests)) {
+          const now = fresh.guests?.[Number(key)];
+          const kept: GuestErrors = {};
+          if (was.name && now?.name) kept.name = now.name;
+          if (was.age && now?.age) kept.age = now.age;
+          if (was.id && now?.id) kept.id = now.id;
+          if (Object.keys(kept).length) guestsNext[Number(key)] = kept;
+        }
+        if (Object.keys(guestsNext).length) next.guests = guestsNext;
+      }
+      return JSON.stringify(next) === JSON.stringify(current) ? current : next;
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [snapshot]);
 
   async function upload(index: number, file: File) {
     setUploading(index);
@@ -264,6 +307,7 @@ export function GuestPage() {
                       label="Full name"
                       placeholder="As shown on their ID"
                       autoComplete="name"
+                      error={guestError?.name}
                       {...form.register(`guests.${index}.fullName`, { required: true })}
                     />
                     <IconField
@@ -273,6 +317,7 @@ export function GuestPage() {
                       inputMode="numeric"
                       min={0}
                       max={120}
+                      error={guestError?.age}
                       {...form.register(`guests.${index}.age`, { valueAsNumber: true })}
                     />
                   </div>
@@ -315,7 +360,10 @@ export function GuestPage() {
                         </div>
                       ) : (
                         <>
-                          <label className="mt-2 flex min-h-28 cursor-pointer flex-col items-center justify-center rounded-lg border-2 border-dashed border-line-strong bg-surface-sunken p-4 text-center hover:border-primary">
+                          <label
+                            data-field-error={guestError?.id ? "" : undefined}
+                            className={`mt-2 flex min-h-28 cursor-pointer flex-col items-center justify-center rounded-lg border-2 border-dashed bg-surface-sunken p-4 text-center hover:border-primary ${guestError?.id ? "border-danger" : "border-line-strong"}`}
+                          >
                             <input
                               type="file"
                               className="sr-only"
@@ -338,6 +386,11 @@ export function GuestPage() {
                             </span>
                             <span className="text-xs text-ink-muted">Image or PDF, up to 100 MB</span>
                           </label>
+                          {guestError?.id && (
+                            <p role="alert" className="mt-2 text-sm font-medium text-danger">
+                              {guestError.id}
+                            </p>
+                          )}
                           <IdTips />
                         </>
                       )}
@@ -348,11 +401,6 @@ export function GuestPage() {
                         <Check className="size-4" /> No ID needed
                       </Badge>
                       for this guest.
-                    </p>
-                  )}
-                  {guestError && (
-                    <p role="alert" className="mt-4 text-sm font-medium text-danger">
-                      {guestError}
                     </p>
                   )}
                 </article>
