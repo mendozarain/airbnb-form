@@ -47,8 +47,7 @@ export const api = {
     request<{ registrations: Array<{ invite: InviteSummary; submission?: SubmissionSummary | null }> }>(
       "/api/admin/bookings/uncategorized/list"
     ),
-  syncBookings: () =>
-    runJob<{ ok: true; found?: number; sent?: number }>("/api/admin/bookings/sync"),
+  syncBookings: () => runJob<{ ok: true; found?: number; sent?: number }>("/api/admin/bookings/sync"),
   createBookingInvite: (bookingId: string, body: CreateBookingInviteInput) =>
     request<{ inviteId: string; guestUrl: string; expiresAt: string }>(
       `/api/admin/bookings/${bookingId}/invites`,
@@ -61,6 +60,11 @@ export const api = {
     request<{ status: string }>(`/api/admin/bookings/invites/${inviteId}/send`, {
       method: "POST",
       body: { allowUnknownDuplicate }
+    }),
+  emailBookingInvite: (inviteId: string, email: string) =>
+    request<{ status: string; to: string }>(`/api/admin/bookings/invites/${inviteId}/email`, {
+      method: "POST",
+      body: { email }
     }),
   reconcileBookingInvite: (inviteId: string) =>
     request<{ ok: true; confirmed: boolean; status: string }>(
@@ -144,8 +148,7 @@ export const api = {
       method: "POST",
       body
     }),
-  checkGoogle: () =>
-    runJob<SettingsStatus["lastCheck"]>("/api/admin/settings/google-session/check"),
+  checkGoogle: () => runJob<SettingsStatus["lastCheck"]>("/api/admin/settings/google-session/check"),
   setGoogleAutoRecovery: (enabled: boolean) =>
     request<SettingsStatus["googleRecovery"]>("/api/admin/settings/google-session/auto-recovery", {
       method: "POST",
@@ -239,7 +242,9 @@ const CONTENT_TYPES_BY_EXTENSION: Record<string, string> = {
 
 function contentTypeOf(file: File) {
   if (file.type) return file.type;
-  return CONTENT_TYPES_BY_EXTENSION[file.name.split(".").pop()?.toLowerCase() ?? ""] ?? "application/octet-stream";
+  return (
+    CONTENT_TYPES_BY_EXTENSION[file.name.split(".").pop()?.toLowerCase() ?? ""] ?? "application/octet-stream"
+  );
 }
 
 // Files go straight to S3 with a short-lived signed URL; the API only authorizes the upload.
@@ -252,7 +257,11 @@ async function uploadToStorage(presignPath: string, file: File) {
     uploadUrl: string;
     headers: Record<string, string>;
   }>(presignPath, { method: "POST", body: { filename: file.name, contentType, size: file.size } });
-  const response = await fetch(presigned.uploadUrl, { method: "PUT", headers: presigned.headers, body: file });
+  const response = await fetch(presigned.uploadUrl, {
+    method: "PUT",
+    headers: presigned.headers,
+    body: file
+  });
   if (!response.ok) throw new Error("The file could not be uploaded. Try again.");
   return { key: presigned.key, filename: presigned.filename, size: presigned.size };
 }

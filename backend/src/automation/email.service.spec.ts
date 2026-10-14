@@ -2,7 +2,8 @@ import { jest } from "@jest/globals";
 import {
   DEFAULT_EMAIL_TEMPLATE,
   DEFAULT_VISITOR_VIEWING_EMAIL_TEMPLATE,
-  EmailService
+  EmailService,
+  renderRegistrationInviteEmail
 } from "./email.service.js";
 import { applyGreeting, greetingName } from "./email-layout.js";
 
@@ -203,5 +204,36 @@ describe("EmailService", () => {
     expect(body.html).toContain("<p>Hello Maria and other guests</p>");
     expect(body.html).toContain("Open entrance pass full size");
     expect(body.html.match(/Open entrance pass full size/g)).toHaveLength(1);
+  });
+});
+
+describe("renderRegistrationInviteEmail", () => {
+  const base = {
+    guestName: "MARIA <b>Santos</b>",
+    guestUrl: 'https://app.example.com/invite/abc?x=1&y="2"',
+    checkIn: "2026-10-20",
+    checkOut: "2026-10-22"
+  };
+
+  it("uses stay wording for tenants and escapes the name and link", () => {
+    const email = renderRegistrationInviteEmail({ ...base, purpose: "Tenant" });
+
+    expect(email.subject).toBe("Please register for your upcoming stay at Cozy Davao D-714");
+    expect(email.html).toContain("Hello Maria");
+    expect(email.html).toContain("Register your stay");
+    expect(email.html).toContain("Action needed");
+    expect(email.html).toContain("https://app.example.com/invite/abc?x=1&amp;y=&quot;2&quot;");
+    expect(email.html).not.toContain("<b>Santos</b>");
+    expect(email.html).not.toContain("{{greeting_name}}");
+  });
+
+  it("uses visit wording for visitors and viewings", () => {
+    for (const purpose of ["Visitor of Tenant", "Viewing"]) {
+      const email = renderRegistrationInviteEmail({ ...base, purpose });
+      expect(email.subject).toBe("Please register for your upcoming visit at Cozy Davao D-714");
+      expect(email.html).toContain("Register your visit");
+      expect(email.html).toContain("Arrival");
+      expect(email.html).not.toContain("Register your stay");
+    }
   });
 });

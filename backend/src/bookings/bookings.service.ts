@@ -1,5 +1,12 @@
-import { ConflictException, Injectable, NotFoundException } from "@nestjs/common";
+import {
+  ConflictException,
+  Injectable,
+  NotFoundException,
+  ServiceUnavailableException
+} from "@nestjs/common";
+import { isRelayEmail } from "@cozy-d-714/shared";
 import { AuditService, type AuditActor } from "../audit/audit.service.js";
+import { EmailService, renderRegistrationInviteEmail } from "../automation/email.service.js";
 import { requiredEnv } from "../config/env.js";
 import { HostexDeliveryKind, HostexDeliveryStatus, InviteStatus } from "../generated/prisma/enums.js";
 import { HostexApiError, HostexClient, HostexUncertainSendError } from "../hostex/hostex.client.js";
@@ -15,7 +22,8 @@ export class BookingsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly hostex: HostexClient,
-    private readonly audit: AuditService
+    private readonly audit: AuditService,
+    private readonly email: EmailService
   ) {}
 
   async list(input: { start?: string; end?: string; status?: string; query?: string }) {
@@ -65,6 +73,16 @@ export class BookingsService {
     });
     if (!booking) throw new NotFoundException("Booking not found");
     const summary = bookingSummary(booking);
+    const emailEvents = booking.invites.length
+      ? await this.prisma.adminAuditEvent.findMany({
+          where: {
+            action: "invite.emailed",
+            entityType: "invite",
+            entityId: { in: booking.invites.map((invite) => invite.id) }
+          },
+          orderBy: { createdAt: "asc" }
+        })
+      : [];
     return {
       booking: {
         ...summary,
@@ -109,7 +127,19 @@ export class BookingsService {
               sentAt: delivery.sentAt?.toISOString() ?? null,
               confirmedAt: delivery.confirmedAt?.toISOString() ?? null,
               lastError: delivery.lastError
-            }))
+            })),
+            ...emailEvents
+              .filter((event) => event.entityId === invite.id)
+              .map((event) => ({
+                id: event.id,
+                kind: "email",
+                status: "sent",
+                attempts: 1,
+                to: (event.details as { to?: string } | null)?.to ?? null,
+                sentAt: event.createdAt.toISOString(),
+                confirmedAt: null,
+                lastError: null
+              }))
           ]
         }))
       }
@@ -222,6 +252,39 @@ export class BookingsService {
       if (!uncertain) throw error;
       return { status: "unknown" };
     }
+  }
+
+  async emailInvite(inviteId: string, to: string, actor?: AuditActor) {
+    const invite = await this.prisma.invite.findUnique({
+      where: { id: inviteId },
+      include: { booking: true }
+    });
+    if (!invite) throw new NotFoundException("Invite not found");
+    if (!invite.booking) throw new ConflictException("Assign this link to a booking before emailing it");
+    if (invite.status !== InviteStatus.OPEN || invite.expiresAt <= new Date() || invite.revokedAt) {
+      throw new ConflictException("Only an active link can be emailed");
+    }
+    if (!this.email.configured()) throw new ServiceUnavailableException("Email sending is not configured");
+
+    const message = renderRegistrationInviteEmail({
+      guestName: invite.booking.guestName,
+      guestUrl: inviteUrl(invite.publicToken),
+      checkIn: dateOnly(invite.checkIn),
+      checkOut: dateOnly(invite.checkOut),
+      purpose: invite.purpose
+    });
+    const result = await this.email.sendMessage({ to, subject: message.subject, html: message.html });
+
+    // Keep the real address from chat so the booking shows it, but never overwrite one we already trust.
+    if (isRelayEmail(invite.booking.guestEmail)) {
+      await this.prisma.booking.update({ where: { id: invite.booking.id }, data: { guestEmail: to } });
+    }
+    await this.audit.record(actor, "invite.emailed", "invite", inviteId, {
+      to,
+      bookingId: invite.booking.id,
+      messageId: result.messageId
+    });
+    return { status: "sent", to };
   }
 
   async reconcileInvite(inviteId: string, actor?: AuditActor) {

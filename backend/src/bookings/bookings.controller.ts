@@ -1,6 +1,11 @@
 import { Body, Controller, Get, Param, Post, Query } from "@nestjs/common";
 import { Roles, Session, type UserSession } from "@thallesp/nestjs-better-auth";
-import { createBookingInviteSchema, type CreateBookingInviteInput } from "@cozy-d-714/shared";
+import {
+  createBookingInviteSchema,
+  emailInviteSchema,
+  type CreateBookingInviteInput,
+  type EmailInviteInput
+} from "@cozy-d-714/shared";
 import { ZodValidationPipe } from "../common/zod-validation.pipe.js";
 import { HostexService } from "../hostex/hostex.service.js";
 import { BackgroundJobsService } from "../jobs/background-jobs.service.js";
@@ -58,6 +63,15 @@ export class BookingsController {
     @Session() session: UserSession
   ) {
     return this.bookings.sendInvite(inviteId, body.allowUnknownDuplicate === true, session.user);
+  }
+
+  @Post("invites/:inviteId/email")
+  email(
+    @Param("inviteId") inviteId: string,
+    @Body(new ZodValidationPipe(emailInviteSchema)) body: EmailInviteInput,
+    @Session() session: UserSession
+  ) {
+    return this.bookings.emailInvite(inviteId, body.email, session.user);
   }
 
   @Post("invites/:inviteId/reconcile")
