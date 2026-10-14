@@ -28,6 +28,14 @@ export const SUBMISSION_STATUSES = [
 export const MINOR_ID_CUTOFF = 16;
 export const SENIOR_ID_CUTOFF = 60;
 
+/** OTA relay addresses (Booking.com, Agoda, Airbnb) that don't reach the guest's own inbox. */
+export function isRelayEmail(email: string | null | undefined) {
+  if (!email?.trim()) return true;
+  return /@(guest\.booking\.com|[\w.-]*agoda[\w.-]*|guest\.airbnb\.com|[\w.-]*expediapartnercentral\.com)$/i.test(
+    email.trim()
+  );
+}
+
 export function requiresGuestId(age: number, lowerCutoff = MINOR_ID_CUTOFF, upperCutoff = SENIOR_ID_CUTOFF) {
   return age >= lowerCutoff && age < upperCutoff;
 }
@@ -63,6 +71,8 @@ export const updateInviteSchema = z.object({
 export const regenerateInviteSchema = z.object({
   expiresAt: z.string().datetime().optional()
 });
+
+export const emailInviteSchema = z.object({ email: z.string().trim().email("Enter a valid email") });
 
 export const assignInviteBookingSchema = z.object({ bookingId: z.string().uuid().nullable() });
 
@@ -110,6 +120,7 @@ export type CreateBookingInviteInput = z.infer<typeof createBookingInviteSchema>
 export type UpdateInviteInput = z.infer<typeof updateInviteSchema>;
 export type RegenerateInviteInput = z.infer<typeof regenerateInviteSchema>;
 export type PublicInvite = z.infer<typeof publicInviteSchema>;
+export type EmailInviteInput = z.infer<typeof emailInviteSchema>;
 
 export type InviteSummary = {
   id: string;
@@ -151,7 +162,9 @@ export type BookingRegistration = {
   submission?: SubmissionSummary | null;
   deliveries: Array<{
     id: string;
-    kind: "automated" | "manual";
+    kind: "automated" | "manual" | "email";
+    /** Recipient, for email deliveries. */
+    to?: string | null;
     status: InviteSummary["hostex"] extends infer T ? (T extends { status: infer S } ? S : string) : string;
     attempts: number;
     sentAt?: string | null;

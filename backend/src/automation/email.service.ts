@@ -197,6 +197,75 @@ export const DEFAULT_VISITOR_VIEWING_EMAIL_TEMPLATE: EmailTemplate = {
   })
 };
 
+/** The email that asks a guest (usually Agoda or Booking.com) to fill in the registration form. */
+export function renderRegistrationInviteEmail(input: {
+  guestName: string | null;
+  guestUrl: string;
+  checkIn: string;
+  checkOut: string;
+  purpose: string;
+}) {
+  const visit = input.purpose !== "Tenant";
+  const word = visit ? "visit" : "stay";
+  const url = escapeHtmlAttribute(input.guestUrl);
+  const name = greetingName(input.guestName ? [{ fullName: input.guestName }] : []);
+  const html = emailShell({
+    title: `Register your ${word} at Cozy Davao D-714`,
+    preheader: `Please register before you arrive. It takes about two minutes.`,
+    panelRows: [
+      heroRows({
+        greeting: GREETING,
+        headline: `Your upcoming ${word} at Building D, Unit 714`,
+        lead: "Please register before you arrive. Building management needs everyone’s details before they can issue your entrance pass. It takes about two minutes.",
+        status: "Action needed",
+        tone: "pending"
+      }),
+      row(
+        `${statGrid([
+          { icon: "clock", label: visit ? "Arrival" : "Check-in", value: formatEmailDate(input.checkIn) },
+          { icon: "clock", label: visit ? "Departure" : "Check-out", value: formatEmailDate(input.checkOut) },
+          { icon: "map-pin", label: "Unit", value: "Unit 714 · Building D", wide: true }
+        ])}<div style="margin:28px 0 0;">${bulletproofButton({ href: url, label: `Register your ${word}` })}</div><p style="margin:16px 0 0;text-align:center;color:${COLOR.muted};font-family:${FONT_SANS};font-size:14px;line-height:20px;">Button not working? <a href="${url}" target="_blank" style="color:${COLOR.ink};text-decoration:underline;word-break:break-all;">${url}</a></p>`,
+        "24px 32px 8px"
+      ),
+      divider(),
+      section(
+        "How it works",
+        "Three quick steps",
+        numberedSteps([
+          `Add everyone who will be ${visit ? "visiting" : "staying"}, including yourself.`,
+          "Upload a photo of a valid ID for each guest aged <strong>16 to 59</strong>. Guests under 16 or aged 60+ don’t need one.",
+          "We’ll email your <strong>entrance pass</strong> once building management approves it."
+        ]),
+        "badge-check"
+      ),
+      row(
+        noteCard(
+          "Questions?",
+          "Just reply to this email or message us through your booking app.",
+          true,
+          "help"
+        ),
+        "24px 32px 8px"
+      )
+    ].join("\n")
+  });
+  return applyGreeting(
+    { subject: `Please register for your upcoming ${word} at Cozy Davao D-714`, html },
+    name
+  );
+}
+
+function formatEmailDate(value: string) {
+  return new Intl.DateTimeFormat("en-AU", {
+    weekday: "short",
+    day: "numeric",
+    month: "short",
+    year: "numeric",
+    timeZone: "UTC"
+  }).format(new Date(`${value.slice(0, 10)}T00:00:00Z`));
+}
+
 @Injectable()
 export class EmailService {
   configured() {

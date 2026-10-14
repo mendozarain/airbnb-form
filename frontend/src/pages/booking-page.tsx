@@ -7,12 +7,13 @@ import {
   RefreshCw,
   RotateCcw,
   Send,
-  Link2Off
+  Link2Off,
+  Mail
 } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { toast } from "sonner";
-import { PURPOSES, type BookingDetail, type Purpose } from "@cozy-d-714/shared";
+import { PURPOSES, isRelayEmail, type BookingDetail, type Purpose } from "@cozy-d-714/shared";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -123,6 +124,7 @@ export function BookingPage() {
               key={registration.invite.id}
               registration={registration}
               conversationReady={Boolean(booking.conversationId)}
+              guestEmail={isRelayEmail(booking.guestEmail) ? "" : (booking.guestEmail ?? "")}
               onChanged={load}
             />
           ))}
@@ -207,10 +209,12 @@ export function BookingPage() {
 function RegistrationCard({
   registration,
   conversationReady,
+  guestEmail,
   onChanged
 }: {
   registration: BookingDetail["registrations"][number];
   conversationReady: boolean;
+  guestEmail: string;
   onChanged: () => Promise<void>;
 }) {
   const invite = registration.invite;
@@ -224,6 +228,11 @@ function RegistrationCard({
   const [editing, setEditing] = useState(false);
   const [purpose, setPurpose] = useState<Purpose>(invite.purpose);
   const [expiresAt, setExpiresAt] = useState(() => new Date(invite.expiresAt).toISOString().slice(0, 16));
+  const [emailOpen, setEmailOpen] = useState(false);
+  const [emailTo, setEmailTo] = useState(guestEmail);
+  const emailDeliveries = registration.deliveries.filter((delivery) => delivery.kind === "email");
+  const lastEmail = emailDeliveries[emailDeliveries.length - 1];
+  const emailValid = /^\S+@\S+\.\S+$/.test(emailTo.trim());
 
   async function action(work: () => Promise<unknown>, message: string) {
     setActing(true);
@@ -255,6 +264,8 @@ function RegistrationCard({
           {registration.deliveries.map((delivery) => (
             <p key={delivery.id} className="mt-2 text-xs text-ink-muted">
               {statusLabel(delivery.kind)} delivery: {statusLabel(delivery.status)}
+              {delivery.to ? ` to ${delivery.to}` : ""}
+              {delivery.kind === "email" && delivery.sentAt ? ` · ${formatDateTime(delivery.sentAt)}` : ""}
               {delivery.lastError ? ` · ${delivery.lastError}` : ""}
             </p>
           ))}
@@ -319,6 +330,62 @@ function RegistrationCard({
               </AlertDialogFooter>
             </AlertDialogContent>
           </AlertDialog>
+          {active && (
+            <AlertDialog
+              open={emailOpen}
+              onOpenChange={(open) => {
+                setEmailOpen(open);
+                if (open) setEmailTo(lastEmail?.to || guestEmail);
+              }}
+            >
+              <AlertDialogTrigger asChild>
+                <Button
+                  size="icon"
+                  variant="secondary"
+                  aria-label="Email registration link"
+                  disabled={acting}
+                >
+                  <Mail className="size-4 text-primary" />
+                </Button>
+              </AlertDialogTrigger>
+              <AlertDialogContent>
+                <form
+                  onSubmit={(event) => {
+                    event.preventDefault();
+                    if (!emailValid) return;
+                    void action(
+                      () => api.emailBookingInvite(invite.id, emailTo.trim()),
+                      "Registration email sent"
+                    ).then(() => setEmailOpen(false));
+                  }}
+                >
+                  <AlertDialogTitle>Email registration link</AlertDialogTitle>
+                  <AlertDialogDescription>
+                    {lastEmail?.sentAt
+                      ? `Already emailed${lastEmail.to ? ` to ${lastEmail.to}` : ""} on ${formatDateTime(lastEmail.sentAt)}. Send again?`
+                      : "Paste the guest's email from the chat. They'll get a branded email asking them to register with this link."}
+                  </AlertDialogDescription>
+                  <div className="mt-4 space-y-2">
+                    <Label htmlFor={`email-${invite.id}`}>Guest email</Label>
+                    <Input
+                      id={`email-${invite.id}`}
+                      type="email"
+                      autoComplete="off"
+                      placeholder="guest@example.com"
+                      value={emailTo}
+                      onChange={(event) => setEmailTo(event.target.value)}
+                    />
+                  </div>
+                  <AlertDialogFooter>
+                    <AlertDialogCancel type="button">Cancel</AlertDialogCancel>
+                    <Button type="submit" disabled={!emailValid} loading={acting} loadingText="Sending…">
+                      <Send className="size-4" /> Send email
+                    </Button>
+                  </AlertDialogFooter>
+                </form>
+              </AlertDialogContent>
+            </AlertDialog>
+          )}
           {canReconcile && (
             <Button
               size="icon"

@@ -32,7 +32,8 @@ export const FONT_MONO = "Menlo,Consolas,'SFMono-Regular',monospace";
  * Icons and illustrations are PNGs (see scripts/generate-email-icons.mjs) in a public-read S3 bucket.
  * Only the email/ prefix is public. Sync with: aws s3 sync frontend/public/email s3://<bucket>/email
  */
-export const EMAIL_ASSET_BASE = "https://cozy-d714-email-assets-460047018105.s3.ap-southeast-2.amazonaws.com/email";
+export const EMAIL_ASSET_BASE =
+  "https://cozy-d714-email-assets-460047018105.s3.ap-southeast-2.amazonaws.com/email";
 
 export type EmailIcon =
   | "map-pin"
@@ -266,16 +267,18 @@ export function heroRows({
   headline,
   lead,
   status = "Registration confirmed",
+  tone = "done",
   illustration = true
 }: {
   greeting: string;
   headline: string;
   lead: string;
   status?: string;
+  tone?: PillTone;
   illustration?: boolean;
 }) {
   return row(
-    `${statusPill(status, "done")}<h1 style="margin:20px 0 0;font-family:${FONT_SANS};color:${COLOR.ink};font-size:40px;line-height:44px;font-weight:600;letter-spacing:-0.03em;">${greeting}</h1><p style="margin:10px 0 0;font-family:${FONT_SANS};color:${COLOR.ink};font-size:22px;line-height:28px;font-weight:500;letter-spacing:-0.01em;">${headline}</p><p style="margin:14px 0 0;color:${COLOR.muted};font-family:${FONT_SANS};font-size:16px;line-height:24px;">${lead}</p>${illustration ? `<div style="margin:24px 0 0;">${heroIllustration()}</div>` : ""}`,
+    `${statusPill(status, tone)}<h1 style="margin:20px 0 0;font-family:${FONT_SANS};color:${COLOR.ink};font-size:40px;line-height:44px;font-weight:600;letter-spacing:-0.03em;">${greeting}</h1><p style="margin:10px 0 0;font-family:${FONT_SANS};color:${COLOR.ink};font-size:22px;line-height:28px;font-weight:500;letter-spacing:-0.01em;">${headline}</p><p style="margin:14px 0 0;color:${COLOR.muted};font-family:${FONT_SANS};font-size:16px;line-height:24px;">${lead}</p>${illustration ? `<div style="margin:24px 0 0;">${heroIllustration()}</div>` : ""}`,
     "32px 32px 16px"
   );
 }

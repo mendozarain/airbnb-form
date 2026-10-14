@@ -104,7 +104,12 @@ describe("registration booking ordering", () => {
       booking("registration", "2026-08-01T00:00:00Z", "2026-08-01T00:00:00Z", "2026-08-02T00:00:00Z")
     ];
     const findMany = jest.fn(() => Promise.resolve(values));
-    const service = new BookingsService({ booking: { findMany } } as never, {} as never, {} as never);
+    const service = new BookingsService(
+      { booking: { findMany } } as never,
+      {} as never,
+      {} as never,
+      {} as never
+    );
 
     const result = await service.list({ status: "accepted", query: "Maria" });
 
@@ -137,5 +142,82 @@ describe("registration booking ordering", () => {
       "new-submission",
       "new-invite"
     ]);
+  });
+});
+
+describe("BookingsService.emailInvite", () => {
+  function setup(
+    overrides: { invite?: Record<string, unknown>; guestEmail?: string | null; configured?: boolean } = {}
+  ) {
+    process.env.PUBLIC_APP_URL = "https://app.example.com/";
+    const invite = {
+      id: "invite-1",
+      publicToken: "token-1",
+      purpose: "Tenant",
+      status: "OPEN",
+      expiresAt: new Date(Date.now() + 86_400_000),
+      revokedAt: null,
+      checkIn: at("2027-01-10T00:00:00Z"),
+      checkOut: at("2027-01-12T00:00:00Z"),
+      booking: { id: "booking-1", guestName: "Maria Guest", guestEmail: overrides.guestEmail ?? null },
+      ...overrides.invite
+    };
+    const prisma = {
+      invite: { findUnique: jest.fn(() => Promise.resolve(invite)) },
+      booking: { update: jest.fn(() => Promise.resolve({})) }
+    };
+    const audit = { record: jest.fn(() => Promise.resolve({})) };
+    const email = {
+      configured: jest.fn(() => overrides.configured ?? true),
+      sendMessage: jest.fn<
+        (input: { to: string; subject: string; html: string }) => Promise<{ messageId: string }>
+      >(() => Promise.resolve({ messageId: "msg-1" }))
+    };
+    const service = new BookingsService(prisma as never, {} as never, audit as never, email as never);
+    return { service, prisma, audit, email };
+  }
+
+  it("emails the registration link, keeps the real address, and audits it", async () => {
+    const { service, prisma, audit, email } = setup({ guestEmail: "abc123@guest.booking.com" });
+
+    await expect(service.emailInvite("invite-1", "maria@example.com", { id: "admin" })).resolves.toEqual({
+      status: "sent",
+      to: "maria@example.com"
+    });
+
+    const sent = email.sendMessage.mock.calls[0]?.[0];
+    expect(sent?.to).toBe("maria@example.com");
+    expect(sent?.html).toContain("https://app.example.com/invite/token-1");
+    expect(prisma.booking.update).toHaveBeenCalledWith({
+      where: { id: "booking-1" },
+      data: { guestEmail: "maria@example.com" }
+    });
+    expect(audit.record).toHaveBeenCalledWith(
+      { id: "admin" },
+      "invite.emailed",
+      "invite",
+      "invite-1",
+      expect.objectContaining({ to: "maria@example.com", bookingId: "booking-1" })
+    );
+  });
+
+  it("does not overwrite a real guest email already on the booking", async () => {
+    const { service, prisma } = setup({ guestEmail: "owner@example.com" });
+
+    await service.emailInvite("invite-1", "maria@example.com");
+
+    expect(prisma.booking.update).not.toHaveBeenCalled();
+  });
+
+  it("refuses expired or revoked links and unconfigured email", async () => {
+    await expect(
+      setup({ invite: { expiresAt: new Date(Date.now() - 1000) } }).service.emailInvite("invite-1", "a@b.co")
+    ).rejects.toThrow("Only an active link can be emailed");
+    await expect(
+      setup({ invite: { revokedAt: new Date() } }).service.emailInvite("invite-1", "a@b.co")
+    ).rejects.toThrow("Only an active link can be emailed");
+    const unconfigured = setup({ configured: false });
+    await expect(unconfigured.service.emailInvite("invite-1", "a@b.co")).rejects.toThrow("not configured");
+    expect(unconfigured.email.sendMessage).not.toHaveBeenCalled();
   });
 });

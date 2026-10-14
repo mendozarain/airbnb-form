@@ -199,6 +199,7 @@ export function GuestPage() {
     );
   if (completedStatus) return <Done />;
 
+  const visit = invite.purpose !== "Tenant";
   const idHint = `Guests under ${invite.minorIdCutoff} or aged ${invite.seniorIdCutoff}+ don't need an ID.`;
 
   return (
@@ -209,7 +210,7 @@ export function GuestPage() {
           <p className="text-heading-s text-ink">Cozy Davao D-714</p>
         </div>
         <h1 className="mt-5 text-[32px] leading-9 font-semibold tracking-tight text-ink sm:text-display">
-          Register your stay
+          {visit ? "Register your visit" : "Register your stay"}
         </h1>
         <p className="mt-3 text-base text-ink-muted">
           It takes about two minutes. Building management needs these details before you arrive.
@@ -217,8 +218,8 @@ export function GuestPage() {
         <StatGrid
           className="mt-6"
           items={[
-            { label: "Check-in", value: formatDate(invite.checkIn), mono: true },
-            { label: "Check-out", value: formatDate(invite.checkOut), mono: true },
+            { label: visit ? "Arrival" : "Check-in", value: formatDate(invite.checkIn), mono: true },
+            { label: visit ? "Departure" : "Check-out", value: formatDate(invite.checkOut), mono: true },
             { label: "Unit", value: `${invite.buildingCode}-${invite.unitNumber}`, mono: true }
           ]}
         />
@@ -253,7 +254,7 @@ export function GuestPage() {
               <p className="mb-4 text-title text-ink">Before you start</p>
               <Checklist
                 items={[
-                  { icon: Users, text: "Full name and age of everyone staying" },
+                  { icon: Users, text: `Full name and age of everyone ${visit ? "visiting" : "staying"}` },
                   {
                     icon: IdCard,
                     text: `A photo of a valid ID for guests aged ${invite.minorIdCutoff}–${invite.seniorIdCutoff - 1}`
@@ -272,8 +273,8 @@ export function GuestPage() {
           <section className="sg-enter space-y-4">
             <StepIntro
               icon={Users}
-              title="Who is staying?"
-              text="Add everyone who will be staying, including yourself."
+              title={visit ? "Who is visiting?" : "Who is staying?"}
+              text={`Add everyone who will be ${visit ? "visiting" : "staying"}, including yourself.`}
             />
             {guests.fields.map((field, index) => {
               const age = Number(values.guests[index]?.age ?? 0);
