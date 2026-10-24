@@ -1,146 +1,243 @@
-import { channelPrice, type PricingConfig } from "@cozy-d-714/shared";
-import { addDays, calculateDay, calculatePricing, compressPrices } from "./pricing.engine.js";
+import { pricingConfigWithDefaults, type PricingConfig } from "@cozy-d-714/shared";
+import {
+  addDays,
+  calculateDay,
+  calculatePricing,
+  compressPrices,
+  compressRestrictions
+} from "./pricing.engine.js";
 
-const config: PricingConfig = {
-  algorithm: "vacancy-tiers-v1",
-  propertyName: "D-714",
-  propertyId: 12684960,
-  timezone: "Asia/Manila",
-  horizonDays: 2,
-  baseAirbnbPrice: 3000,
-  minimumAirbnbPrice: 2000,
-  maximumNonEventAirbnbPrice: 3700,
-  weekendPremium: 0.08,
-  eventBoost: 0.25,
-  roundTo: 50,
-  listings: [{ channelType: "airbnb", listingId: "airbnb", ratio: 1 }],
-  recurringEvents: [{ name: "Kadayawan Festival", start: "08-15", end: "08-24" }]
+const listings = [{ channelType: "airbnb", listingId: "airbnb", ratio: 1 }];
+
+const quiet = {
+  available: true,
+  windowOccupancy: 0,
+  nearTermOccupancy: 0,
+  adjacentFilled: false,
+  orphanGap: false
 };
 
-// Keep the night fixed so weekday/event effects cannot mask a time-tier regression.
-const night = "2026-07-20";
-const priceAt = (lead: number, overrides: Partial<PricingConfig> = {}, occupancy = 0) =>
-  calculateDay(night, addDays(night, -lead), true, occupancy, { ...config, ...overrides }).airbnbPrice;
+function config(overrides: Partial<PricingConfig> = {}): PricingConfig {
+  return pricingConfigWithDefaults({ listings, ...overrides });
+}
 
-describe("vacancy tier pricing", () => {
-  it.each([
-    [0, 2000],
-    [1, 2000],
-    [2, 2000],
-    [3, 2250],
-    [7, 2250],
-    [8, 2500],
-    [14, 2500],
-    [15, 2750],
-    [30, 2750],
-    [31, 3000],
-    [365, 3000]
-  ])("%i days away costs PHP %i", (lead, expected) => expect(priceAt(lead)).toBe(expected));
+function quote(
+  date: string,
+  today: string,
+  context: Partial<typeof quiet> = {},
+  overrides: Partial<PricingConfig> = {}
+) {
+  return calculateDay(date, today, { ...quiet, ...context }, config(overrides));
+}
 
-  it("scales with the configured floor without changing the far-away base", () => {
-    expect(priceAt(31, { minimumAirbnbPrice: 2400 })).toBe(3000);
-    expect(priceAt(15, { minimumAirbnbPrice: 2400 })).toBe(2850);
-    expect(priceAt(8, { minimumAirbnbPrice: 2400 })).toBe(2700);
-    expect(priceAt(3, { minimumAirbnbPrice: 2400 })).toBe(2550);
-    expect(priceAt(2, { minimumAirbnbPrice: 2400 })).toBe(2400);
+function calendar(
+  today: string,
+  horizonDays: number,
+  bookings: Array<{ checkIn: string; checkOut: string; status?: string }> = [],
+  overrides: Partial<PricingConfig> = {}
+) {
+  const dates = Array.from({ length: horizonDays + 1 }, (_, index) => addDays(today, index));
+  return calculatePricing(
+    today,
+    config({ horizonDays, ...overrides }),
+    bookings.map((booking) => ({ status: "accepted", ...booking })),
+    dates.map((date) => ({ date, available: true }))
+  );
+}
+
+describe("demand-pace pricing", () => {
+  it("seeds Rain's rates, floors, discounts, and extra-guest fee", () => {
+    const seeded = config();
+    expect(seeded).toMatchObject({
+      weekdayBasePrice: 2750,
+      weekendBasePrice: 3400,
+      weekdayFloor: 2300,
+      weekendFloor: 3000,
+      maximumPrice: 5000,
+      lastMinuteWeekdayPrice: 2300,
+      lastMinuteLeadDays: 3,
+      weekendMinStay: 2,
+      defaultMinStay: 1,
+      minStayRelaxLeadDays: 3,
+      weeklyDiscountPercent: 10,
+      monthlyDiscountPercent: 25,
+      extraGuestFee: 250,
+      includedGuests: 4
+    });
   });
 
-  it("ignores occupancy and legacy stacked discounts", () => {
-    const legacy = {
-      rainySeasonDiscount: 1,
-      urgentGapDays: 60,
-      urgentGapDiscount: 1,
-      lowOccupancyDiscount: 1
-    };
-    expect(priceAt(15, legacy as Partial<PricingConfig>, 0)).toBe(2750);
-    expect(priceAt(15, legacy as Partial<PricingConfig>, 1)).toBe(2750);
+  it("holds weekday and weekend rates until pace says a close-in night is unsold", () => {
+    expect(quote("2026-11-09", "2026-10-01", {}, { events: [] }).airbnbPrice).toBe(2750);
+    expect(quote("2026-11-07", "2026-10-01", {}, { events: [] }).airbnbPrice).toBe(3400);
+    expect(quote("2026-11-09", "2026-11-09", { nearTermOccupancy: 0.6 }, { events: [] }).airbnbPrice).toBe(
+      2750
+    );
+    expect(quote("2026-11-07", "2026-11-07", { nearTermOccupancy: 0.6 }, { events: [] }).airbnbPrice).toBe(
+      3400
+    );
   });
 
-  it("keeps a small base/floor gap above minimum until day two", () => {
-    for (const lead of [3, 8, 15, 31]) expect(priceAt(lead, { baseAirbnbPrice: 2001 })).toBe(2001);
-    expect(priceAt(2, { baseAirbnbPrice: 2001 })).toBe(2000);
-    expect(priceAt(3, { minimumAirbnbPrice: 2999 })).toBe(3000);
-    expect(priceAt(2, { minimumAirbnbPrice: 2999 })).toBe(2999);
+  it("drops an unsold weekday inside three days to the floor and keeps weekends at 3000", () => {
+    expect(quote("2026-11-09", "2026-11-09", { nearTermOccupancy: 0.59 }, { events: [] }).airbnbPrice).toBe(
+      2300
+    );
+    expect(quote("2026-11-07", "2026-11-07", { nearTermOccupancy: 0.59 }, { events: [] }).airbnbPrice).toBe(
+      3000
+    );
+    const weekend = quote("2026-11-07", "2026-11-07", { nearTermOccupancy: 0 }, { events: [] });
+    expect(weekend.airbnbPrice).toBeGreaterThanOrEqual(3000);
+    expect(weekend.reasons).toContain("last-minute weekend floor");
   });
 
-  it("allows intentionally equal base and floor prices", () => {
-    for (const lead of [0, 2, 3, 8, 15, 31]) expect(priceAt(lead, { minimumAirbnbPrice: 3000 })).toBe(3000);
+  it("raises weekends when a nearby night is filled, including inside the last-minute window", () => {
+    const early = quote("2026-11-07", "2026-11-01", { adjacentFilled: true }, { events: [] });
+    const late = quote(
+      "2026-11-07",
+      "2026-11-06",
+      { adjacentFilled: true, nearTermOccupancy: 0 },
+      { events: [] }
+    );
+    expect(early.airbnbPrice).toBeGreaterThan(3400);
+    expect(late.airbnbPrice).toBeGreaterThan(3400);
+    expect(late.reasons).toContain("nearby dates booked");
+    expect(late.reasons).not.toContain("last-minute weekend floor");
   });
 
-  it("fades weekend and event premiums to the floor, with the existing event ceiling exception", () => {
-    for (const date of ["2026-07-18", "2026-08-15"]) {
-      const far = calculateDay(date, addDays(date, -31), true, 0, config);
-      expect(far.airbnbPrice).toBe(date === "2026-08-15" ? 3750 : 3250);
-      const middle = calculateDay(date, addDays(date, -8), true, 0, config);
-      expect(middle.airbnbPrice).toBeLessThan(far.airbnbPrice);
-      expect(middle.airbnbPrice).toBeGreaterThan(2000);
-      for (const lead of [0, 1, 2])
-        expect(calculateDay(date, addDays(date, -lead), true, 1, config).airbnbPrice).toBe(2000);
+  it("raises open nights when the surrounding window is already busy", () => {
+    const priced = quote(
+      "2026-11-09",
+      "2026-11-09",
+      { nearTermOccupancy: 0.9, windowOccupancy: 0.9 },
+      { events: [] }
+    );
+    expect(priced.airbnbPrice).toBeGreaterThan(2750);
+    expect(priced.reasons).toContain("high surrounding occupancy");
+  });
+
+  it("never prices below the floors or above the ceiling", () => {
+    for (let lead = 0; lead <= 40; lead++) {
+      const today = addDays("2026-11-09", -lead);
+      const weekday = quote("2026-11-09", today, { nearTermOccupancy: 0 }, { events: [] });
+      const weekend = quote(
+        "2026-11-07",
+        addDays("2026-11-07", -lead),
+        { nearTermOccupancy: 0 },
+        { events: [] }
+      );
+      expect(weekday.airbnbPrice).toBeGreaterThanOrEqual(2300);
+      expect(weekday.airbnbPrice).toBeLessThanOrEqual(5000);
+      expect(weekend.airbnbPrice).toBeGreaterThanOrEqual(3000);
+      expect(weekend.airbnbPrice).toBeLessThanOrEqual(5000);
     }
     expect(
-      calculateDay("2026-07-18", "2026-06-01", true, 1, { ...config, weekendPremium: 1 }).airbnbPrice
-    ).toBe(3700);
-    expect(calculateDay("2026-08-25", "2026-07-01", true, 0, config).event).toBeNull();
+      quote("2026-11-07", "2026-10-01", { windowOccupancy: 1 }, { events: [], highOccupancyPremium: 1 })
+        .airbnbPrice
+    ).toBe(5000);
   });
 
-  it("never increases the same empty night's rate as it approaches", () => {
-    let previous = Infinity;
-    for (let lead = 365; lead >= 0; lead--) {
-      const price = priceAt(lead);
-      expect(price).toBeLessThanOrEqual(previous);
-      expect(price).toBeGreaterThanOrEqual(config.minimumAirbnbPrice);
-      previous = price;
-    }
+  it("prices the seeded Davao calendar, with Christmas peaks above the season rate", () => {
+    expect(quote("2026-12-18", "2026-12-01").airbnbPrice).toBe(3400);
+    expect(quote("2026-12-19", "2026-12-01")).toMatchObject({
+      airbnbPrice: 4200,
+      minStay: 3,
+      event: "Pasko / Christmas–New Year"
+    });
+    expect(quote("2026-12-25", "2026-12-23")).toMatchObject({
+      airbnbPrice: 4800,
+      minStay: 3,
+      event: "Pasko peak"
+    });
+    expect(quote("2026-12-31", "2026-12-01")).toMatchObject({ airbnbPrice: 4800, event: "Pasko peak" });
+    expect(quote("2027-01-02", "2026-12-01")).toMatchObject({ airbnbPrice: 4200, minStay: 3 });
+    expect(quote("2027-01-03", "2026-12-01").event).toBeNull();
+    expect(quote("2026-11-28", "2026-11-01")).toMatchObject({ airbnbPrice: 3400, event: "Pasko Fiesta" });
+    expect(quote("2026-12-08", "2026-11-01")).toMatchObject({
+      airbnbPrice: 3400,
+      event: "Immaculate Conception"
+    });
+    expect(quote("2027-02-06", "2027-01-15")).toMatchObject({ airbnbPrice: 3500, event: "Chinese New Year" });
+    expect(quote("2027-03-13", "2027-03-01")).toMatchObject({ airbnbPrice: 3500, event: "Araw ng Dabaw" });
+    expect(quote("2027-03-16", "2027-03-01").event).toBeNull();
+    expect(quote("2027-03-25", "2027-03-01")).toMatchObject({
+      airbnbPrice: 4000,
+      minStay: 2,
+      event: "Holy Week"
+    });
+    expect(quote("2027-04-09", "2027-04-01")).toMatchObject({
+      airbnbPrice: 3500,
+      event: "Araw ng Kagitingan"
+    });
+    expect(quote("2027-08-14", "2027-08-01")).toMatchObject({
+      airbnbPrice: 3500,
+      minStay: 2,
+      event: "Kadayawan"
+    });
+    expect(quote("2027-08-11", "2027-08-01")).toMatchObject({
+      airbnbPrice: 3500,
+      minStay: 1,
+      event: "Kadayawan"
+    });
+    expect(quote("2027-12-24", "2027-12-01")).toMatchObject({ airbnbPrice: 4800, minStay: 3 });
   });
 
-  it.each([
-    [1.2, 2400],
-    [1.3, 2600],
-    [1.4, 2800]
-  ])("applies ratio %s after reaching the floor", (ratio, expected) => {
-    expect(channelPrice(priceAt(2), ratio)).toBe(expected);
-    expect(channelPrice(2001, ratio)).toBe(Math.round(2001 * ratio));
+  it("uses a two-night weekend minimum, relaxes it near arrival, and leaves weekdays at one", () => {
+    expect(quote("2026-11-06", "2026-10-20", {}, { events: [] }).minStay).toBe(2);
+    expect(quote("2026-11-07", "2026-10-20", {}, { events: [] }).minStay).toBe(2);
+    expect(quote("2026-11-08", "2026-10-20", {}, { events: [] }).minStay).toBe(1);
+    const relaxed = quote("2026-11-06", "2026-11-05", {}, { events: [] });
+    expect(relaxed.minStay).toBe(1);
+    expect(relaxed.reasons).toContain("relaxed close to arrival");
+    expect(quote("2026-11-06", "2026-10-20", {}, { events: [], weekendMinStay: 3 }).minStay).toBe(3);
   });
 
-  it("excludes booked/blocked nights and never compresses across the gap", () => {
-    const days = [0, 1, 2, 3].map((offset) => ({
-      ...calculateDay(addDays(night, offset), night, offset !== 2, 0, config),
-      airbnbPrice: 2000
-    }));
-    expect(compressPrices(days, 1.3)).toEqual([
-      { start_date: night, end_date: "2026-07-21", price: 2600 },
-      { start_date: "2026-07-23", end_date: "2026-07-23", price: 2600 }
-    ]);
-    expect(
-      compressPrices(
-        days.map((day) => ({ ...day, available: false })),
-        1
-      )
-    ).toEqual([]);
-  });
-
-  it("uses checkout-exclusive accepted occupancy and skips bookings even when availability lags", () => {
-    const result = calculatePricing(
-      "2026-08-01",
-      config,
+  it("keeps event minimums close to arrival and opens a one-night orphan gap", () => {
+    expect(quote("2026-12-25", "2026-12-23").minStay).toBe(3);
+    expect(quote("2027-08-14", "2027-08-12").minStay).toBe(2);
+    const gap = calendar(
+      "2026-11-01",
+      8,
       [
-        { checkIn: "2026-07-31", checkOut: "2026-08-02", status: "accepted" },
-        { checkIn: "2026-08-02", checkOut: "2026-08-03", status: "cancelled" }
+        { checkIn: "2026-11-06", checkOut: "2026-11-07" },
+        { checkIn: "2026-11-08", checkOut: "2026-11-09" }
       ],
-      [
-        { date: "2026-08-01", available: true },
-        { date: "2026-08-02", available: true },
-        { date: "2026-08-03", available: false }
-      ]
+      { events: [] }
     );
-    expect(result.occupancy["2026-08"]).toMatchObject({ booked: 1, total: 3 });
-    expect(result.days.map((day) => day.available)).toEqual([false, true, false]);
-    expect(result.days[0]?.reasons).toContain("skipped: booked or blocked");
+    const saturday = gap.days.find((day) => day.date === "2026-11-07");
+    expect(saturday).toMatchObject({ available: true, minStay: 1 });
+    expect(saturday?.reasons).toContain("orphan gap");
+
+    const christmas = calendar("2026-12-23", 6, [
+      { checkIn: "2026-12-24", checkOut: "2026-12-25" },
+      { checkIn: "2026-12-26", checkOut: "2026-12-27" }
+    ]);
+    expect(christmas.days.find((day) => day.date === "2026-12-25")).toMatchObject({
+      available: true,
+      minStay: 1,
+      airbnbPrice: 4800
+    });
+    expect(christmas.days.find((day) => day.date === "2026-12-27")?.minStay).toBe(3);
   });
 
-  it("refuses incomplete availability", () => {
-    expect(() => calculatePricing("2026-08-01", config, [], [])).toThrow(
-      "Hostex availability is missing 3 date(s)"
+  it("drops only weekdays that are behind the near-term pace", () => {
+    const empty = calendar("2026-11-09", 2, [], { events: [] });
+    expect(empty.days[0]).toMatchObject({ date: "2026-11-09", airbnbPrice: 2300 });
+    const busy = calendar("2026-11-09", 6, [{ checkIn: "2026-11-10", checkOut: "2026-11-16" }], {
+      events: []
+    });
+    expect(busy.days[0]?.airbnbPrice).toBeGreaterThan(2300);
+    expect(busy.occupancy.nearTerm.ratio).toBeGreaterThanOrEqual(0.6);
+  });
+
+  it("compresses prices and arrival minimums without inventing a stay-through rule", () => {
+    const days = [0, 1, 2, 3].map((offset) =>
+      quote(addDays("2026-11-06", offset), "2026-10-01", { available: offset !== 2 }, { events: [] })
     );
+    expect(compressPrices(days, 1.2).map((range) => range.price)).toEqual([4080, 3300]);
+    const restrictions = compressRestrictions(days);
+    expect(restrictions).toEqual([
+      { start_date: "2026-11-06", end_date: "2026-11-07", min_stay_on_arrival: 2 },
+      { start_date: "2026-11-09", end_date: "2026-11-09", min_stay_on_arrival: 1 }
+    ]);
+    expect(JSON.stringify(restrictions)).not.toContain("min_stay_through");
   });
 });

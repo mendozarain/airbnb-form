@@ -135,6 +135,34 @@ describe("HostexClient", () => {
       })
     );
   });
+
+  it("queues per-date arrival minimums and does not send a stay-through rule", async () => {
+    const fetchMock = jest.fn<typeof fetch>().mockResolvedValue(
+      new Response(JSON.stringify({ error_code: 200, request_id: "request-4" }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" }
+      })
+    );
+    global.fetch = fetchMock;
+    const restrictions = [
+      { start_date: "2026-11-06", end_date: "2026-11-07", min_stay_on_arrival: 2 },
+      { start_date: "2026-11-08", end_date: "2026-11-08", min_stay_on_arrival: 1 }
+    ];
+
+    await expect(
+      new HostexClient().submitRestrictions("booking.com", "plan-1", restrictions)
+    ).resolves.toEqual({
+      requestId: "request-4"
+    });
+
+    const [url, options] = fetchMock.mock.calls[0];
+    expect(requestUrl(url)).toBe("https://api.hostex.io/v3/listings/restrictions");
+    expect(options?.method).toBe("POST");
+    expect(options?.body).toBe(
+      JSON.stringify({ channel_type: "booking.com", listing_id: "plan-1", restrictions })
+    );
+    expect(options?.body).not.toContain("min_stay_through");
+  });
 });
 
 function requestUrl(value: string | URL | Request) {

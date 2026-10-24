@@ -53,6 +53,8 @@ export type HostexAirbnbPriceRules = {
   last_minute_discount?: HostexDiscountRule[];
   high_rated_guest_discount?: boolean;
   mobile_only_discount?: boolean;
+  extra_guest_fee?: number;
+  max_guests?: number;
   minimum_stay?: number;
   maximum_stay?: number;
   advance_notice?: number | null;
@@ -199,6 +201,19 @@ export class HostexClient {
   ) {
     const payload = await this.request<never>("POST", "/listings/prices", {
       body: { channel_type: channelType, listing_id: listingId, prices }
+    });
+    return { requestId: payload.request_id ?? null };
+  }
+
+  // Per-date min stay for every channel. Success only means Hostex queued the task.
+  // min_stay_on_arrival is the field Airbnb, Booking.com, Agoda, and Hostex direct share.
+  async submitRestrictions(
+    channelType: string,
+    listingId: string,
+    restrictions: Array<{ start_date: string; end_date: string; min_stay_on_arrival: number }>
+  ) {
+    const payload = await this.request<never>("POST", "/listings/restrictions", {
+      body: { channel_type: channelType, listing_id: listingId, restrictions }
     });
     return { requestId: payload.request_id ?? null };
   }

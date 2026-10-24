@@ -185,7 +185,9 @@ export const api = {
       method: "POST",
       body: { confirm: true }
     }),
-  listPricingRuns: () => request<{ runs: PricingRun[] }>("/api/admin/pricing/runs")
+  listPricingRuns: () => request<{ runs: PricingRun[] }>("/api/admin/pricing/runs"),
+  exportPricingRun: (id: string) =>
+    request<{ filename: string; csv: string }>(`/api/admin/pricing/runs/${id}/export`)
 };
 
 function queryString(params: Record<string, string | undefined>) {

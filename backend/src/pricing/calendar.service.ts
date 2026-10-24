@@ -90,6 +90,7 @@ export class CalendarService {
           recommendedPrice: recommended?.airbnbPrice ?? null,
           event: recommended?.event ?? null,
           reasons: Array.isArray(recommended?.reasons) ? recommended.reasons.map(String) : [],
+          recommendedMinStay: recommended?.minStay ?? null,
           channels: channels.map((day) => ({
             channelType: day.channelType,
             listingId: day.listingId,

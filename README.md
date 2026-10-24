@@ -222,19 +222,54 @@ Register `https://<AppUrl>/api/webhooks/hostex?setup=<bootstrap-token>` for `res
 
 The integrated pricing scheduler uses `ENABLE_HOSTEX_PRICING_AUTOMATION=false` as its master switch and an independent database pause control in **Pricing**. NestJS is the sole supported price publisher; the old Python entrypoint exits without reading credentials or submitting prices. An already deployed old image can still publish until its Railway cron is disabled.
 
-### Tiered pricing rollout
+### Demand-pace pricing
 
-Nightly rates start from the base (including configured weekend/event premiums) and retain 100%, 75%, 50%, 25%, then 0% of the gap above minimum at 31+, 15–30, 8–14, 3–7, and 0–2 Manila calendar days. The minimum is the published Airbnb nightly rate, before channel discounts and fees. Agoda and all Booking.com rate plans add 30% initially, adjustable independently between 20% and 40%; other platform ratios are preserved.
+The daily job at 08:00 Asia/Manila prices the next 365 nights for D-714. It stays off until `ENABLE_HOSTEX_PRICING_AUTOMATION=true` and the Pricing screen is unpaused. Preview computes the calendar and stores it; it does not call Hostex write endpoints. Apply is the only path that publishes.
 
-The first pricing-settings access upgrades legacy JSON settings to `vacancy-tiers-v1` in a transaction: preserve base/minimum, replace Agoda/Booking.com ratios with 1.30, remove obsolete controls, increment the settings version, write version history and an audit event, and pause database automation. Historical runs remain readable; legacy, outdated, and previous-day runs cannot be applied or retried. No table migration is needed. Previewed availability is checked again before publication, and booked/blocked dates are skipped.
+Ordinary nights use the configured weekday rate (default ₱2,750) and Friday/Saturday rate (default ₱3,400). The absolute floor is ₱2,300 and is used only when a weekday is still open inside three days and the next 14 nights are under 60% filled. Weekends in that same situation stop at ₱3,000. If the surrounding week is already busy, or a weekend has a booked neighbour, the rate rises instead. Nothing is priced above ₱5,000. These targets are settings, not constants in the formula.
 
-For an authorized deployment:
+Dated events replace that rate. The seed follows Proclamation No. 1427 for 2027 and the 2026 holidays still inside a 365-day horizon:
 
-1. Keep the API master switch off while deploying and comparing previews. Confirm that the settings upgrade paused automation and that every Booking.com rate plan and Agoda uses the intended markup.
-2. Disable the existing Railway `hostex-pricing` cron and confirm no legacy execution remains in progress. Do not delete the service if the API still references its access-token variable.
-3. Check preview tier boundaries and all platform prices against the live calendar. Apply a reviewed preview, then read back Hostex listing calendars; submission acceptance alone does not confirm OTA propagation.
-4. Enable the API master switch, then enable **Pricing → Automation**. Verify one daily run at 8 AM Asia/Manila and inspect its per-listing results.
-5. If publication fails, pause automation. Retry only same-day, current-version runs after resolving the failure; otherwise create a fresh preview. Do not restart the legacy publisher alongside NestJS.
+| Dates | Rate | Minimum stay |
+| --- | --- | --- |
+| Undas 30 Oct–2 Nov 2026 and 2027 | ₱3,500 | weekend rule |
+| Pasko Fiesta 28–30 Nov 2026, 8 Dec 2026, 30 Nov 2027, 8 Dec 2027 | ₱3,400 | weekend rule |
+| Christmas–New Year 19 Dec–2 Jan | ₱4,200 | 3 nights |
+| 24, 25, 30 and 31 Dec | ₱4,800 | 3 nights |
+| Chinese New Year 6 Feb 2027 | ₱3,500 | weekend rule |
+| Araw ng Dabaw weekends, 12–21 Mar 2027 | ₱3,500 | weekend rule |
+| Holy Week 24–28 Mar 2027 | ₱4,000 | 2 nights |
+| Araw ng Kagitingan 9–11 Apr 2027 | ₱3,500 | weekend rule |
+| Labor Day 1–2 May 2027, Independence Day 12–13 Jun 2027 | ₱3,400 | weekend rule |
+| Kadayawan 7–24 Aug 2027 | ₱3,500 | 2 nights on Fri/Sat arrivals |
+| National Heroes Day 28–30 Aug 2027 | ₱3,500 | weekend rule |
+
+Eid'l Fitr and Eid'l Adha are not seeded; Proclamation 1427 says those dates come later. EDSA (25 Feb 2027) is a special working day and is not a priced event.
+
+Minimum stay is an arrival rule: Sunday–Thursday arrivals are 1 night, Friday and Saturday arrivals are 2 nights (configurable). An open weekend arrival inside three days relaxes to 1 night. A one-night gap between bookings is always 1 night, including during Christmas. Event minimums do not relax early. The same `min_stay_on_arrival` value is queued for every listing.
+
+Channel prices are the Airbnb night multiplied by that listing's ratio. Defaults are Booking.com 1.2, Agoda 1.2, and Hostex direct 1.0. Each Booking.com rate plan can differ. Airbnb stays at 1.0.
+
+Weekly 10% and monthly 25% are stored as the recommended discounts. They are not pushed. Length-of-stay discounts on Airbnb are listing-wide, so they would also cut ₱4,800 nights. Booking.com, Agoda, and direct promotions are not on the endpoints this app calls.
+
+The first read of older settings upgrades them to `demand-pace-v1`, pauses automation, and writes a settings version. Historical runs stay readable. A run from another day, another settings version, or the retired tier algorithm cannot be applied.
+
+### What Hostex can set
+
+Writes are asynchronous: HTTP success means the task was queued. Confirm the result in Hostex sync tasks. `POST /listings/prices` and `POST /listings/restrictions` are the calendar writes. `POST /listings/airbnb/price_and_rules` updates Airbnb's listing defaults and is synchronous with Airbnb.
+
+| | Airbnb | Booking.com (each of the 3 rate plans) | Agoda | Hostex direct |
+| --- | --- | --- | --- | --- |
+| Nightly price | Yes, `/listings/prices` | Yes, same endpoint, per listing | Yes | Yes |
+| Per-date minimum on arrival | Yes, `min_stay_on_arrival` | Yes | Yes | Yes |
+| `min_stay_through` | No | Yes, unused. Arrival rules match Fri/Sat check-in | Yes, unused | No |
+| Weekly / monthly discount | Listing-wide only. Not written, because peak dates cannot be excluded | Not on this API. Set in Booking.com | Not on this API. Set in Agoda | Not on this API |
+| Extra guest ₱250 after 4 | Yes, `extra_guest_fee` and `max_guests` on apply | Manual in the channel | Manual | Manual |
+| Listing default minimum | Set to 1 night on apply so a per-date rule can allow a weekday stay. `day_of_week_min_nights` is not used | No listing-rules endpoint. If the channel default is above 1, lower it in the extranet or a 1-night weekday can stay blocked | Same as Booking.com | Same as Booking.com |
+
+Preview shows the price, the minimum stay, and the restriction batches that apply would queue. Export is available from the preview and from `GET /api/admin/pricing/runs/:id/export`.
+
+For an authorized deployment, keep the master switch off, compare a preview with the live calendar, and only then apply. Do not enable the switch in the same change that introduces this algorithm.
 
 Deployment, cron changes, and live publication require separate authorization; implementing this release locally performs none of those actions.
 

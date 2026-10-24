@@ -199,7 +199,11 @@ function DayDetails({ day, bookings }: { day: CalendarDay; bookings: CalendarMon
           className="mt-4"
           items={[
             { label: "Airbnb price", value: money(day.airbnbPrice) },
-            { label: "Recommendation", value: money(day.recommendedPrice) }
+            { label: "Recommendation", value: money(day.recommendedPrice) },
+            {
+              label: "Minimum stay",
+              value: day.recommendedMinStay ? `${day.recommendedMinStay} nights` : "—"
+            }
           ]}
         />
         {day.reasons.length > 0 && (
