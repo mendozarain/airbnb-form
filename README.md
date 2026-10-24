@@ -93,6 +93,16 @@ PMO form before its storage state becomes active.
 
 Open the PMO form in that everyday Chrome profile first, fully quit Chrome with `Cmd+Q`, then run the command. Upload the resulting `backend/google-storage-state.json` from Admin Settings.
 
+## AI ID review
+
+Guest ID photos are sent to OpenRouter model `google/gemini-3.1-flash-lite`. Each request keeps
+`provider.zdr`, `data_collection: deny`, and `require_parameters`, so OpenRouter may use only a
+zero-data-retention endpoint that accepts the structured response. The model is asked whether the
+ID plausibly belongs to the name the guest typed. A high-confidence mismatch is rejected. An unsure
+result, a low-confidence result, an unreadable image, or a file that is not a photo ID is held for
+manual review. The model id is a code constant, not a database setting. The value stored on a review
+row is the model used for that check.
+
 ## Authentication
 
 Better Auth is mounted at `/api/auth`. Email/password signup is disabled. Existing administrators are migrated with their UUIDs, roles, and scrypt password hashes, but old sessions are intentionally discarded.

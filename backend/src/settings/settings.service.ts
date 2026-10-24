@@ -17,7 +17,9 @@ const LEGACY_TENANT_TEMPLATE_KEY = "email_template";
 const AUTO_QUEUE_KEY = "auto_queue";
 const AI_ID_CHECK_KEY = "ai_id_check_enabled";
 const AI_REVIEW_EMAIL_KEY = "ai_review_email";
-export const AI_REVIEW_MODEL = "google/gemini-2.5-flash-lite";
+// Vertex still publishes zero-data-retention endpoints for this model.
+// google/gemini-2.5-flash-lite no longer has any endpoint that satisfies zdr.
+export const AI_REVIEW_MODEL = "google/gemini-3.1-flash-lite";
 export const DEFAULT_AI_REVIEW_EMAIL = "mendozarhainne@gmail.com";
 
 export function emailTemplateKindForPurpose(purpose: Purpose): EmailTemplateKind {

@@ -10,7 +10,7 @@ import { SubmissionStatus } from "../generated/prisma/enums.js";
 import { JobDispatcher } from "../jobs/job.dispatcher.js";
 import { PrismaService } from "../prisma/prisma.service.js";
 import { StorageService } from "../storage/storage.service.js";
-import { SettingsService } from "../settings/settings.service.js";
+import { AI_REVIEW_MODEL, SettingsService } from "../settings/settings.service.js";
 import { deleteAfterIso, safeFileName, uploadKey, type UploadRequest } from "../common/upload.js";
 
 @Injectable()
@@ -226,11 +226,11 @@ export class SubmissionsService {
           create: {
             submissionId: id,
             status: "PENDING",
-            model: "google/gemini-2.5-flash-lite"
+            model: AI_REVIEW_MODEL
           },
           update: {
             status: "PENDING",
-            model: "google/gemini-2.5-flash-lite",
+            model: AI_REVIEW_MODEL,
             results: [],
             error: null,
             checkedAt: null,
