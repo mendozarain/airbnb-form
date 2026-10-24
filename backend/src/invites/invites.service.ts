@@ -13,7 +13,7 @@ import { AuditService, type AuditActor } from "../audit/audit.service.js";
 import { HostexDeliveryStatus, InviteStatus, SubmissionStatus } from "../generated/prisma/enums.js";
 import { JobDispatcher } from "../jobs/job.dispatcher.js";
 import { PrismaService } from "../prisma/prisma.service.js";
-import { SettingsService } from "../settings/settings.service.js";
+import { AI_REVIEW_MODEL, SettingsService } from "../settings/settings.service.js";
 import { StorageService } from "../storage/storage.service.js";
 import { requiredEnv } from "../config/env.js";
 import { deleteAfterIso, safeFileName, uploadKey, type UploadRequest } from "../common/upload.js";
@@ -348,7 +348,7 @@ export class InvitesService {
           data: {
             submissionId: created.id,
             status: "PENDING",
-            model: "google/gemini-2.5-flash-lite"
+            model: AI_REVIEW_MODEL
           }
         });
       } else if (autoQueue) {

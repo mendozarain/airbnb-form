@@ -29,7 +29,8 @@ describe("SettingsService email templates", () => {
     await expect(service.getAiReviewEmail()).resolves.toBe("mendozarhainne@gmail.com");
     await expect(service.setAiIdCheck(false, " Review@Example.com ")).resolves.toMatchObject({
       enabled: false,
-      reviewEmail: "review@example.com"
+      reviewEmail: "review@example.com",
+      model: "google/gemini-3.1-flash-lite"
     });
     expect(upsert).toHaveBeenCalledWith({
       where: { key: "ai_id_check_enabled" },
