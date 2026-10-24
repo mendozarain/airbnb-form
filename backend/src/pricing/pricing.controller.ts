@@ -84,6 +84,11 @@ export class PricingController {
   run(@Param("id") id: string) {
     return this.pricing.getRun(id);
   }
+
+  @Get("runs/:id/export")
+  exportRun(@Param("id") id: string) {
+    return this.pricing.exportRun(id);
+  }
 }
 
 @Controller("api/admin/calendar")

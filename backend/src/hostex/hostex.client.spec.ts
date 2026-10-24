@@ -135,6 +135,52 @@ describe("HostexClient", () => {
       })
     );
   });
+
+  it("does not call Hostex when the extra-guest fee is below the configured minimum", async () => {
+    const fetchMock = jest.fn<typeof fetch>();
+    global.fetch = fetchMock;
+
+    await expect(
+      new HostexClient().updateAirbnbPriceAndRules(
+        "listing-1",
+        { extra_guest_fee: 317, max_guests: 4 },
+        { extraGuestFeeMinimum: 318 }
+      )
+    ).rejects.toThrow(/at least ₱318/);
+    await expect(
+      new HostexClient().updateAirbnbPriceAndRules("listing-1", { extra_guest_fee: 350 })
+    ).rejects.toThrow(/configured minimum/);
+
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("queues per-date arrival minimums and does not send a stay-through rule", async () => {
+    const fetchMock = jest.fn<typeof fetch>().mockResolvedValue(
+      new Response(JSON.stringify({ error_code: 200, request_id: "request-4" }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" }
+      })
+    );
+    global.fetch = fetchMock;
+    const restrictions = [
+      { start_date: "2026-11-06", end_date: "2026-11-07", min_stay_on_arrival: 2 },
+      { start_date: "2026-11-08", end_date: "2026-11-08", min_stay_on_arrival: 1 }
+    ];
+
+    await expect(
+      new HostexClient().submitRestrictions("booking.com", "plan-1", restrictions)
+    ).resolves.toEqual({
+      requestId: "request-4"
+    });
+
+    const [url, options] = fetchMock.mock.calls[0];
+    expect(requestUrl(url)).toBe("https://api.hostex.io/v3/listings/restrictions");
+    expect(options?.method).toBe("POST");
+    expect(options?.body).toBe(
+      JSON.stringify({ channel_type: "booking.com", listing_id: "plan-1", restrictions })
+    );
+    expect(options?.body).not.toContain("min_stay_through");
+  });
 });
 
 function requestUrl(value: string | URL | Request) {

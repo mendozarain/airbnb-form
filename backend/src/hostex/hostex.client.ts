@@ -1,4 +1,5 @@
 import { Injectable } from "@nestjs/common";
+import { airbnbExtraGuestFeeError } from "@cozy-d-714/shared";
 import { requiredEnv } from "../config/env.js";
 
 const HOSTEX_API_BASE = "https://api.hostex.io/v3";
@@ -53,6 +54,8 @@ export type HostexAirbnbPriceRules = {
   last_minute_discount?: HostexDiscountRule[];
   high_rated_guest_discount?: boolean;
   mobile_only_discount?: boolean;
+  extra_guest_fee?: number;
+  max_guests?: number;
   minimum_stay?: number;
   maximum_stay?: number;
   advance_notice?: number | null;
@@ -203,6 +206,19 @@ export class HostexClient {
     return { requestId: payload.request_id ?? null };
   }
 
+  // Per-date min stay for every channel. Success only means Hostex queued the task.
+  // min_stay_on_arrival is the field Airbnb, Booking.com, Agoda, and Hostex direct share.
+  async submitRestrictions(
+    channelType: string,
+    listingId: string,
+    restrictions: Array<{ start_date: string; end_date: string; min_stay_on_arrival: number }>
+  ) {
+    const payload = await this.request<never>("POST", "/listings/restrictions", {
+      body: { channel_type: channelType, listing_id: listingId, restrictions }
+    });
+    return { requestId: payload.request_id ?? null };
+  }
+
   async getAirbnbPriceAndRules(listingId: string) {
     const payload = await this.request<HostexAirbnbPriceRules>("GET", "/listings/airbnb/price_and_rules", {
       query: { listing_id: listingId }
@@ -211,7 +227,19 @@ export class HostexClient {
     return payload.data;
   }
 
-  async updateAirbnbPriceAndRules(listingId: string, settings: HostexAirbnbPriceRules) {
+  async updateAirbnbPriceAndRules(
+    listingId: string,
+    settings: HostexAirbnbPriceRules,
+    guard?: { extraGuestFeeMinimum: number }
+  ) {
+    if (settings.extra_guest_fee !== undefined) {
+      const minimum = guard?.extraGuestFeeMinimum;
+      const issue =
+        minimum === undefined
+          ? "Airbnb extra-guest fee requires its configured minimum"
+          : airbnbExtraGuestFeeError(settings.extra_guest_fee, minimum);
+      if (issue) throw new Error(issue);
+    }
     const payload = await this.request<never>("POST", "/listings/airbnb/price_and_rules", {
       body: { listing_id: listingId, settings }
     });

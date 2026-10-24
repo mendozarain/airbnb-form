@@ -1,4 +1,5 @@
 import { z } from "zod";
+import type { PricingConfig } from "./pricing-schema.js";
 
 export const PURPOSES = ["Tenant", "Visitor of Tenant", "Viewing"] as const;
 export const BUILDING_CODES = ["A", "B", "C", "D"] as const;
@@ -212,6 +213,7 @@ export type CalendarDay = {
   available: boolean | null;
   airbnbPrice: number | null;
   recommendedPrice: number | null;
+  recommendedMinStay?: number | null;
   event?: string | null;
   reasons: string[];
   channels: Array<{
@@ -232,69 +234,14 @@ export type CalendarMonth = {
   days: CalendarDay[];
 };
 
-export const pricingListingSchema = z.object({
-  channelType: z.string().trim().min(1),
-  listingId: z.string().trim().min(1),
-  ratio: z.coerce.number().positive()
-});
-
-export const pricingEventSchema = z.object({
-  name: z.string().trim().min(1),
-  start: z.string().regex(/^\d{2}-\d{2}$/),
-  end: z.string().regex(/^\d{2}-\d{2}$/)
-});
-
-export const PRICING_ALGORITHM = "vacancy-tiers-v1" as const;
-
-export const pricingConfigSchema = z
-  .object({
-    algorithm: z.literal(PRICING_ALGORITHM),
-    propertyName: z.string().trim().min(1),
-    propertyId: z.coerce.number().int().positive(),
-    timezone: z.literal("Asia/Manila"),
-    horizonDays: z.coerce.number().int().min(1).max(365),
-    baseAirbnbPrice: z.coerce.number().int().positive(),
-    minimumAirbnbPrice: z.coerce.number().int().positive(),
-    maximumNonEventAirbnbPrice: z.coerce.number().int().positive(),
-    weekendPremium: z.coerce.number().min(0).max(1),
-    eventBoost: z.coerce.number().min(0).max(2),
-    roundTo: z.coerce.number().int().positive(),
-    listings: z.array(pricingListingSchema).min(1),
-    recurringEvents: z.array(pricingEventSchema)
-  })
-  .refine((value) => value.minimumAirbnbPrice <= value.baseAirbnbPrice, {
-    message: "Minimum price cannot exceed base price",
-    path: ["minimumAirbnbPrice"]
-  })
-  .refine((value) => value.baseAirbnbPrice <= value.maximumNonEventAirbnbPrice, {
-    message: "Base price cannot exceed maximum price",
-    path: ["maximumNonEventAirbnbPrice"]
-  })
-  .superRefine((value, context) => {
-    for (const channel of ["booking.com", "agoda"]) {
-      const listings = value.listings.filter((listing) => listing.channelType.toLowerCase() === channel);
-      for (const listing of listings) {
-        if (listing.ratio < 1.2 || listing.ratio > 1.4 || listing.ratio !== listings[0]?.ratio) {
-          context.addIssue({
-            code: "custom",
-            path: ["listings"],
-            message: `${channel} must use one markup between 20% and 40% across all its listings`
-          });
-        }
-      }
-    }
-    if (
-      value.listings.some((listing) => listing.channelType.toLowerCase() === "airbnb" && listing.ratio !== 1)
-    ) {
-      context.addIssue({
-        code: "custom",
-        path: ["listings"],
-        message: "Airbnb must use the calculated nightly price without a markup"
-      });
-    }
-  });
-
-export type PricingConfig = z.infer<typeof pricingConfigSchema>;
+export {
+  PRICING_ALGORITHM,
+  airbnbExtraGuestFeeError,
+  pricingConfigSchema,
+  pricingEventSchema,
+  pricingListingSchema
+} from "./pricing-schema.js";
+export type { PricingConfig, PricingEvent, PricingListing } from "./pricing-schema.js";
 export type PricingSettings = {
   version: number;
   automationOn: boolean;
@@ -309,10 +256,22 @@ export type PricingSettings = {
   }>;
 };
 
+export type PricingRestrictionRange = {
+  start_date: string;
+  end_date: string;
+  min_stay_on_arrival: number;
+};
+
+export type PricingChannelRestrictions = {
+  channelType: string;
+  listingId: string;
+  restrictions: PricingRestrictionRange[];
+};
+
 export type PricingDay = {
   date: string;
   leadDays?: number;
-  tier?: string;
+  minStay: number;
   platformPrices?: Array<{ channelType: string; listingId: string; price: number }>;
   airbnbPrice: number;
   available: boolean;
@@ -342,9 +301,26 @@ export type PricingRun = {
   }>;
 };
 
+export type PricingLengthOfStay = {
+  weeklyDiscountPercent: number;
+  monthlyDiscountPercent: number;
+  appliedByAutomation: false;
+  note: string;
+};
+
+export type PricingExtraGuest = {
+  fee: number;
+  includedGuests: number;
+  airbnb: "pushed-on-apply";
+  otherChannels: "manual";
+};
+
 export type PricingPreview = PricingRun & {
   occupancy: Record<string, { booked: number; total: number; ratio: number }>;
   days: PricingDay[];
+  restrictions: PricingChannelRestrictions[];
+  lengthOfStay: PricingLengthOfStay | null;
+  extraGuest: PricingExtraGuest | null;
 };
 
 export const airbnbDiscountRuleSchema = z
@@ -523,3 +499,12 @@ export type SettingsStatus = {
 };
 
 export { PRICING_TIERS, pricingTier, tierPrice, channelPrice, startingPrice } from "./pricing.js";
+export {
+  DEFAULT_CHANNEL_RATIOS,
+  DEMAND_PRICING_DEFAULTS,
+  PRICING_EVENTS,
+  defaultListingRatio,
+  listingsWithDefaultRatios,
+  pricingConfigWithDefaults
+} from "./pricing-calendar.js";
+export { pricingPreviewCsv } from "./pricing-csv.js";

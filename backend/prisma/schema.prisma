@@ -460,6 +460,7 @@ model PricingDay {
   runId          String     @map("run_id") @db.Uuid
   date           DateTime   @db.Date
   airbnbPrice    Int        @map("airbnb_price")
+  minStay        Int        @default(1) @map("min_stay")
   available      Boolean
   occupancyRatio Float      @map("occupancy_ratio")
   event          String?

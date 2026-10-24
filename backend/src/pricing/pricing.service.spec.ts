@@ -3,30 +3,22 @@ import {
   PRICING_ALGORITHM,
   airbnbPricingRulesPatchSchema,
   pricingConfigSchema,
+  pricingConfigWithDefaults,
   type PricingConfig
 } from "@cozy-d-714/shared";
 import { PricingRunMode, PricingRunStatus } from "../generated/prisma/enums.js";
 import { upgradePricingConfig } from "./pricing.config.js";
 import { PricingService } from "./pricing.service.js";
 
-const config: PricingConfig = {
-  algorithm: "vacancy-tiers-v1",
+const config: PricingConfig = pricingConfigWithDefaults({
   propertyName: "D-714",
-  propertyId: 12684960,
-  timezone: "Asia/Manila",
   horizonDays: 1,
-  baseAirbnbPrice: 3000,
-  minimumAirbnbPrice: 2500,
-  maximumNonEventAirbnbPrice: 3700,
-  weekendPremium: 0.08,
-  eventBoost: 0.25,
-  roundTo: 50,
+  events: [],
   listings: [
     { channelType: "airbnb", listingId: "airbnb", ratio: 1 },
     { channelType: "agoda", listingId: "agoda", ratio: 1.3 }
-  ],
-  recurringEvents: []
-};
+  ]
+});
 
 const settings = {
   id: "primary",
@@ -244,7 +236,12 @@ describe("PricingService", () => {
       pricingRun: { create: runCreate, update: runUpdate },
       booking: { findMany: resolved([]) }
     };
-    const hostex = { getAvailabilities: availability };
+    const hostex = {
+      getAvailabilities: availability,
+      submitPrices: jest.fn(),
+      submitRestrictions: jest.fn(),
+      updateAirbnbPriceAndRules: jest.fn()
+    };
     const service = new PricingService(prisma as never, hostex as never, { record: resolved({}) } as never);
 
     try {
@@ -252,8 +249,20 @@ describe("PricingService", () => {
 
       expect(runCreate.mock.invocationCallOrder[0]).toBeLessThan(availability.mock.invocationCallOrder[0]);
       expect(runUpdate).toHaveBeenCalledWith(
-        expect.objectContaining({ data: expect.objectContaining({ status: PricingRunStatus.PREVIEWED }) })
+        expect.objectContaining({
+          data: expect.objectContaining({
+            status: PricingRunStatus.PREVIEWED,
+            days: {
+              create: expect.arrayContaining([
+                expect.objectContaining({ minStay: expect.any(Number), airbnbPrice: expect.any(Number) })
+              ])
+            }
+          })
+        })
       );
+      expect(hostex.submitPrices).not.toHaveBeenCalled();
+      expect(hostex.submitRestrictions).not.toHaveBeenCalled();
+      expect(hostex.updateAirbnbPriceAndRules).not.toHaveBeenCalled();
     } finally {
       jest.useRealTimers();
     }
@@ -305,6 +314,8 @@ describe("PricingService", () => {
       prisma as never,
       {
         submitPrices,
+        submitRestrictions: resolved({ requestId: "restrict-1" }),
+        updateAirbnbPriceAndRules: resolved({ requestId: "rules-1" }),
         getAvailabilities: resolved(
           run.days.map((day) => ({ date: day.date.toISOString().slice(0, 10), available: day.available }))
         )
@@ -353,27 +364,37 @@ describe("pricing settings upgrade", () => {
     };
   };
 
-  it("upgrades all OTA plans, preserves other rates, and removes obsolete controls", () => {
+  it("upgrades legacy settings to the demand-pace defaults and per-listing ratios", () => {
     const upgraded = upgradePricingConfig(legacyConfig());
     expect(upgraded).toMatchObject({
       algorithm: PRICING_ALGORITHM,
-      baseAirbnbPrice: 3000,
-      minimumAirbnbPrice: 2500
+      weekdayBasePrice: 2750,
+      weekendBasePrice: 3400,
+      weekdayFloor: 2300,
+      weekendFloor: 3000,
+      maximumPrice: 5000,
+      weeklyDiscountPercent: 10,
+      monthlyDiscountPercent: 25,
+      extraGuestFee: 350,
+      airbnbExtraGuestFeeMinimum: 318,
+      includedGuests: 4
     });
-    expect(upgraded.listings.map((listing) => listing.ratio)).toEqual([1, 1.3, 1.3, 1.3, 1.3, 1.5]);
+    expect(upgraded.listings.map((listing) => listing.ratio)).toEqual([1, 1.2, 1.2, 1.2, 1.2, 1]);
     expect(upgraded).not.toHaveProperty("rainySeasonDiscount");
+    expect(upgraded).not.toHaveProperty("baseAirbnbPrice");
+    expect(upgraded.events.some((event) => event.name === "Holy Week" && event.price === 4000)).toBe(true);
     expect(upgradePricingConfig(upgraded)).toEqual(upgraded);
   });
 
-  it.each([1.2, 1.3, 1.4])("accepts independent OTA markup %s", (ratio) => {
+  it.each([1, 1.105, 1.17, 1.2, 1.3, 1.5])("accepts per-listing OTA ratio %s", (ratio) => {
     const current = upgradePricingConfig(legacyConfig());
     current.listings = current.listings.map((listing) =>
-      listing.channelType === "agoda" ? { ...listing, ratio } : listing
+      listing.channelType === "agoda" || listing.listingId === "plan-1" ? { ...listing, ratio } : listing
     );
     expect(pricingConfigSchema.safeParse(current).success).toBe(true);
   });
 
-  it.each([1.19, 1.41, 1.5])("rejects out-of-range OTA ratio %s", (ratio) => {
+  it.each([0.99, 3.01])("rejects out-of-range OTA ratio %s", (ratio) => {
     expect(
       pricingConfigSchema.safeParse({
         ...config,
@@ -382,10 +403,12 @@ describe("pricing settings upgrade", () => {
     ).toBe(false);
   });
 
-  it("rejects mixed Booking.com markups and an Airbnb multiplier", () => {
+  it("accepts different Booking.com ratios and rejects an Airbnb multiplier", () => {
     const current = upgradePricingConfig(legacyConfig());
-    current.listings[1].ratio = 1.2;
-    expect(pricingConfigSchema.safeParse(current).success).toBe(false);
+    current.listings[1].ratio = 1.105;
+    current.listings[2].ratio = 1.3;
+    current.listings[3].ratio = 1.17;
+    expect(pricingConfigSchema.safeParse(current).success).toBe(true);
     expect(
       pricingConfigSchema.safeParse({
         ...config,
@@ -493,7 +516,9 @@ function publishingFixture() {
     getAvailabilities: resolved(
       days.map((day) => ({ date: day.date.toISOString().slice(0, 10), available: true }))
     ),
-    submitPrices: resolved({ requestId: "request-1" })
+    submitPrices: resolved({ requestId: "request-1" }),
+    submitRestrictions: resolved({ requestId: "restrict-1" }),
+    updateAirbnbPriceAndRules: resolved({ requestId: "rules-1" })
   };
   const service = new PricingService(prisma as never, hostex as never, { record: resolved({}) } as never);
   return { run, prisma, hostex, service };
@@ -557,6 +582,10 @@ describe("publishing safeguards", () => {
       expect(hostex.submitPrices).toHaveBeenCalledWith("agoda", "agoda", [
         { start_date: "2026-08-02", end_date: "2026-08-02", price: 3250 }
       ]);
+      expect(hostex.submitRestrictions).toHaveBeenCalledWith("agoda", "agoda", [
+        { start_date: "2026-08-02", end_date: "2026-08-02", min_stay_on_arrival: 1 }
+      ]);
+      expect(JSON.stringify(hostex.submitRestrictions.mock.calls)).not.toContain("min_stay_through");
       expect(hostex.submitPrices).toHaveBeenCalledTimes(operation === "apply" ? 2 : 1);
     });
   }
@@ -566,11 +595,17 @@ describe("publishing safeguards", () => {
     const result = await service.getRun("run-1");
     expect(result.run.days[0]).toMatchObject({
       leadDays: 0,
-      tier: "0–2 days",
+      minStay: 1,
       platformPrices: [
         { channelType: "airbnb", price: 2500 },
         { channelType: "agoda", price: 3250 }
       ]
+    });
+    expect(result.run.restrictions).toHaveLength(2);
+    expect(result.run.lengthOfStay).toMatchObject({
+      weeklyDiscountPercent: 10,
+      monthlyDiscountPercent: 25,
+      appliedByAutomation: false
     });
   });
 
@@ -580,6 +615,41 @@ describe("publishing safeguards", () => {
     const result = await service.getRun("run-1");
     expect(result.run.days[0]).toMatchObject({ airbnbPrice: 2500 });
     expect(result.run.days[0]?.platformPrices).toBeUndefined();
+  });
+
+  it("rejects an extra-guest fee below the configured Airbnb minimum", () => {
+    const seeded = pricingConfigWithDefaults({
+      listings: [{ channelType: "airbnb", listingId: "airbnb", ratio: 1 }]
+    });
+    const { airbnbExtraGuestFeeMinimum: _minimum, ...withoutMinimum } = seeded;
+    void _minimum;
+    expect(pricingConfigSchema.parse(withoutMinimum).airbnbExtraGuestFeeMinimum).toBe(318);
+    expect(pricingConfigSchema.safeParse({ ...seeded, extraGuestFee: 317 }).success).toBe(false);
+    expect(pricingConfigSchema.safeParse({ ...seeded, extraGuestFee: 318 }).success).toBe(true);
+    expect(
+      pricingConfigSchema.safeParse({
+        ...seeded,
+        airbnbExtraGuestFeeMinimum: 400,
+        extraGuestFee: 399
+      }).success
+    ).toBe(false);
+    expect(
+      pricingConfigSchema.safeParse({
+        ...seeded,
+        airbnbExtraGuestFeeMinimum: 400,
+        extraGuestFee: 400
+      }).success
+    ).toBe(true);
+  });
+
+  it("does not call Hostex when the extra-guest fee is below Airbnb's minimum", async () => {
+    const { run, hostex, service } = publishingFixture();
+    run.configSnapshot = { ...run.configSnapshot, extraGuestFee: 317, airbnbExtraGuestFeeMinimum: 318 };
+    await expect(service.apply("run-1")).rejects.toThrow(/at least ₱318/);
+    expect(hostex.getAvailabilities).not.toHaveBeenCalled();
+    expect(hostex.submitPrices).not.toHaveBeenCalled();
+    expect(hostex.submitRestrictions).not.toHaveBeenCalled();
+    expect(hostex.updateAirbnbPriceAndRules).not.toHaveBeenCalled();
   });
 
   it("does not send empty price batches", async () => {
@@ -592,5 +662,63 @@ describe("publishing safeguards", () => {
     );
     await expect(service.apply("run-1")).rejects.toThrow("No available nights");
     expect(hostex.submitPrices).not.toHaveBeenCalled();
+  });
+
+  it("sends arrival minimums to Airbnb, every Booking.com plan, Agoda, and Hostex direct", async () => {
+    const { run, hostex, service } = publishingFixture();
+    const channels = [
+      ["airbnb", "airbnb-1", 1],
+      ["booking.com", "booking-a", 1.105],
+      ["booking.com", "booking-b", 1.3],
+      ["booking.com", "booking-c", 1.17],
+      ["agoda", "agoda-1", 1.2],
+      ["booking_site", "direct-1", 1]
+    ] as const;
+    run.configSnapshot = pricingConfigWithDefaults({
+      horizonDays: 1,
+      events: [],
+      listings: channels.map(([channelType, listingId, ratio]) => ({ channelType, listingId, ratio }))
+    });
+    jest.spyOn(service, "getRun").mockResolvedValue({ run: {} } as never);
+    await service.apply("run-1");
+    for (const [channelType, listingId] of channels) {
+      expect(hostex.submitRestrictions).toHaveBeenCalledWith(
+        channelType,
+        listingId,
+        expect.arrayContaining([expect.objectContaining({ min_stay_on_arrival: expect.any(Number) })])
+      );
+    }
+    expect(hostex.submitRestrictions).toHaveBeenCalledTimes(6);
+    expect(hostex.updateAirbnbPriceAndRules).toHaveBeenCalledWith(
+      "airbnb-1",
+      {
+        extra_guest_fee: 350,
+        max_guests: 4,
+        minimum_stay: 1
+      },
+      { extraGuestFeeMinimum: 318 }
+    );
+    expect(hostex.updateAirbnbPriceAndRules).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("automation master switch", () => {
+  it("does not read or write Hostex while pricing automation is disabled", async () => {
+    const previous = process.env.ENABLE_HOSTEX_PRICING_AUTOMATION;
+    delete process.env.ENABLE_HOSTEX_PRICING_AUTOMATION;
+    const hostex = {
+      getAvailabilities: jest.fn(),
+      submitPrices: jest.fn(),
+      submitRestrictions: jest.fn(),
+      updateAirbnbPriceAndRules: jest.fn()
+    };
+    const service = new PricingService({} as never, hostex as never, { record: resolved({}) } as never);
+    await service.automaticPricing();
+    expect(hostex.getAvailabilities).not.toHaveBeenCalled();
+    expect(hostex.submitPrices).not.toHaveBeenCalled();
+    expect(hostex.submitRestrictions).not.toHaveBeenCalled();
+    expect(hostex.updateAirbnbPriceAndRules).not.toHaveBeenCalled();
+    if (previous === undefined) delete process.env.ENABLE_HOSTEX_PRICING_AUTOMATION;
+    else process.env.ENABLE_HOSTEX_PRICING_AUTOMATION = previous;
   });
 });

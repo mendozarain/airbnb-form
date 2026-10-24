@@ -1,21 +1,23 @@
-import {
-  pricingTier,
-  tierPrice,
-  channelPrice,
-  startingPrice as roundStartingPrice,
-  type PricingConfig
-} from "@cozy-d-714/shared";
+import { channelPrice, type PricingConfig, type PricingEvent } from "@cozy-d-714/shared";
 
 export type PricingInputBooking = { checkIn: string; checkOut: string; status: string };
 export type PricingAvailability = { date: string; available: boolean };
+export type PricingRestrictionRange = {
+  start_date: string;
+  end_date: string;
+  min_stay_on_arrival: number;
+};
 export type CalculatedPricingDay = {
   date: string;
   airbnbPrice: number;
+  minStay: number;
   available: boolean;
   occupancyRatio: number;
   event: string | null;
   reasons: string[];
 };
+
+const WEEKEND_NIGHTS = new Set([5, 6]);
 
 export function calculatePricing(
   today: string,
@@ -29,74 +31,121 @@ export function calculatePricing(
   const missing = dates.filter((date) => !available.has(date));
   if (missing.length) throw new Error(`Hostex availability is missing ${missing.length} date(s)`);
 
-  const bookedDates = new Set<string>();
-  for (const booking of bookings) {
-    if (booking.status !== "accepted") continue;
-    for (const date of datesInRange(
-      maxDate(booking.checkIn, today),
-      addDays(minDate(booking.checkOut, addDays(end, 1)), -1)
-    )) {
-      if (date >= today && date <= end) bookedDates.add(date);
-    }
-  }
+  const accepted = bookings.filter((booking) => booking.status === "accepted");
+  const covers = (date: string) =>
+    accepted.some((booking) => booking.checkIn <= date && date < booking.checkOut);
 
-  const occupancy = new Map<string, { booked: number; total: number; ratio: number }>();
+  const filled = (date: string): boolean | null => {
+    if (covers(date)) return true;
+    const listed = available.get(date);
+    if (listed === undefined) return null;
+    return !listed;
+  };
+  const forSale = (date: string) => filled(date) === false;
+
+  const monthly = new Map<string, { booked: number; total: number; ratio: number }>();
   for (const date of dates) {
     const key = date.slice(0, 7);
-    const current = occupancy.get(key) ?? { booked: 0, total: 0, ratio: 0 };
+    const current = monthly.get(key) ?? { booked: 0, total: 0, ratio: 0 };
     current.total += 1;
-    if (bookedDates.has(date)) current.booked += 1;
-    occupancy.set(key, current);
+    if (filled(date)) current.booked += 1;
+    monthly.set(key, current);
   }
-  for (const value of occupancy.values()) value.ratio = value.total ? value.booked / value.total : 0;
+  for (const value of monthly.values()) value.ratio = value.total ? value.booked / value.total : 0;
+
+  const nearTermDates = datesInRange(today, addDays(today, config.paceHorizonDays)).filter((date) =>
+    dates.includes(date)
+  );
+  const nearTermBooked = nearTermDates.filter((date) => filled(date) === true).length;
+  const nearTermOccupancy = nearTermDates.length ? nearTermBooked / nearTermDates.length : 0;
+  monthly.set("nearTerm", {
+    booked: nearTermBooked,
+    total: nearTermDates.length,
+    ratio: nearTermOccupancy
+  });
 
   const days = dates.map((date) => {
-    const occupancyRatio = occupancy.get(date.slice(0, 7))?.ratio ?? 0;
+    const window = datesInRange(
+      addDays(date, -config.paceWindowDays),
+      addDays(date, config.paceWindowDays)
+    ).filter((cursor) => filled(cursor) !== null);
+    const windowBooked = window.filter((cursor) => filled(cursor) === true).length;
+    const previous = filled(addDays(date, -1));
+    const next = filled(addDays(date, 1));
     return calculateDay(
       date,
       today,
-      (available.get(date) ?? false) && !bookedDates.has(date),
-      occupancyRatio,
+      {
+        available: forSale(date),
+        windowOccupancy: window.length ? windowBooked / window.length : 0,
+        nearTermOccupancy,
+        adjacentFilled: previous === true || next === true,
+        orphanGap: forSale(date) && previous === true && next === true
+      },
       config
     );
   });
-  return { end, occupancy: Object.fromEntries(occupancy), days };
+  return { end, occupancy: Object.fromEntries(monthly), days };
 }
 
 export function calculateDay(
   date: string,
   today: string,
-  available: boolean,
-  occupancyRatio: number,
+  context: {
+    available: boolean;
+    windowOccupancy: number;
+    nearTermOccupancy: number;
+    adjacentFilled: boolean;
+    orphanGap: boolean;
+  },
   config: PricingConfig
 ): CalculatedPricingDay {
-  const day = new Date(`${date}T00:00:00.000Z`);
   const leadDays = daysBetween(today, date);
-  let price = config.baseAirbnbPrice;
-  const reasons = ["base"];
-  if ([5, 6].includes(day.getUTCDay())) {
-    price *= 1 + config.weekendPremium;
-    reasons.push("weekend");
-  }
-  let startingPrice = roundStartingPrice(
-    price,
-    config.minimumAirbnbPrice,
-    config.maximumNonEventAirbnbPrice,
-    config.roundTo
-  );
-  const event = recurringEvent(date, config.recurringEvents);
+  const weekend = isWeekendNight(date);
+  const matching = eventsOn(date, config.events);
+  const event = pricedEvent(matching);
+  const reasons = [`${leadDays} days away`];
+  let price = weekend ? config.weekendBasePrice : config.weekdayBasePrice;
+  let floor = weekend ? config.weekendFloor : config.weekdayFloor;
+  let cap = config.maximumPrice;
+
   if (event) {
-    startingPrice = Math.max(
-      startingPrice,
-      roundTo(config.baseAirbnbPrice * (1 + config.eventBoost), config.roundTo)
-    );
-    reasons.push(event);
+    price = event.price;
+    floor = event.minPrice ?? event.price;
+    cap = Math.min(config.maximumPrice, event.maxPrice ?? event.price);
+    reasons.push(event.name);
+  } else {
+    reasons.push(weekend ? "weekend" : "weekday");
   }
-  const airbnbPrice = tierPrice(startingPrice, config.minimumAirbnbPrice, leadDays, config.roundTo);
-  const tier = pricingTier(leadDays);
-  reasons.push(`${leadDays} days away`, `${tier.label}: ${tier.fraction * 100}% of gap above minimum`);
-  if (!available) reasons.push("skipped: booked or blocked");
-  return { date, airbnbPrice, available, occupancyRatio, event, reasons };
+
+  const behindPace = context.nearTermOccupancy < config.lastMinutePaceThreshold;
+  const lastMinute = context.available && leadDays <= config.lastMinuteLeadDays;
+  const weekendHeldByNeighbors = weekend && context.adjacentFilled;
+  const decay = lastMinute && behindPace && !event && !weekendHeldByNeighbors;
+
+  if (decay) {
+    price = weekend ? config.weekendFloor : config.lastMinuteWeekdayPrice;
+    reasons.push(weekend ? "last-minute weekend floor" : "last-minute weekday");
+  } else {
+    if (cap > floor) price = occupancyPremium(price, context.windowOccupancy, config, reasons);
+    if (!event && weekendHeldByNeighbors && config.weekendScarcityPremium > 0) {
+      price *= 1 + config.weekendScarcityPremium;
+      reasons.push("nearby dates booked");
+    }
+  }
+
+  const airbnbPrice = clampMoney(price, floor, cap, config.roundTo);
+  const minStay = minimumStay(date, leadDays, context, matching, config, reasons);
+  if (!context.available) reasons.push("skipped: booked or blocked");
+  return {
+    date,
+    airbnbPrice,
+    minStay,
+    available: context.available,
+    occupancyRatio: context.windowOccupancy,
+    event: event?.name ?? null,
+    reasons
+  };
 }
 
 export function compressPrices(days: CalculatedPricingDay[], ratio: number) {
@@ -111,10 +160,97 @@ export function compressPrices(days: CalculatedPricingDay[], ratio: number) {
   return ranges;
 }
 
+export function compressRestrictions(
+  days: Array<Pick<CalculatedPricingDay, "date" | "available" | "minStay">>
+) {
+  const ranges: PricingRestrictionRange[] = [];
+  for (const day of days) {
+    if (!day.available) continue;
+    const last = ranges.at(-1);
+    if (last && last.min_stay_on_arrival === day.minStay && addDays(last.end_date, 1) === day.date) {
+      last.end_date = day.date;
+    } else {
+      ranges.push({ start_date: day.date, end_date: day.date, min_stay_on_arrival: day.minStay });
+    }
+  }
+  return ranges;
+}
+
 export function addDays(value: string, days: number) {
   const date = new Date(`${value}T00:00:00.000Z`);
   date.setUTCDate(date.getUTCDate() + days);
   return date.toISOString().slice(0, 10);
+}
+
+function minimumStay(
+  date: string,
+  leadDays: number,
+  context: { available: boolean; orphanGap: boolean },
+  matching: PricingEvent[],
+  config: PricingConfig,
+  reasons: string[]
+) {
+  const weekend = isWeekendNight(date);
+  let stay = weekend ? config.weekendMinStay : config.defaultMinStay;
+  let fromEvent = false;
+  for (const event of matching) {
+    if (event.minStay == null) continue;
+    if (event.minStayOnWeekendsOnly && !weekend) continue;
+    if (event.minStay >= stay) {
+      stay = event.minStay;
+      fromEvent = true;
+    }
+  }
+  if (fromEvent) reasons.push("event minimum stay");
+  else if (weekend) reasons.push("weekend minimum stay");
+  else reasons.push("weekday minimum stay");
+
+  if (
+    context.available &&
+    !fromEvent &&
+    weekend &&
+    leadDays <= config.minStayRelaxLeadDays &&
+    stay > config.defaultMinStay
+  ) {
+    stay = config.defaultMinStay;
+    reasons.push("relaxed close to arrival");
+  }
+  if (context.orphanGap && stay > config.defaultMinStay) {
+    stay = config.defaultMinStay;
+    reasons.push("orphan gap");
+  }
+  return stay;
+}
+
+function occupancyPremium(price: number, windowOccupancy: number, config: PricingConfig, reasons: string[]) {
+  if (windowOccupancy >= config.highOccupancyThreshold && config.highOccupancyPremium > 0) {
+    reasons.push("high surrounding occupancy");
+    return price * (1 + config.highOccupancyPremium);
+  }
+  if (windowOccupancy >= config.mediumOccupancyThreshold && config.mediumOccupancyPremium > 0) {
+    reasons.push("medium surrounding occupancy");
+    return price * (1 + config.mediumOccupancyPremium);
+  }
+  return price;
+}
+
+function eventsOn(date: string, events: PricingEvent[]) {
+  return events.filter((event) => {
+    if (date < event.startDate || date > event.endDate) return false;
+    if (event.weekendOnly && !isWeekendNight(date)) return false;
+    return true;
+  });
+}
+
+function pricedEvent(events: PricingEvent[]) {
+  return events.reduce<PricingEvent | null>(
+    (best, event) => (!best || event.price > best.price ? event : best),
+    null
+  );
+}
+
+function isWeekendNight(date: string) {
+  return WEEKEND_NIGHTS.has(new Date(`${date}T00:00:00.000Z`).getUTCDay());
 }
 
 function datesInRange(start: string, end: string) {
@@ -124,32 +260,14 @@ function datesInRange(start: string, end: string) {
   return values;
 }
 
-function recurringEvent(date: string, events: PricingConfig["recurringEvents"]) {
-  const year = Number(date.slice(0, 4));
-  for (const event of events) {
-    let start = `${year}-${event.start}`;
-    let end = `${year}-${event.end}`;
-    if (end < start) {
-      end = `${year + 1}-${event.end}`;
-      if (date < start) start = `${year - 1}-${event.start}`;
-    }
-    if (date >= start && date <= end) return event.name;
-  }
-  return null;
-}
-
 function daysBetween(first: string, second: string) {
   return Math.round((Date.parse(`${second}T00:00:00Z`) - Date.parse(`${first}T00:00:00Z`)) / 86_400_000);
 }
 
-function roundTo(value: number, increment: number) {
+function roundMoney(value: number, increment: number) {
   return Math.round(value / increment) * increment;
 }
 
-function minDate(first: string, second: string) {
-  return first < second ? first : second;
-}
-
-function maxDate(first: string, second: string) {
-  return first > second ? first : second;
+function clampMoney(value: number, floor: number, cap: number, increment: number) {
+  return Math.min(cap, Math.max(floor, roundMoney(value, increment)));
 }

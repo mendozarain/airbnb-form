@@ -1,10 +1,17 @@
-import { BadRequestException, ConflictException, Injectable, NotFoundException } from "@nestjs/common";
+import {
+  BadRequestException,
+  ConflictException,
+  Injectable,
+  Logger,
+  NotFoundException
+} from "@nestjs/common";
 import { Cron } from "@nestjs/schedule";
 import {
   PRICING_ALGORITHM,
+  airbnbExtraGuestFeeError,
   channelPrice,
-  pricingTier,
   pricingConfigSchema,
+  pricingPreviewCsv,
   type AirbnbPricingRulesPatch,
   type PricingConfig
 } from "@cozy-d-714/shared";
@@ -18,10 +25,21 @@ import {
 import { localDate } from "../hostex/hostex.time.js";
 import { PrismaService } from "../prisma/prisma.service.js";
 import { upgradePricingConfig } from "./pricing.config.js";
-import { addDays, calculatePricing, compressPrices, type CalculatedPricingDay } from "./pricing.engine.js";
+import {
+  addDays,
+  calculatePricing,
+  compressPrices,
+  compressRestrictions,
+  type CalculatedPricingDay
+} from "./pricing.engine.js";
+
+const LENGTH_OF_STAY_NOTE =
+  "Hostex can set Airbnb weekly and monthly discounts only for the whole listing, so they would also cut peak nights. This automation does not write them. Booking.com, Agoda, and Hostex direct length-of-stay promotions are not on the API used here.";
 
 @Injectable()
 export class PricingService {
+  private readonly logger = new Logger(PricingService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly hostex: HostexClient,
@@ -170,6 +188,7 @@ export class PricingService {
             create: calculated.days.map((day) => ({
               date: dateValue(day.date),
               airbnbPrice: day.airbnbPrice,
+              minStay: day.minStay,
               available: day.available,
               occupancyRatio: day.occupancyRatio,
               event: day.event,
@@ -183,7 +202,14 @@ export class PricingService {
         settingsVersion: settings.version,
         dayCount: run.days.length
       });
-      return runView(run);
+      const view = runView(run);
+      this.logger.log(
+        `Pricing preview ${run.id} stored ${view.days.length} nights and ${view.restrictions.reduce(
+          (total, listing) => total + listing.restrictions.length,
+          0
+        )} restriction ranges without calling Hostex write endpoints`
+      );
+      return view;
     } catch (error) {
       await this.prisma.pricingRun.update({
         where: { id: claimed.id },
@@ -214,20 +240,14 @@ export class PricingService {
     });
     if (!claimed.count) throw new ConflictException("Pricing preview is already being applied");
 
-    const days: CalculatedPricingDay[] = run.days.map((day) => ({
-      date: dateOnly(day.date),
-      airbnbPrice: day.airbnbPrice,
-      available: day.available,
-      occupancyRatio: day.occupancyRatio,
-      event: day.event,
-      reasons: Array.isArray(day.reasons) ? day.reasons.map(String) : []
-    }));
+    const days = storedDays(run.days);
     let failures = 0;
     for (const listing of config.listings) {
       const ranges = compressPrices(days, listing.ratio);
+      const restrictions = compressRestrictions(days);
       if (!ranges.length) continue;
       try {
-        const result = await this.hostex.submitPrices(listing.channelType, listing.listingId, ranges);
+        const result = await this.publishListing(listing, ranges, restrictions, config);
         await this.prisma.pricingSubmission.create({
           data: {
             runId,
@@ -296,15 +316,9 @@ export class PricingService {
       (item) => item.channelType === failed.channelType && item.listingId === failed.listingId
     );
     if (!listing) throw new ConflictException("The failed listing is no longer in this settings snapshot");
-    const days: CalculatedPricingDay[] = run.days.map((day) => ({
-      date: dateOnly(day.date),
-      airbnbPrice: day.airbnbPrice,
-      available: day.available,
-      occupancyRatio: day.occupancyRatio,
-      event: day.event,
-      reasons: Array.isArray(day.reasons) ? day.reasons.map(String) : []
-    }));
+    const days = storedDays(run.days);
     const ranges = compressPrices(days, listing.ratio);
+    const restrictions = compressRestrictions(days);
     if (!ranges.length) throw new ConflictException("No available nights to publish; create a new preview");
     let retry;
     try {
@@ -325,7 +339,7 @@ export class PricingService {
     }
 
     try {
-      const result = await this.hostex.submitPrices(listing.channelType, listing.listingId, ranges);
+      const result = await this.publishListing(listing, ranges, restrictions, config);
       await this.prisma.pricingSubmission.update({
         where: { id: retry.id },
         data: { status: "submitted", requestId: result.requestId, error: null }
@@ -363,6 +377,14 @@ export class PricingService {
     });
     if (!run) throw new NotFoundException("Pricing run not found");
     return { run: { ...runView(run), submissions: run.submissions.map(submissionView) } };
+  }
+
+  async exportRun(id: string) {
+    const { run } = await this.getRun(id);
+    return {
+      filename: `pricing-preview-${run.startedAt.slice(0, 10)}.csv`,
+      csv: pricingPreviewCsv(run)
+    };
   }
 
   @Cron("0 8 * * *", { timeZone: "Asia/Manila" })
@@ -423,8 +445,9 @@ export class PricingService {
               algorithm: PRICING_ALGORITHM,
               previousVersion: settings.version,
               version: current.version,
-              bookingMarkup: 30,
-              agodaMarkup: 30,
+              bookingMarkup: 1.2,
+              agodaMarkup: 1.2,
+              directRatio: 1,
               automationPaused: true
             }
           }
@@ -478,6 +501,37 @@ export class PricingService {
       throw new ConflictException("Availability changed; create a new preview");
     }
     return config;
+  }
+
+  private async publishListing(
+    listing: PricingConfig["listings"][number],
+    ranges: Array<{ start_date: string; end_date: string; price: number }>,
+    restrictions: Array<{ start_date: string; end_date: string; min_stay_on_arrival: number }>,
+    config: PricingConfig
+  ) {
+    const prices = await this.hostex.submitPrices(listing.channelType, listing.listingId, ranges);
+    const stays = restrictions.length
+      ? await this.hostex.submitRestrictions(listing.channelType, listing.listingId, restrictions)
+      : { requestId: null };
+    // Listing-level Airbnb minimum is 1 so per-date rules can allow weekday arrivals.
+    // Length-of-stay discounts are intentionally omitted: they cannot exclude peak dates.
+    if (listing.channelType.toLowerCase() === "airbnb") {
+      const extraGuestFeeIssue = airbnbExtraGuestFeeError(
+        config.extraGuestFee,
+        config.airbnbExtraGuestFeeMinimum
+      );
+      if (extraGuestFeeIssue) throw new BadRequestException(extraGuestFeeIssue);
+      await this.hostex.updateAirbnbPriceAndRules(
+        listing.listingId,
+        {
+          extra_guest_fee: config.extraGuestFee,
+          max_guests: config.includedGuests,
+          minimum_stay: config.defaultMinStay
+        },
+        { extraGuestFeeMinimum: config.airbnbExtraGuestFeeMinimum }
+      );
+    }
+    return { requestId: prices.requestId ?? stays.requestId };
   }
 
   private async airbnbListingId() {
@@ -537,6 +591,28 @@ function runSummary(run: {
   };
 }
 
+function storedDays(
+  days: Array<{
+    date: Date;
+    airbnbPrice: number;
+    minStay?: number;
+    available: boolean;
+    occupancyRatio: number;
+    event: string | null;
+    reasons: unknown;
+  }>
+): CalculatedPricingDay[] {
+  return days.map((day) => ({
+    date: dateOnly(day.date),
+    airbnbPrice: day.airbnbPrice,
+    minStay: day.minStay ?? 1,
+    available: day.available,
+    occupancyRatio: day.occupancyRatio,
+    event: day.event,
+    reasons: Array.isArray(day.reasons) ? day.reasons.map(String) : []
+  }));
+}
+
 function runView(
   run: Parameters<typeof runSummary>[0] & {
     occupancy: unknown;
@@ -544,6 +620,7 @@ function runView(
     days: Array<{
       date: Date;
       airbnbPrice: number;
+      minStay?: number;
       available: boolean;
       occupancyRatio: number;
       event: string | null;
@@ -554,15 +631,12 @@ function runView(
   const parsed = pricingConfigSchema.safeParse(run.configSnapshot);
   const config = parsed.success ? parsed.data : null;
   const today = localDate(run.startedAt, "Asia/Manila");
-  return {
-    ...runSummary(run),
-    occupancy: run.occupancy ?? {},
-    days: run.days.map((day) => ({
+  const days = run.days.map((day) => {
+    const leadDays = Math.round((day.date.getTime() - dateValue(today).getTime()) / 86_400_000);
+    return {
       date: dateOnly(day.date),
-      leadDays: Math.round((day.date.getTime() - dateValue(today).getTime()) / 86_400_000),
-      tier: config
-        ? pricingTier(Math.round((day.date.getTime() - dateValue(today).getTime()) / 86_400_000)).label
-        : undefined,
+      leadDays,
+      minStay: day.minStay ?? 1,
       platformPrices: config?.listings.map((listing) => ({
         channelType: listing.channelType,
         listingId: listing.listingId,
@@ -573,7 +647,36 @@ function runView(
       occupancyRatio: day.occupancyRatio,
       event: day.event,
       reasons: Array.isArray(day.reasons) ? day.reasons.map(String) : []
-    }))
+    };
+  });
+  const stored = storedDays(run.days);
+  return {
+    ...runSummary(run),
+    occupancy: run.occupancy ?? {},
+    days,
+    restrictions: config
+      ? config.listings.map((listing) => ({
+          channelType: listing.channelType,
+          listingId: listing.listingId,
+          restrictions: compressRestrictions(stored)
+        }))
+      : [],
+    lengthOfStay: config
+      ? {
+          weeklyDiscountPercent: config.weeklyDiscountPercent,
+          monthlyDiscountPercent: config.monthlyDiscountPercent,
+          appliedByAutomation: false as const,
+          note: LENGTH_OF_STAY_NOTE
+        }
+      : null,
+    extraGuest: config
+      ? {
+          fee: config.extraGuestFee,
+          includedGuests: config.includedGuests,
+          airbnb: "pushed-on-apply" as const,
+          otherChannels: "manual" as const
+        }
+      : null
   };
 }
 

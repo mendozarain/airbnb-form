@@ -3,6 +3,7 @@ import {
   Calculator,
   CheckCircle2,
   CloudOff,
+  Download,
   LineChart,
   Percent,
   Play,
@@ -13,12 +14,7 @@ import {
 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
-import {
-  PRICING_TIERS,
-  channelPrice,
-  tierPrice,
-  startingPrice as roundStartingPrice
-} from "@cozy-d-714/shared";
+import { channelPrice, pricingPreviewCsv } from "@cozy-d-714/shared";
 import type {
   AirbnbDiscountRule,
   AirbnbPricingRules,
@@ -130,7 +126,7 @@ export function PricingPage() {
 
   if (loadError && (!settings || !config)) return <LoadError message={loadError} onRetry={loadAll} />;
   if (loading || !settings || !config) return <LoadingCard label="Loading pricing controls…" rows={4} />;
-  const weekendPrice = Math.round(config.baseAirbnbPrice * (1 + config.weekendPremium));
+  const weekendPrice = config.weekendBasePrice;
 
   const savePricing = (key: string, message: string) =>
     void work(key, async () => {
@@ -188,36 +184,62 @@ export function PricingPage() {
           />
           <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
             <PriceCard
-              title="Base price"
-              description="Starting rate for nights 31+ days away"
-              value={config.baseAirbnbPrice}
-              onChange={(value) => setConfig({ ...config, baseAirbnbPrice: value })}
+              title="Weekday price"
+              description="Sunday to Thursday nights"
+              value={config.weekdayBasePrice}
+              onChange={(value) => setConfig({ ...config, weekdayBasePrice: value })}
             />
             <PriceCard
               title="Weekend price"
               description="Friday and Saturday nights"
               value={weekendPrice}
-              onChange={(value) =>
-                setConfig({
-                  ...config,
-                  weekendPremium: Math.max(0, (value - config.baseAirbnbPrice) / config.baseAirbnbPrice)
-                })
-              }
+              onChange={(value) => setConfig({ ...config, weekendBasePrice: value })}
             />
             <PriceCard
-              title="Minimum price"
-              description="Airbnb nightly floor before discounts and fees"
-              value={config.minimumAirbnbPrice}
-              onChange={(value) => setConfig({ ...config, minimumAirbnbPrice: value })}
+              title="Weekday floor"
+              description="Only unsold weekdays inside the last-minute window"
+              value={config.weekdayFloor}
+              onChange={(value) => setConfig({ ...config, weekdayFloor: value })}
             />
             <PriceCard
-              title="Maximum price"
-              description="Maximum outside events"
-              value={config.maximumNonEventAirbnbPrice}
-              onChange={(value) => setConfig({ ...config, maximumNonEventAirbnbPrice: value })}
+              title="Weekend floor"
+              description="Friday and Saturday never go below this"
+              value={config.weekendFloor}
+              onChange={(value) => setConfig({ ...config, weekendFloor: value })}
+            />
+            <PriceCard
+              title="Ceiling"
+              description="Highest nightly rate, including events"
+              value={config.maximumPrice}
+              onChange={(value) => setConfig({ ...config, maximumPrice: value })}
+            />
+            <PriceCard
+              title="Last-minute weekday"
+              description={`Open weekdays within ${config.lastMinuteLeadDays} days when pace is behind`}
+              value={config.lastMinuteWeekdayPrice}
+              onChange={(value) => setConfig({ ...config, lastMinuteWeekdayPrice: value })}
+            />
+            <PriceCard
+              title="Weekend minimum"
+              description="Friday and Saturday arrivals. Weekdays stay at 1 night."
+              value={config.weekendMinStay}
+              unit="nights"
+              onChange={(value) => setConfig({ ...config, weekendMinStay: value })}
+            />
+            <PriceCard
+              title="Relax within"
+              description="Open weekend arrivals inside this window drop back to 1 night"
+              value={config.minStayRelaxLeadDays}
+              unit="days"
+              onChange={(value) => setConfig({ ...config, minStayRelaxLeadDays: value })}
             />
           </div>
-          <TierTable config={config} />
+          <section className="rounded-xl bg-surface-raised p-5 text-sm text-ink-muted">
+            Prices stay at the weekday or weekend rate until the next {config.paceHorizonDays} nights are
+            below {Math.round(config.lastMinutePaceThreshold * 100)}% full. A busy surrounding week raises the
+            rate, and a weekend with a booked neighbour rises too. Event nights keep their own price and
+            minimum stay.
+          </section>
           <PlatformMarkups config={config} setConfig={setConfig} />
           <SaveBar
             dirty={pricingDirty}
@@ -250,7 +272,7 @@ export function PricingPage() {
         <TabsContent value="discounts" className="space-y-5">
           <SectionIntro
             title="Airbnb discounts"
-            description="Saved directly to Airbnb through Hostex and confirmed from the live listing."
+            description="Weekly 10% and monthly 25% are the recommended manual settings. Hostex applies them to the whole Airbnb listing, including Christmas and Kadayawan, so automatic pricing does not write them. Booking.com, Agoda, and direct promotions are set in each channel."
           />
           {!airbnb || !airbnbDraft ? (
             <HostexUnavailable
@@ -463,7 +485,11 @@ export function PricingPage() {
 }
 
 function platformLabel(channel: string) {
-  if (channel.toLowerCase() === "booking.com") return "Booking.com";
+  const normalized = channel.toLowerCase();
+  if (normalized === "booking.com") return "Booking.com";
+  if (normalized === "booking_site") return "Hostex direct";
+  if (normalized === "agoda") return "Agoda";
+  if (normalized === "airbnb") return "Airbnb";
   return statusLabel(channel);
 }
 
@@ -474,110 +500,46 @@ function PlatformMarkups({
   config: PricingConfig;
   setConfig: (config: PricingConfig) => void;
 }) {
+  const adjustable = config.listings.filter((listing) => listing.channelType.toLowerCase() !== "airbnb");
   return (
     <section className="rounded-xl bg-surface-raised p-5">
-      <h3 className="text-title text-ink">Platform markups</h3>
+      <h3 className="text-title text-ink">Channel markups</h3>
       <p className="mt-1 text-sm text-ink-muted">
-        Added after the nightly tier to allow for platform costs and delayed payouts. Guest discounts and fees
-        still affect your earnings.
+        Each listing is priced from the Airbnb night. Defaults are 1.2 for Booking.com and Agoda, and 1.0 for
+        Hostex direct. Live plans can differ, so each rate plan has its own ratio.
       </p>
       <div className="mt-4 grid gap-4 sm:grid-cols-2">
-        {["booking.com", "agoda"].map((channel) => {
-          const listing = config.listings.find((item) => item.channelType.toLowerCase() === channel);
-          if (!listing) return null;
-          return (
-            <label key={channel} className="rounded-lg bg-surface p-4">
-              <span className="text-sm font-medium">{platformLabel(channel)} markup</span>
-              <div className="mt-2 flex items-center gap-2">
-                <Input
-                  aria-label={`${platformLabel(channel)} markup`}
-                  type="number"
-                  min="20"
-                  max="40"
-                  step="1"
-                  value={Math.round((listing.ratio - 1) * 100)}
-                  onChange={(event) =>
-                    setConfig({
-                      ...config,
-                      listings: config.listings.map((item) =>
-                        item.channelType.toLowerCase() === channel
-                          ? { ...item, ratio: Number((1 + Number(event.target.value) / 100).toFixed(4)) }
-                          : item
-                      )
-                    })
-                  }
-                />
-                <span>%</span>
-              </div>
-              <p className="mt-2 text-xs text-ink-muted">
-                20–40% · At the Airbnb floor: {money(channelPrice(config.minimumAirbnbPrice, listing.ratio))}
-              </p>
-            </label>
-          );
-        })}
-      </div>
-    </section>
-  );
-}
-
-function TierTable({ config }: { config: PricingConfig }) {
-  const startingPrice = roundStartingPrice(
-    config.baseAirbnbPrice,
-    config.minimumAirbnbPrice,
-    config.maximumNonEventAirbnbPrice,
-    config.roundTo
-  );
-  const platforms = config.listings.filter(
-    (listing, index, listings) =>
-      listings.findIndex(
-        (other) => other.channelType === listing.channelType && other.ratio === listing.ratio
-      ) === index
-  );
-  return (
-    <section className="min-w-0 rounded-xl bg-surface-raised p-5">
-      <h3 className="text-title text-ink">Empty nights get cheaper as they approach</h3>
-      <p className="mt-1 text-sm text-ink-muted">
-        Weekday examples using your current inputs. Weekend and event premiums also fade to the minimum within
-        two days.
-      </p>
-      {config.baseAirbnbPrice === config.minimumAirbnbPrice && (
-        <p className="mt-2 text-sm text-ink">
-          Base and minimum are equal, so ordinary nights have a flat price.
-        </p>
-      )}
-      <div className="mt-4 overflow-x-auto">
-        <table className="w-full whitespace-nowrap text-left text-sm">
-          <thead>
-            <tr>
-              <th className="p-2">Days away</th>
-              {platforms.map((listing) => (
-                <th className="p-2" key={listing.listingId}>
-                  {platformLabel(listing.channelType)}
-                </th>
-              ))}
-            </tr>
-          </thead>
-          <tbody>
-            {PRICING_TIERS.map((tier) => {
-              const price = tierPrice(
-                startingPrice,
-                config.minimumAirbnbPrice,
-                tier.minimumDays,
-                config.roundTo
-              );
-              return (
-                <tr key={tier.label} className="border-t border-hairline">
-                  <td className="p-2">{tier.label}</td>
-                  {platforms.map((listing) => (
-                    <td className="p-2 font-medium" key={listing.listingId}>
-                      {money(channelPrice(price, listing.ratio))}
-                    </td>
-                  ))}
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
+        {adjustable.map((listing) => (
+          <label key={`${listing.channelType}-${listing.listingId}`} className="rounded-lg bg-surface p-4">
+            <span className="text-sm font-medium">{platformLabel(listing.channelType)}</span>
+            <span className="mt-1 block truncate text-xs text-ink-muted">{listing.listingId}</span>
+            <div className="mt-2 flex items-center gap-2">
+              <Input
+                aria-label={`${platformLabel(listing.channelType)} ${listing.listingId} markup`}
+                type="number"
+                min="0"
+                max="200"
+                step="0.1"
+                value={Math.round((listing.ratio - 1) * 1000) / 10}
+                onChange={(event) =>
+                  setConfig({
+                    ...config,
+                    listings: config.listings.map((item) =>
+                      item.channelType === listing.channelType && item.listingId === listing.listingId
+                        ? { ...item, ratio: Number((1 + Number(event.target.value) / 100).toFixed(4)) }
+                        : item
+                    )
+                  })
+                }
+              />
+              <span>%</span>
+            </div>
+            <p className="mt-2 text-xs text-ink-muted">
+              {listing.ratio.toFixed(3)}× · Weekend night{" "}
+              {money(channelPrice(config.weekendBasePrice, listing.ratio))}
+            </p>
+          </label>
+        ))}
       </div>
     </section>
   );
@@ -596,19 +558,21 @@ function PriceCard({
   title,
   description,
   value,
-  onChange
+  onChange,
+  unit = "PHP"
 }: {
   title: string;
   description: string;
   value: number;
   onChange: (value: number) => void;
+  unit?: string;
 }) {
   return (
     <label className="rounded-xl bg-surface-raised p-5">
       <span className="text-title text-ink">{title}</span>
       <span className="mt-1 block min-h-10 text-sm text-ink-muted">{description}</span>
       <span className="mt-4 flex items-center rounded-sm border border-line-strong bg-surface-raised px-4 focus-within:outline-2 focus-within:outline-offset-1 focus-within:outline-primary">
-        <span className="text-sm font-medium text-ink-muted">PHP</span>
+        <span className="text-sm font-medium text-ink-muted">{unit}</span>
         <Input
           className="h-12 border-0 text-right text-xl font-semibold focus:outline-0"
           type="number"
@@ -882,13 +846,31 @@ function AdvancedRules({
   return (
     <div className="space-y-3">
       <details className="rounded-xl bg-surface-raised p-5">
-        <summary className="cursor-pointer font-semibold text-ink">Events, horizon, and rounding</summary>
+        <summary className="cursor-pointer font-semibold text-ink">Pace, horizon, and extra guests</summary>
         <div className="mt-5 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
           <NumberField
-            label="Event increase"
+            label="Pace window"
+            suffix="days"
+            value={config.paceHorizonDays}
+            onChange={(value) => setConfig({ ...config, paceHorizonDays: value })}
+          />
+          <NumberField
+            label="Behind-pace below"
             suffix="%"
-            value={config.eventBoost * 100}
-            onChange={(value) => setConfig({ ...config, eventBoost: value / 100 })}
+            value={config.lastMinutePaceThreshold * 100}
+            onChange={(value) => setConfig({ ...config, lastMinutePaceThreshold: value / 100 })}
+          />
+          <NumberField
+            label="High occupancy from"
+            suffix="%"
+            value={config.highOccupancyThreshold * 100}
+            onChange={(value) => setConfig({ ...config, highOccupancyThreshold: value / 100 })}
+          />
+          <NumberField
+            label="High occupancy lift"
+            suffix="%"
+            value={config.highOccupancyPremium * 100}
+            onChange={(value) => setConfig({ ...config, highOccupancyPremium: value / 100 })}
           />
           <NumberField
             label="Pricing horizon"
@@ -902,7 +884,49 @@ function AdvancedRules({
             value={config.roundTo}
             onChange={(value) => setConfig({ ...config, roundTo: value })}
           />
+          <NumberField
+            label="Extra guest fee"
+            prefix="PHP"
+            value={config.extraGuestFee}
+            onChange={(value) => setConfig({ ...config, extraGuestFee: value })}
+          />
+          <NumberField
+            label="Airbnb extra-guest minimum"
+            prefix="PHP"
+            value={config.airbnbExtraGuestFeeMinimum}
+            onChange={(value) => setConfig({ ...config, airbnbExtraGuestFeeMinimum: value })}
+          />
+          <NumberField
+            label="Guests included"
+            suffix="guests"
+            value={config.includedGuests}
+            onChange={(value) => setConfig({ ...config, includedGuests: value })}
+          />
+          <NumberField
+            label="Weekly discount note"
+            suffix="%"
+            value={config.weeklyDiscountPercent}
+            onChange={(value) => setConfig({ ...config, weeklyDiscountPercent: value })}
+          />
+          <NumberField
+            label="Monthly discount note"
+            suffix="%"
+            value={config.monthlyDiscountPercent}
+            onChange={(value) => setConfig({ ...config, monthlyDiscountPercent: value })}
+          />
         </div>
+        <p className="mt-3 text-sm text-ink-muted">
+          The extra-guest fee is pushed to Airbnb on apply (₱{config.extraGuestFee} after{" "}
+          {config.includedGuests} guests). Airbnb rejects a fee below ₱{config.airbnbExtraGuestFeeMinimum} per
+          guest per night, so a lower amount cannot be saved or sent. Booking.com, Agoda, and direct need the
+          same fee set in each channel. Weekly and monthly percentages are recorded here and are not pushed.
+          {config.extraGuestFee < config.airbnbExtraGuestFeeMinimum && (
+            <span className="mt-2 block text-danger">
+              Raise the extra-guest fee to at least ₱{config.airbnbExtraGuestFeeMinimum}, or raise that
+              minimum only if Airbnb has changed its own floor.
+            </span>
+          )}
+        </p>
       </details>
       <details className="rounded-xl bg-surface-raised p-5">
         <summary className="cursor-pointer font-semibold text-ink">Other platform adjustments</summary>
@@ -928,39 +952,60 @@ function AdvancedRules({
         </div>
       </details>
       <details className="rounded-xl bg-surface-raised p-5">
-        <summary className="cursor-pointer font-semibold text-ink">Recurring events</summary>
+        <summary className="cursor-pointer font-semibold text-ink">Dated events</summary>
+        <p className="mt-2 text-sm text-ink-muted">
+          Holidays are dated so a moving feast can change year to year. Minimum stay applies to every channel
+          on those arrival dates.
+        </p>
         <div className="mt-4 space-y-3">
-          {config.recurringEvents.map((event, index) => (
+          {config.events.map((event, index) => (
             <div
-              key={`${event.name}-${index}`}
-              className="grid gap-2 rounded-lg bg-surface p-3 sm:grid-cols-[1fr_110px_110px]"
+              key={`${event.name}-${event.startDate}-${index}`}
+              className="grid gap-2 rounded-lg bg-surface p-3 sm:grid-cols-2 lg:grid-cols-4"
             >
               <Input
                 aria-label="Event name"
                 value={event.name}
-                onChange={(change) => {
-                  const recurringEvents = [...config.recurringEvents];
-                  recurringEvents[index] = { ...event, name: change.target.value };
-                  setConfig({ ...config, recurringEvents });
-                }}
+                onChange={(change) => updateEvent(config, setConfig, index, { name: change.target.value })}
               />
               <Input
                 aria-label="Event start"
-                value={event.start}
-                onChange={(change) => {
-                  const recurringEvents = [...config.recurringEvents];
-                  recurringEvents[index] = { ...event, start: change.target.value };
-                  setConfig({ ...config, recurringEvents });
-                }}
+                type="date"
+                value={event.startDate}
+                onChange={(change) =>
+                  updateEvent(config, setConfig, index, { startDate: change.target.value })
+                }
               />
               <Input
                 aria-label="Event end"
-                value={event.end}
+                type="date"
+                value={event.endDate}
+                onChange={(change) => updateEvent(config, setConfig, index, { endDate: change.target.value })}
+              />
+              <Input
+                aria-label="Event price"
+                type="number"
+                value={event.price}
                 onChange={(change) => {
-                  const recurringEvents = [...config.recurringEvents];
-                  recurringEvents[index] = { ...event, end: change.target.value };
-                  setConfig({ ...config, recurringEvents });
+                  const price = Number(change.target.value);
+                  updateEvent(config, setConfig, index, {
+                    price,
+                    minPrice: price,
+                    maxPrice: price
+                  });
                 }}
+              />
+              <Input
+                aria-label="Event minimum stay"
+                type="number"
+                min="1"
+                placeholder="Min nights"
+                value={event.minStay ?? ""}
+                onChange={(change) =>
+                  updateEvent(config, setConfig, index, {
+                    minStay: change.target.value === "" ? undefined : Number(change.target.value)
+                  })
+                }
               />
             </div>
           ))}
@@ -968,6 +1013,18 @@ function AdvancedRules({
       </details>
     </div>
   );
+}
+
+function updateEvent(
+  config: PricingConfig,
+  setConfig: (config: PricingConfig) => void,
+  index: number,
+  patch: Partial<PricingConfig["events"][number]>
+) {
+  const events = config.events.map((event, eventIndex) =>
+    eventIndex === index ? { ...event, ...patch } : event
+  );
+  setConfig({ ...config, events });
 }
 
 function NumberField({
@@ -1018,14 +1075,30 @@ function PreviewPanel({
         <div>
           <h2 className="font-semibold text-ink">Preview and publish now</h2>
           <p className="mt-1 text-sm text-ink-muted">
-            Preview reads Hostex but never writes prices.{" "}
-            {dirty && "Save your changes before previewing or applying."}
+            Preview stores the nightly price and the arrival minimum for every channel. It does not write to
+            Hostex. {dirty && "Save your changes before previewing or applying."}
           </p>
         </div>
-        <Button variant="secondary" disabled={working} onClick={onPreview}>
-          <Calculator className="size-4" />
-          Create preview
-        </Button>
+        <div className="flex flex-wrap gap-2">
+          {preview && (
+            <Button
+              variant="secondary"
+              onClick={() =>
+                downloadText(
+                  `pricing-preview-${preview.startedAt.slice(0, 10)}.csv`,
+                  pricingPreviewCsv(preview)
+                )
+              }
+            >
+              <Download className="size-4" />
+              Export CSV
+            </Button>
+          )}
+          <Button variant="secondary" disabled={working} onClick={onPreview}>
+            <Calculator className="size-4" />
+            Create preview
+          </Button>
+        </div>
       </div>
       {preview && (
         <>
@@ -1040,7 +1113,8 @@ function PreviewPanel({
                     <p className="font-medium text-ink">{formatDate(day.date)}</p>
                     <p className="text-xs text-ink-muted">
                       {day.leadDays !== undefined && `${day.leadDays} days away · `}
-                      {day.tier}
+                      {day.minStay} night minimum
+                      {day.event ? ` · ${day.event}` : ""}
                     </p>
                     <p className="text-xs text-ink-muted">
                       {day.reasons.filter((reason) => !reason.includes("days away")).join(", ")}
@@ -1084,9 +1158,10 @@ function PreviewPanel({
             <AlertDialogContent>
               <AlertDialogTitle>Submit these prices to Hostex?</AlertDialogTitle>
               <AlertDialogDescription>
-                This writes prices for {preview.days.filter((day) => day.available).length} available nights
-                across your configured platforms. Booked and blocked nights are skipped. Hostex acceptance
-                starts asynchronous platform updates.
+                This writes prices and arrival minimum stays for{" "}
+                {preview.days.filter((day) => day.available).length} available nights on each configured
+                listing: Airbnb, every Booking.com rate plan, Agoda, and Hostex direct. Booked nights are
+                skipped. Hostex acceptance only queues the channel update.
               </AlertDialogDescription>
               <AlertDialogFooter>
                 <AlertDialogCancel>Cancel</AlertDialogCancel>
@@ -1192,6 +1267,15 @@ function Status({
       <p className="mt-0.5 text-sm font-medium text-ink sm:text-base">{value}</p>
     </div>
   );
+}
+
+function downloadText(filename: string, contents: string) {
+  const url = URL.createObjectURL(new Blob([contents], { type: "text/csv;charset=utf-8" }));
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = filename;
+  link.click();
+  URL.revokeObjectURL(url);
 }
 
 function discountAt(rules: AirbnbDiscountRule[], days: number) {
