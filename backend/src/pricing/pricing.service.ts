@@ -8,6 +8,7 @@ import {
 import { Cron } from "@nestjs/schedule";
 import {
   PRICING_ALGORITHM,
+  airbnbExtraGuestFeeError,
   channelPrice,
   pricingConfigSchema,
   pricingPreviewCsv,
@@ -515,11 +516,20 @@ export class PricingService {
     // Listing-level Airbnb minimum is 1 so per-date rules can allow weekday arrivals.
     // Length-of-stay discounts are intentionally omitted: they cannot exclude peak dates.
     if (listing.channelType.toLowerCase() === "airbnb") {
-      await this.hostex.updateAirbnbPriceAndRules(listing.listingId, {
-        extra_guest_fee: config.extraGuestFee,
-        max_guests: config.includedGuests,
-        minimum_stay: config.defaultMinStay
-      });
+      const extraGuestFeeIssue = airbnbExtraGuestFeeError(
+        config.extraGuestFee,
+        config.airbnbExtraGuestFeeMinimum
+      );
+      if (extraGuestFeeIssue) throw new BadRequestException(extraGuestFeeIssue);
+      await this.hostex.updateAirbnbPriceAndRules(
+        listing.listingId,
+        {
+          extra_guest_fee: config.extraGuestFee,
+          max_guests: config.includedGuests,
+          minimum_stay: config.defaultMinStay
+        },
+        { extraGuestFeeMinimum: config.airbnbExtraGuestFeeMinimum }
+      );
     }
     return { requestId: prices.requestId ?? stays.requestId };
   }

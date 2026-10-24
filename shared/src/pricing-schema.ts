@@ -69,6 +69,8 @@ export const pricingConfigSchema = z
     weeklyDiscountPercent: z.coerce.number().int().min(0).max(100),
     monthlyDiscountPercent: z.coerce.number().int().min(0).max(100),
     extraGuestFee: z.coerce.number().int().min(0),
+    // Airbnb rejects a per-guest fee under this amount. The floor is a setting because Airbnb can change it.
+    airbnbExtraGuestFeeMinimum: z.coerce.number().int().min(0).default(318),
     includedGuests: z.coerce.number().int().min(1).max(20),
     listings: z.array(pricingListingSchema).min(1),
     events: z.array(pricingEventSchema)
@@ -107,6 +109,17 @@ export const pricingConfigSchema = z
         code: "custom",
         path: ["weekendFloor"],
         message: "Weekend floor cannot be below the weekday floor"
+      });
+    }
+    const extraGuestFeeError = airbnbExtraGuestFeeError(
+      value.extraGuestFee,
+      value.airbnbExtraGuestFeeMinimum
+    );
+    if (extraGuestFeeError) {
+      context.addIssue({
+        code: "custom",
+        path: ["extraGuestFee"],
+        message: extraGuestFeeError
       });
     }
     if (value.defaultMinStay > value.weekendMinStay) {
@@ -151,6 +164,16 @@ export const pricingConfigSchema = z
       }
     }
   });
+
+export function airbnbExtraGuestFeeError(fee: number, minimum: number): string | null {
+  if (!Number.isInteger(minimum) || minimum < 0) {
+    return "Airbnb extra-guest minimum must be a whole number of pesos";
+  }
+  if (!Number.isInteger(fee) || fee < minimum) {
+    return `Airbnb extra-guest fee must be at least ₱${minimum} per guest per night`;
+  }
+  return null;
+}
 
 export type PricingListing = z.infer<typeof pricingListingSchema>;
 export type PricingEvent = z.infer<typeof pricingEventSchema>;

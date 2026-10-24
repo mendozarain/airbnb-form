@@ -136,6 +136,24 @@ describe("HostexClient", () => {
     );
   });
 
+  it("does not call Hostex when the extra-guest fee is below the configured minimum", async () => {
+    const fetchMock = jest.fn<typeof fetch>();
+    global.fetch = fetchMock;
+
+    await expect(
+      new HostexClient().updateAirbnbPriceAndRules(
+        "listing-1",
+        { extra_guest_fee: 317, max_guests: 4 },
+        { extraGuestFeeMinimum: 318 }
+      )
+    ).rejects.toThrow(/at least ₱318/);
+    await expect(
+      new HostexClient().updateAirbnbPriceAndRules("listing-1", { extra_guest_fee: 350 })
+    ).rejects.toThrow(/configured minimum/);
+
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
   it("queues per-date arrival minimums and does not send a stay-through rule", async () => {
     const fetchMock = jest.fn<typeof fetch>().mockResolvedValue(
       new Response(JSON.stringify({ error_code: 200, request_id: "request-4" }), {

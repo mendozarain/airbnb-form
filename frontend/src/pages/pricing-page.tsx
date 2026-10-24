@@ -891,6 +891,12 @@ function AdvancedRules({
             onChange={(value) => setConfig({ ...config, extraGuestFee: value })}
           />
           <NumberField
+            label="Airbnb extra-guest minimum"
+            prefix="PHP"
+            value={config.airbnbExtraGuestFeeMinimum}
+            onChange={(value) => setConfig({ ...config, airbnbExtraGuestFeeMinimum: value })}
+          />
+          <NumberField
             label="Guests included"
             suffix="guests"
             value={config.includedGuests}
@@ -911,8 +917,15 @@ function AdvancedRules({
         </div>
         <p className="mt-3 text-sm text-ink-muted">
           The extra-guest fee is pushed to Airbnb on apply (₱{config.extraGuestFee} after{" "}
-          {config.includedGuests} guests). Booking.com, Agoda, and direct need the same fee set in each
-          channel. Weekly and monthly percentages are recorded here and are not pushed.
+          {config.includedGuests} guests). Airbnb rejects a fee below ₱{config.airbnbExtraGuestFeeMinimum} per
+          guest per night, so a lower amount cannot be saved or sent. Booking.com, Agoda, and direct need the
+          same fee set in each channel. Weekly and monthly percentages are recorded here and are not pushed.
+          {config.extraGuestFee < config.airbnbExtraGuestFeeMinimum && (
+            <span className="mt-2 block text-danger">
+              Raise the extra-guest fee to at least ₱{config.airbnbExtraGuestFeeMinimum}, or raise that
+              minimum only if Airbnb has changed its own floor.
+            </span>
+          )}
         </p>
       </details>
       <details className="rounded-xl bg-surface-raised p-5">

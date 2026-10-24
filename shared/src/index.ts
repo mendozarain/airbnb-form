@@ -236,6 +236,7 @@ export type CalendarMonth = {
 
 export {
   PRICING_ALGORITHM,
+  airbnbExtraGuestFeeError,
   pricingConfigSchema,
   pricingEventSchema,
   pricingListingSchema

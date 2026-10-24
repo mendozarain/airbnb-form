@@ -61,7 +61,8 @@ describe("demand-pace pricing", () => {
       minStayRelaxLeadDays: 3,
       weeklyDiscountPercent: 10,
       monthlyDiscountPercent: 25,
-      extraGuestFee: 250,
+      extraGuestFee: 350,
+      airbnbExtraGuestFeeMinimum: 318,
       includedGuests: 4
     });
   });

@@ -375,7 +375,8 @@ describe("pricing settings upgrade", () => {
       maximumPrice: 5000,
       weeklyDiscountPercent: 10,
       monthlyDiscountPercent: 25,
-      extraGuestFee: 250,
+      extraGuestFee: 350,
+      airbnbExtraGuestFeeMinimum: 318,
       includedGuests: 4
     });
     expect(upgraded.listings.map((listing) => listing.ratio)).toEqual([1, 1.2, 1.2, 1.2, 1.2, 1]);
@@ -616,6 +617,41 @@ describe("publishing safeguards", () => {
     expect(result.run.days[0]?.platformPrices).toBeUndefined();
   });
 
+  it("rejects an extra-guest fee below the configured Airbnb minimum", () => {
+    const seeded = pricingConfigWithDefaults({
+      listings: [{ channelType: "airbnb", listingId: "airbnb", ratio: 1 }]
+    });
+    const { airbnbExtraGuestFeeMinimum: _minimum, ...withoutMinimum } = seeded;
+    void _minimum;
+    expect(pricingConfigSchema.parse(withoutMinimum).airbnbExtraGuestFeeMinimum).toBe(318);
+    expect(pricingConfigSchema.safeParse({ ...seeded, extraGuestFee: 317 }).success).toBe(false);
+    expect(pricingConfigSchema.safeParse({ ...seeded, extraGuestFee: 318 }).success).toBe(true);
+    expect(
+      pricingConfigSchema.safeParse({
+        ...seeded,
+        airbnbExtraGuestFeeMinimum: 400,
+        extraGuestFee: 399
+      }).success
+    ).toBe(false);
+    expect(
+      pricingConfigSchema.safeParse({
+        ...seeded,
+        airbnbExtraGuestFeeMinimum: 400,
+        extraGuestFee: 400
+      }).success
+    ).toBe(true);
+  });
+
+  it("does not call Hostex when the extra-guest fee is below Airbnb's minimum", async () => {
+    const { run, hostex, service } = publishingFixture();
+    run.configSnapshot = { ...run.configSnapshot, extraGuestFee: 317, airbnbExtraGuestFeeMinimum: 318 };
+    await expect(service.apply("run-1")).rejects.toThrow(/at least ₱318/);
+    expect(hostex.getAvailabilities).not.toHaveBeenCalled();
+    expect(hostex.submitPrices).not.toHaveBeenCalled();
+    expect(hostex.submitRestrictions).not.toHaveBeenCalled();
+    expect(hostex.updateAirbnbPriceAndRules).not.toHaveBeenCalled();
+  });
+
   it("does not send empty price batches", async () => {
     const { run, hostex, service } = publishingFixture();
     run.days.forEach((day) => {
@@ -653,11 +689,15 @@ describe("publishing safeguards", () => {
       );
     }
     expect(hostex.submitRestrictions).toHaveBeenCalledTimes(6);
-    expect(hostex.updateAirbnbPriceAndRules).toHaveBeenCalledWith("airbnb-1", {
-      extra_guest_fee: 250,
-      max_guests: 4,
-      minimum_stay: 1
-    });
+    expect(hostex.updateAirbnbPriceAndRules).toHaveBeenCalledWith(
+      "airbnb-1",
+      {
+        extra_guest_fee: 350,
+        max_guests: 4,
+        minimum_stay: 1
+      },
+      { extraGuestFeeMinimum: 318 }
+    );
     expect(hostex.updateAirbnbPriceAndRules).toHaveBeenCalledTimes(1);
   });
 });

@@ -1,4 +1,5 @@
 import { Injectable } from "@nestjs/common";
+import { airbnbExtraGuestFeeError } from "@cozy-d-714/shared";
 import { requiredEnv } from "../config/env.js";
 
 const HOSTEX_API_BASE = "https://api.hostex.io/v3";
@@ -226,7 +227,19 @@ export class HostexClient {
     return payload.data;
   }
 
-  async updateAirbnbPriceAndRules(listingId: string, settings: HostexAirbnbPriceRules) {
+  async updateAirbnbPriceAndRules(
+    listingId: string,
+    settings: HostexAirbnbPriceRules,
+    guard?: { extraGuestFeeMinimum: number }
+  ) {
+    if (settings.extra_guest_fee !== undefined) {
+      const minimum = guard?.extraGuestFeeMinimum;
+      const issue =
+        minimum === undefined
+          ? "Airbnb extra-guest fee requires its configured minimum"
+          : airbnbExtraGuestFeeError(settings.extra_guest_fee, minimum);
+      if (issue) throw new Error(issue);
+    }
     const payload = await this.request<never>("POST", "/listings/airbnb/price_and_rules", {
       body: { listing_id: listingId, settings }
     });
