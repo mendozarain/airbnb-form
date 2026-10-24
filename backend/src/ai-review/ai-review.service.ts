@@ -507,6 +507,11 @@ export function classifyModelResult(guestId: string, enteredName: string, model:
     (document) => document.appearsPhotoId && Boolean(document.nameAsPrinted?.trim())
   );
   if (model.verdict === "mismatch" && confident && everyIdNamed) {
+    if (printedNameOverlapsGuest(enteredName, model.documents)) {
+      return held(
+        `Held for manual review because the typed name still overlaps the name printed on the ID. ${model.reason}`
+      );
+    }
     return {
       guestId,
       enteredName,
@@ -523,6 +528,116 @@ export function classifyModelResult(guestId: string, enteredName: string, model:
     return held(`Held for manual review because confidence is below 90%. ${model.reason}`);
   }
   return held(model.reason || "The model could not confirm whether the ID belongs to the guest");
+}
+
+const SURNAME_PARTICLES = new Set(["de", "del", "dela", "delos", "delas", "van", "von", "da", "dos", "di"]);
+
+function printedNameOverlapsGuest(enteredName: string, documents: ModelDocument[]) {
+  return documents.some((document) => {
+    const printed = document.nameAsPrinted?.trim();
+    return printed ? samePersonName(enteredName, printed) : false;
+  });
+}
+
+// Model confidence stays at 1.0 even for a partial name, so a mismatch is auto-rejected only when
+// the typed and printed names do not share a surname or two name parts.
+function samePersonName(entered: string, printed: string) {
+  const left = nameTokens(entered);
+  const right = nameTokens(printed);
+  if (!left.length || !right.length) return false;
+  return sharedNameParts(left, right) >= 2 || sharesSurname(left, right);
+}
+
+function nameTokens(value: string) {
+  const raw = value
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean);
+  const tokens: string[] = [];
+  for (let index = 0; index < raw.length; index += 1) {
+    const token = raw[index];
+    const next = raw[index + 1];
+    if (token === "de" && next === "la") {
+      tokens.push("dela");
+      index += 1;
+      continue;
+    }
+    if (token === "de" && next === "los") {
+      tokens.push("delos");
+      index += 1;
+      continue;
+    }
+    if (token === "de" && next === "las") {
+      tokens.push("delas");
+      index += 1;
+      continue;
+    }
+    tokens.push(token);
+  }
+  return tokens;
+}
+
+function sharedNameParts(left: string[], right: string[]) {
+  const pool = [...right];
+  let shared = 0;
+  for (const token of left) {
+    const index = pool.findIndex((candidate) => tokensClose(token, candidate));
+    if (index < 0) continue;
+    pool.splice(index, 1);
+    shared += 1;
+  }
+  return shared;
+}
+
+function sharesSurname(left: string[], right: string[]) {
+  const leftSurnames = surnameTokens(left);
+  const rightSurnames = surnameTokens(right);
+  return (
+    leftSurnames.some((token) => right.some((candidate) => tokensClose(token, candidate))) ||
+    rightSurnames.some((token) => left.some((candidate) => tokensClose(token, candidate)))
+  );
+}
+
+function surnameTokens(tokens: string[]) {
+  if (!tokens.length) return [];
+  const surnames = [tokens[tokens.length - 1]];
+  const preceding = tokens[tokens.length - 2];
+  if (
+    preceding &&
+    (preceding === "dela" || preceding === "delos" || preceding === "delas" || preceding === "del")
+  ) {
+    const earlier = tokens[tokens.length - 3];
+    if (earlier && earlier.length > 1 && !SURNAME_PARTICLES.has(earlier)) surnames.push(earlier);
+  }
+  return surnames;
+}
+
+function tokensClose(left: string, right: string) {
+  if (left === right) return true;
+  const shorter = Math.min(left.length, right.length);
+  const distance = levenshtein(left, right);
+  if (distance === 1 && shorter >= 4) return true;
+  return distance === 2 && shorter >= 6;
+}
+
+function levenshtein(left: string, right: string) {
+  if (left === right) return 0;
+  if (!left.length) return right.length;
+  if (!right.length) return left.length;
+  let previous = Array.from({ length: right.length + 1 }, (_, index) => index);
+  for (let i = 1; i <= left.length; i += 1) {
+    const current = [i];
+    for (let j = 1; j <= right.length; j += 1) {
+      const cost = left[i - 1] === right[j - 1] ? 0 : 1;
+      current[j] = Math.min(current[j - 1] + 1, previous[j] + 1, previous[j - 1] + cost);
+    }
+    previous = current;
+  }
+  return previous[right.length];
 }
 
 function matchedNameFrom(model: ModelResult, extractedNames: string[]) {
@@ -562,8 +677,8 @@ function reviewPrompt(enteredName: string) {
     `Guest-entered name: "${name}"`,
     "",
     "Inspect the entire upload, including every area of the image. A single photo may contain more than one ID; consider every distinct ID.",
-    'Return verdict "match" when any visible photo ID plausibly belongs to this person. Tolerate a missing middle name, an extra given name, a different order or format (including a surname on its own line or "SURNAME, GIVEN"), accents and punctuation, a reasonable short form of a given name when the rest of the name agrees, and one or two letters that are obscured, blurred, or unreadable.',
-    'Return verdict "mismatch" only when a readable photo ID clearly names a different person.',
+    'Return verdict "match" when any visible photo ID plausibly belongs to this person, in any name order. A typed name that is a subset of the printed name is a match, and so is a printed name that is a subset of the typed name. Missing given names, missing middle names, and a missing part of a compound surname still match: "Maria Dela Cruz" and "Maria Santos Dela Cruz" both match "MARIA CLARA SANTOS DELA CRUZ", and "DELA CRUZ" matches "DE LA CRUZ". Accents, punctuation, and a reasonable short form of a given name still match. A letter or two that is obscured, blurred, or misread is still a match; do not call that a different person, and do not invent a hidden letter in name_as_printed.',
+    'Return verdict "mismatch" only when the ID clearly names a different person: the surname clearly differs and there is no plausible overlap, such as "John Smith" against "Maria Clara Santos Dela Cruz".',
     'Return verdict "unsure" when the image is unreadable, no photo ID is visible, the document does not look like a photo ID, or you cannot tell whether the name agrees.',
     'Set confidence from 0 to 1. In documents, return one entry per visible ID with the name as printed (null if you cannot read it) and whether that ID belongs to the guest. Do not invent an unreadable name. If no ID is visible, return an empty documents array and verdict "unsure".'
   ].join("\n");

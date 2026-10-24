@@ -99,6 +99,27 @@ describe("AI ID review", () => {
     expect(result.extractedNames).toEqual(["JUAN M DELA CRUZ"]);
   });
 
+  it("does not auto-reject a partial or reordered compound name when the model says mismatch", () => {
+    const printed = "MARIA CLARA SANTOS DELA CRUZ";
+    const mismatch = (enteredName: string, nameAsPrinted = printed) =>
+      classifyModelResult(
+        "guest-1",
+        enteredName,
+        modelResult({
+          verdict: "mismatch",
+          confidence: 1,
+          reason: "The model treated the names as different people",
+          documents: [{ appearsPhotoId: true, nameAsPrinted, belongsToGuest: false }]
+        })
+      );
+
+    expect(mismatch("Maria Dela Cruz").verdict).toBe("uncertain");
+    expect(mismatch("Maria Santos Dela Cruz").verdict).toBe("uncertain");
+    expect(mismatch("Maria De La Cruz", "MARIA DELA CRUZ").verdict).toBe("uncertain");
+    expect(mismatch("Pedro Santoz", "PEDRO SANTOS").verdict).toBe("uncertain");
+    expect(mismatch("John Smith").verdict).toBe("clear_mismatch");
+  });
+
   it("holds an unsure or low-confidence result for manual review", () => {
     expect(
       classifyModelResult(
@@ -253,6 +274,8 @@ describe("AI ID review", () => {
       required: ["image_readable", "verdict", "confidence", "reason", "documents"]
     });
     expect(body.messages[0]?.content[0]?.text).toContain("Juan Dela Cruz");
+    expect(body.messages[0]?.content[0]?.text).toContain("subset of the printed name");
+    expect(body.messages[0]?.content[0]?.text).toContain("John Smith");
     expect(body.messages[0]?.content[1]?.image_url?.url).toMatch(/^data:image\/jpeg;base64,/);
   });
 

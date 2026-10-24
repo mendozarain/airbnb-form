@@ -98,9 +98,10 @@ Open the PMO form in that everyday Chrome profile first, fully quit Chrome with 
 Guest ID photos are sent to OpenRouter model `google/gemini-3.1-flash-lite`. Each request keeps
 `provider.zdr`, `data_collection: deny`, and `require_parameters`, so OpenRouter may use only a
 zero-data-retention endpoint that accepts the structured response. The model is asked whether the
-ID plausibly belongs to the name the guest typed. A high-confidence mismatch is rejected. An unsure
-result, a low-confidence result, an unreadable image, or a file that is not a photo ID is held for
-manual review. The model id is a code constant, not a database setting. The value stored on a review
+ID plausibly belongs to the name the guest typed, including a shorter or reordered name. A
+high-confidence mismatch is rejected only when the typed name does not overlap the printed name.
+An unsure result, a low-confidence result, an unreadable image, or a file that is not a photo ID is
+held for manual review. The model id is a code constant, not a database setting. The value stored on a review
 row is the model used for that check.
 
 ## Authentication
