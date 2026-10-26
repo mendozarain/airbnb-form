@@ -4,12 +4,18 @@ import {
   assertEntrancePassFormContentVisible,
   assertEntrancePassScreenshotPrivacy,
   areAttachedGoogleFormFilesSettled,
+  classifyGoogleFormFailure,
   containsEmailAddress,
   countVisibleEmailAddresses,
   countVisibleGoogleFormQuestions,
   ENTRANCE_PASS_CAPTURE_PROFILE,
   ENTRANCE_PASS_SCREENSHOT_OPTIONS,
+  GoogleFormLayoutChangedError,
   GoogleSubmissionUncertainError,
+  isFormFailureScreenshotKey,
+  listVisibleGoogleFormQuestions,
+  matchesUnitNumberLabel,
+  pickUnitNumberQuestionIndex,
   selectBuildingCode,
   setGoogleEmailIdentityVisible,
   shouldHideUnusedGuestRow,
@@ -18,6 +24,151 @@ import {
   validateEntrancePassScreenshot,
   validatePersistAndSubmitEntrancePass
 } from "./google-form.runner.js";
+
+describe("unit number label matching", () => {
+  it.each([
+    ["Unit Number", true],
+    ["Unit Number *", true],
+    ["Unit No.", true],
+    ["Unit No", true],
+    ["Unit #", true],
+    ["Unit", true],
+    ["Unit Num", true],
+    ["519", false],
+    ["Building Code", false],
+    ["Date Check in", false],
+    ["1", false]
+  ])("matchesUnitNumberLabel(%j) → %s", (title, expected) => {
+    expect(matchesUnitNumberLabel(title)).toBe(expected);
+  });
+
+  it("prefers a restored Unit Number title over structural position", () => {
+    const questions = [
+      { title: "Email", required: true, kind: "other" as const },
+      { title: "Building Code", required: false, kind: "short_text" as const },
+      { title: "Unit Number", required: true, kind: "short_text" as const },
+      { title: "Date Check in", required: true, kind: "date" as const }
+    ];
+    expect(pickUnitNumberQuestionIndex(questions)).toBe(2);
+  });
+
+  it("falls back to the required short text after Building Code when the title is mistyped", () => {
+    const questions = [
+      { title: "Email", required: true, kind: "other" as const },
+      { title: "Building Code", required: false, kind: "short_text" as const },
+      { title: "519", required: true, kind: "short_text" as const },
+      { title: "Date Check in", required: true, kind: "date" as const }
+    ];
+    expect(pickUnitNumberQuestionIndex(questions)).toBe(2);
+  });
+
+  it("returns -1 when neither a unit label nor a structural candidate exists", () => {
+    expect(
+      pickUnitNumberQuestionIndex([
+        { title: "Email", required: true, kind: "other" },
+        { title: "Purpose", required: true, kind: "choice" }
+      ])
+    ).toBe(-1);
+  });
+});
+
+describe("Google Form failure classification", () => {
+  it("treats form layout changes as hard submission failures", () => {
+    expect(
+      classifyGoogleFormFailure(new GoogleFormLayoutChangedError("Unit Number", ["Building Code", "519"]))
+    ).toBe("submission_failed");
+  });
+
+  it("does not classify Playwright locator timeouts as temporary navigation", () => {
+    const message =
+      "locator.fill: Timeout 30000ms exceeded.\nCall log:\n- waiting for getByText('Unit Number').locator(\"xpath=ancestor::div[@role='listitem']\").getByRole('textbox').first()";
+    expect(classifyGoogleFormFailure(new Error(message))).toBe("submission_failed");
+  });
+
+  it("still treats genuine network timeouts as temporary navigation", () => {
+    expect(classifyGoogleFormFailure(new Error("page.goto: net::ERR_CONNECTION_RESET"))).toBe(
+      "temporary_navigation"
+    );
+    expect(classifyGoogleFormFailure(new Error("Navigation timeout exceeded"))).toBe("temporary_navigation");
+  });
+
+  it("recognises form-failure screenshot keys under the automation prefix", () => {
+    expect(isFormFailureScreenshotKey("automation/abc-form-failure.png")).toBe(true);
+    expect(isFormFailureScreenshotKey("automation/abc-entrance-pass-before-submit.png")).toBe(false);
+  });
+});
+
+describe("unit field fill against mistyped Google Form titles", () => {
+  it("fills the required short text after Building Code when the title is 519", async () => {
+    const browser = await chromium.launch({ headless: true });
+    const page = await browser.newPage();
+    try {
+      await page.setContent(`
+        <div role="list">
+          <div role="listitem">
+            <div role="heading">Email *</div>
+            <div role="checkbox" aria-checked="false">Record email</div>
+          </div>
+          <div role="listitem">
+            <div role="heading">Building Code</div>
+            <input type="text" />
+          </div>
+          <div role="listitem">
+            <div role="heading">519 *</div>
+            <input type="text" aria-required="true" />
+          </div>
+          <div role="listitem">
+            <div role="heading">Date Check in *</div>
+            <input type="date" />
+          </div>
+        </div>
+      `);
+
+      const questions = await listVisibleGoogleFormQuestions(page);
+      const index = pickUnitNumberQuestionIndex(questions);
+      expect(index).toBe(2);
+      await page.locator('div[role="listitem"]').nth(index).getByRole("textbox").fill("714");
+      await expect(page.locator('div[role="listitem"]').nth(2).locator("input").inputValue()).resolves.toBe(
+        "714"
+      );
+    } finally {
+      await browser.close();
+    }
+  });
+
+  it("fills a restored Unit Number title without relying on position", async () => {
+    const browser = await chromium.launch({ headless: true });
+    const page = await browser.newPage();
+    try {
+      await page.setContent(`
+        <div role="list">
+          <div role="listitem">
+            <div role="heading">Building Code</div>
+            <input type="text" />
+          </div>
+          <div role="listitem">
+            <div role="heading">Something else</div>
+            <input type="text" />
+          </div>
+          <div role="listitem">
+            <div role="heading">Unit No.</div>
+            <input type="text" aria-required="true" />
+          </div>
+        </div>
+      `);
+
+      const questions = await listVisibleGoogleFormQuestions(page);
+      const index = pickUnitNumberQuestionIndex(questions);
+      expect(questions[index].title).toMatch(/Unit/i);
+      await page.locator('div[role="listitem"]').nth(index).getByRole("textbox").fill("714");
+      await expect(page.locator('div[role="listitem"]').nth(index).locator("input").inputValue()).resolves.toBe(
+        "714"
+      );
+    } finally {
+      await browser.close();
+    }
+  });
+});
 
 describe("entrance pass screenshot capture", () => {
   it("verifies Google's receipt without waiting for click navigation", async () => {

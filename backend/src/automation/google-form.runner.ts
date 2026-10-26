@@ -7,9 +7,17 @@ import { chromiumLaunchOptions } from "./browser-launch.js";
 import { StorageService } from "../storage/storage.service.js";
 import { GoogleSessionService } from "../settings/google-session.service.js";
 
-const AUTOMATION_VERSION = "google-form-purpose-account-ui-redacted-v39";
+const AUTOMATION_VERSION = "google-form-purpose-account-ui-redacted-v40";
 const EMAIL_ADDRESS_PATTERN_SOURCE = String.raw`\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b`;
 const MINIMUM_VISIBLE_FORM_QUESTIONS = 5;
+/** Tolerant unit-question titles: "Unit Number", "Unit No.", "Unit #", "Unit", etc. */
+export const UNIT_NUMBER_LABEL_PATTERN =
+  /^\s*Unit(?:\s*(?:Number|No\.?|#|Num\.?))?\s*$/i;
+const BUILDING_CODE_LABEL_PATTERN = /^\s*Building\s+Code\s*$/i;
+const DATE_CHECK_IN_LABEL_PATTERN = /^\s*Date\s+Check[\s-]*in\s*$/i;
+const DATE_CHECK_OUT_LABEL_PATTERN = /^\s*Date\s+Check[\s-]*out\s*$/i;
+const OWNER_NAME_LABEL_PATTERN = /^\s*Name\s+of\s+Owner\s*$/i;
+const OWNER_CONTACT_LABEL_PATTERN = /^\s*Contact\s+Number\s+of\s+Owner\/Representative\s*$/i;
 
 export const ENTRANCE_PASS_CAPTURE_PROFILE = {
   name: "mobile-430-dpr2-account-ui-redacted-v6",
@@ -55,8 +63,24 @@ export type GoogleFormResult = {
     "authentication_expired" | "temporary_navigation" | "submission_failed" | "submission_uncertain";
 };
 
+export type GoogleFormQuestionSummary = {
+  title: string;
+  required: boolean;
+  kind: "short_text" | "date" | "choice" | "file" | "other";
+};
+
 class GoogleAuthenticationExpiredError extends Error {}
 export class GoogleSubmissionUncertainError extends Error {}
+export class GoogleFormLayoutChangedError extends Error {
+  readonly visibleTitles: string[];
+
+  constructor(missingField: string, visibleTitles: string[]) {
+    const titles = visibleTitles.length > 0 ? visibleTitles.join(" | ") : "(none)";
+    super(`Google Form layout changed: could not find ${missingField}. Visible question titles: ${titles}`);
+    this.name = "GoogleFormLayoutChangedError";
+    this.visibleTitles = visibleTitles;
+  }
+}
 
 @Injectable()
 export class GoogleFormRunner {
@@ -94,11 +118,16 @@ export class GoogleFormRunner {
       }
 
       await clickEmailReceiptCheckbox(page);
-      await fillTextByLabel(page, "Unit Number", submission.unitNumber);
-      await fillDateByLabel(page, "Date Check in", submission.checkIn);
-      await fillDateByLabel(page, "Date Check out", submission.checkOut);
-      await fillTextByLabel(page, "Name of Owner", submission.ownerName);
-      await fillTextByLabel(page, "Contact Number of Owner/Representative", submission.ownerContact);
+      await fillUnitNumber(page, submission.unitNumber);
+      await fillDateByLabel(page, DATE_CHECK_IN_LABEL_PATTERN, submission.checkIn, "Date Check in");
+      await fillDateByLabel(page, DATE_CHECK_OUT_LABEL_PATTERN, submission.checkOut, "Date Check out");
+      await fillTextByLabel(page, OWNER_NAME_LABEL_PATTERN, submission.ownerName, "Name of Owner");
+      await fillTextByLabel(
+        page,
+        OWNER_CONTACT_LABEL_PATTERN,
+        submission.ownerContact,
+        "Contact Number of Owner/Representative"
+      );
       await selectBuildingCode(page, submission.buildingCode);
       await clickText(page, submission.purpose);
 
@@ -183,6 +212,7 @@ export class GoogleFormRunner {
     } catch (error) {
       const message = error instanceof Error ? error.message : "Unknown automation error";
       const failureKind = classifyGoogleFormFailure(error);
+      const screenshotKey = await captureFormFailureScreenshot(page, this.storage).catch(() => undefined);
       if (failureKind === "authentication_expired") {
         await this.googleSession.markUnhealthy(message, page.url()).catch(() => undefined);
       }
@@ -190,12 +220,81 @@ export class GoogleFormRunner {
         ok: false,
         failureKind,
         retryable: failureKind === "temporary_navigation",
-        error: `[${AUTOMATION_VERSION}] ${message}`
+        error: `[${AUTOMATION_VERSION}] ${message}`,
+        screenshotKey
       };
     } finally {
       await browser.close();
     }
   }
+}
+
+export function normalizeGoogleFormQuestionTitle(title: string) {
+  return title.replace(/\s+/g, " ").replace(/\*\s*$/, "").trim();
+}
+
+export function matchesUnitNumberLabel(title: string) {
+  return UNIT_NUMBER_LABEL_PATTERN.test(normalizeGoogleFormQuestionTitle(title));
+}
+
+export function matchesBuildingCodeLabel(title: string) {
+  return BUILDING_CODE_LABEL_PATTERN.test(normalizeGoogleFormQuestionTitle(title));
+}
+
+/**
+ * Prefer a tolerant unit-label match; otherwise the required short-text question
+ * immediately after Building Code (the historical 3rd question on this form).
+ */
+export function pickUnitNumberQuestionIndex(questions: GoogleFormQuestionSummary[]) {
+  const byLabel = questions.findIndex((question) => matchesUnitNumberLabel(question.title));
+  if (byLabel >= 0) return byLabel;
+
+  const buildingIndex = questions.findIndex((question) => matchesBuildingCodeLabel(question.title));
+  if (buildingIndex >= 0) {
+    const requiredAfterBuilding = questions.findIndex(
+      (question, index) =>
+        index > buildingIndex && question.kind === "short_text" && question.required
+    );
+    if (requiredAfterBuilding >= 0) return requiredAfterBuilding;
+
+    // Google Forms sometimes omit aria-required; the next short text after Building Code
+    // is still the unit field on the known single-page layout.
+    const nextShortAfterBuilding = questions.findIndex(
+      (question, index) => index > buildingIndex && question.kind === "short_text"
+    );
+    if (nextShortAfterBuilding >= 0) return nextShortAfterBuilding;
+  }
+
+  // Historical layout: email receipt, Building Code, then unit.
+  if (questions.length > 2 && questions[2].kind === "short_text") {
+    return 2;
+  }
+
+  return -1;
+}
+
+async function captureFormFailureScreenshot(page: any, storage: StorageService) {
+  if (!page || page.isClosed?.()) return undefined;
+  const screenshot = await page.screenshot({
+    type: "png",
+    fullPage: true,
+    animations: "disabled",
+    caret: "hide",
+    timeout: 10_000
+  });
+  const screenshotKey = `automation/${crypto.randomUUID()}-form-failure.png`;
+  await storage.put(screenshotKey, screenshot, {
+    contentType: "image/png",
+    metadata: {
+      kind: "form-failure",
+      automationVersion: AUTOMATION_VERSION
+    }
+  });
+  return screenshotKey;
+}
+
+export function isFormFailureScreenshotKey(key: string) {
+  return /^automation\/[a-zA-Z0-9_-]+-form-failure\.png$/.test(key);
 }
 
 type EntrancePassDimensions = {
@@ -483,24 +582,59 @@ export async function validatePersistAndSubmitEntrancePass(
   return dimensions;
 }
 
-async function fillTextByLabel(page: any, label: string, value: string) {
-  const field = page
-    .getByText(label)
-    .locator("xpath=ancestor::div[@role='listitem']")
-    .getByRole("textbox")
-    .first();
-  await field.fill(value);
+async function fillUnitNumber(page: any, value: string) {
+  const questions = await listVisibleGoogleFormQuestions(page);
+  const index = pickUnitNumberQuestionIndex(questions);
+  if (index < 0) {
+    throw new GoogleFormLayoutChangedError(
+      "Unit Number (required short text after Building Code)",
+      questions.map((question) => question.title)
+    );
+  }
+
+  const field = page.locator('div[role="listitem"]').nth(index).getByRole("textbox").first();
+  await field.waitFor({ state: "visible", timeout: 5_000 }).catch(async () => {
+    throw new GoogleFormLayoutChangedError(
+      "Unit Number (required short text after Building Code)",
+      questions.map((question) => question.title)
+    );
+  });
+  await field.fill(value, { timeout: 5_000 });
+}
+
+async function fillTextByLabel(page: any, label: string | RegExp, value: string, fieldName: string) {
+  const question = await findQuestionListItem(page, label);
+  if (!question) {
+    throw new GoogleFormLayoutChangedError(fieldName, await listVisibleQuestionTitles(page));
+  }
+
+  const field = question.getByRole("textbox").first();
+  const visible = await field.isVisible().catch(() => false);
+  if (!visible) {
+    throw new GoogleFormLayoutChangedError(fieldName, await listVisibleQuestionTitles(page));
+  }
+  await field.fill(value, { timeout: 5_000 });
 }
 
 export async function selectBuildingCode(page: any, value: BuildingCode) {
-  const question = page
-    .getByText("Building Code", { exact: true })
-    .first()
-    .locator("xpath=ancestor::div[@role='listitem'][1]");
+  const question = await findQuestionListItem(page, BUILDING_CODE_LABEL_PATTERN);
+  if (!question) {
+    throw new GoogleFormLayoutChangedError("Building Code", await listVisibleQuestionTitles(page));
+  }
   await question.scrollIntoViewIfNeeded({ timeout: 5_000 });
 
   const options = question.getByRole("checkbox");
   const optionCount = await options.count();
+  if (optionCount === 0) {
+    // Some form revisions use a short-text Building Code instead of checkboxes.
+    const textbox = question.getByRole("textbox").first();
+    if (await textbox.isVisible().catch(() => false)) {
+      await textbox.fill(value, { timeout: 5_000 });
+      return;
+    }
+    throw new GoogleFormLayoutChangedError("Building Code", await listVisibleQuestionTitles(page));
+  }
+
   let matched = false;
   for (let index = 0; index < optionCount; index += 1) {
     const option = options.nth(index);
@@ -524,14 +658,110 @@ async function fillNthShortAnswer(page: any, questionNumber: number, value: stri
   await field.fill(value);
 }
 
-async function fillDateByLabel(page: any, label: string, value: string) {
-  const field = page
-    .getByText(label)
-    .locator("xpath=ancestor::div[@role='listitem']")
-    .locator("input[type='date'], input[type='text']")
-    .first();
+async function fillDateByLabel(page: any, label: string | RegExp, value: string, fieldName: string) {
+  const question = await findQuestionListItem(page, label);
+  if (!question) {
+    throw new GoogleFormLayoutChangedError(fieldName, await listVisibleQuestionTitles(page));
+  }
+
+  const field = question.locator("input[type='date'], input[type='text']").first();
+  const visible = await field.isVisible().catch(() => false);
+  if (!visible) {
+    throw new GoogleFormLayoutChangedError(fieldName, await listVisibleQuestionTitles(page));
+  }
   const type = await field.getAttribute("type");
-  await field.fill(type === "date" ? toDateInputValue(value) : toGoogleDateText(value));
+  await field.fill(type === "date" ? toDateInputValue(value) : toGoogleDateText(value), { timeout: 5_000 });
+}
+
+async function findQuestionListItem(page: any, label: string | RegExp) {
+  const pattern = typeof label === "string" ? new RegExp(`^\\s*${escapeRegExp(label)}\\s*$`, "i") : label;
+  const questions = page.locator('div[role="listitem"]');
+  const count = await questions.count().catch(() => 0);
+
+  for (let index = 0; index < count; index += 1) {
+    const question = questions.nth(index);
+    const title = await readQuestionTitle(question);
+    if (pattern.test(normalizeGoogleFormQuestionTitle(title))) {
+      return question;
+    }
+  }
+
+  return null;
+}
+
+async function readQuestionTitle(question: any) {
+  const heading = question.locator('[role="heading"], h1, h2, h3').first();
+  if ((await heading.count().catch(() => 0)) > 0) {
+    return ((await heading.innerText().catch(() => "")) || "").replace(/\s+/g, " ").trim();
+  }
+  return ((await question.innerText().catch(() => "")) || "").replace(/\s+/g, " ").trim().slice(0, 160);
+}
+
+export async function listVisibleGoogleFormQuestions(page: any): Promise<GoogleFormQuestionSummary[]> {
+  return page.evaluate(() => {
+    function isVisible(element: Element) {
+      const style = window.getComputedStyle(element);
+      const rect = element.getBoundingClientRect();
+      return (
+        style.display !== "none" &&
+        style.visibility !== "hidden" &&
+        Number(style.opacity || "1") > 0 &&
+        rect.width > 0 &&
+        rect.height > 0
+      );
+    }
+
+    function titleOf(question: Element) {
+      const heading = question.querySelector('[role="heading"], h1, h2, h3');
+      const raw = (heading?.textContent ?? question.textContent ?? "")
+        .replace(/\s+/g, " ")
+        .trim()
+        .slice(0, 160);
+      return raw.replace(/\*\s*$/, "").trim();
+    }
+
+    function isRequired(question: Element) {
+      if (question.querySelector('[aria-required="true"], input[required], textarea[required]')) {
+        return true;
+      }
+      const heading = question.querySelector('[role="heading"], h1, h2, h3')?.textContent ?? "";
+      if (/\*/.test(heading) || /required/i.test(heading)) return true;
+      return Boolean(
+        question.querySelector(
+          '[aria-label*="Required" i], [data-required="true"], .freebirdFormviewerComponentsQuestionBaseRequiredAsterisk'
+        )
+      );
+    }
+
+    function kindOf(question: Element): "short_text" | "date" | "choice" | "file" | "other" {
+      if (question.querySelector('input[type="file"]') || /Add file/i.test(question.textContent ?? "")) {
+        return "file";
+      }
+      if (question.querySelector('input[type="date"]')) return "date";
+      if (question.querySelector('[role="radio"], input[type="radio"]')) return "choice";
+      if (question.querySelector('input[type="text"], input:not([type]), textarea, [role="textbox"]')) {
+        return "short_text";
+      }
+      return "other";
+    }
+
+    return Array.from(document.querySelectorAll('div[role="listitem"]'))
+      .filter(isVisible)
+      .map((question) => ({
+        title: titleOf(question),
+        required: isRequired(question),
+        kind: kindOf(question)
+      }))
+      .filter((question) => question.title.length > 0);
+  });
+}
+
+async function listVisibleQuestionTitles(page: any) {
+  return (await listVisibleGoogleFormQuestions(page)).map((question) => question.title);
+}
+
+function escapeRegExp(value: string) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
 async function clickText(page: any, text: string) {
@@ -1157,8 +1387,21 @@ export async function submitGoogleForm(page: any) {
 export function classifyGoogleFormFailure(error: unknown): NonNullable<GoogleFormResult["failureKind"]> {
   if (error instanceof GoogleAuthenticationExpiredError) return "authentication_expired";
   if (error instanceof GoogleSubmissionUncertainError) return "submission_uncertain";
+  if (error instanceof GoogleFormLayoutChangedError) return "submission_failed";
   const message = error instanceof Error ? error.message : "";
-  if (/429|rate limit|timeout|timed out|ECONNRESET|ENOTFOUND|network/i.test(message)) {
+  if (/form layout changed/i.test(message)) return "submission_failed";
+  // Playwright locator timeouts mean the form DOM/layout did not match — not a transient network blip.
+  if (
+    /locator\.(fill|click|check|waitFor)|waiting for (getBy|locator)|getBy(?:Text|Role|Label|Placeholder|TestId)/i.test(
+      message
+    )
+  ) {
+    return "submission_failed";
+  }
+  if (/429|rate limit|ECONNRESET|ENOTFOUND|net::|ERR_|networkidle|NS_ERROR_/i.test(message)) {
+    return "temporary_navigation";
+  }
+  if (/timeout|timed out/i.test(message)) {
     return "temporary_navigation";
   }
   return "submission_failed";
