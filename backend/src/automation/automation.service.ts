@@ -8,8 +8,15 @@ import { SettingsService } from "../settings/settings.service.js";
 import { GoogleSessionRecoveryService } from "../settings/google-session-recovery.service.js";
 import { EntrancePassChatService } from "./entrance-pass-chat.service.js";
 import { EmailService } from "./email.service.js";
-import { GoogleFormRunner, type GoogleFormFile, type GoogleFormSubmission } from "./google-form.runner.js";
+import {
+  GoogleFormRunner,
+  isFormFailureScreenshotKey,
+  type GoogleFormFile,
+  type GoogleFormSubmission
+} from "./google-form.runner.js";
 import { PassImageService } from "./pass-image.service.js";
+
+const FORM_FAILURE_SCREENSHOT_RETENTION_MS = 7 * 86400000;
 
 const EMAIL_SENDABLE_STATUSES: SubmissionStatus[] = [
   SubmissionStatus.SUBMITTED_EMAIL_FAILED,
@@ -285,6 +292,21 @@ export class AutomationService {
         data: { screenshotStorageKey: null }
       });
     }
+
+    await this.cleanupExpiredFormFailureScreenshots();
+  }
+
+  private async cleanupExpiredFormFailureScreenshots() {
+    let cursor: string | undefined;
+    const cutoff = new Date(Date.now() - FORM_FAILURE_SCREENSHOT_RETENTION_MS);
+    do {
+      const page = await this.storage.list("automation/", cursor);
+      cursor = page.nextCursor;
+      const expired = page.objects.filter(
+        (object) => isFormFailureScreenshotKey(object.key) && object.lastModified < cutoff
+      );
+      await Promise.allSettled(expired.map((object) => this.storage.delete(object.key)));
+    } while (cursor);
   }
 
   private async cleanupOrphanUploads() {
