@@ -53,7 +53,6 @@ export function SubmissionPage() {
     guests: Array<{
       id?: string;
       fullName: string;
-      age: number;
       retainFileIds: string[];
       idFileKey?: string;
     }>;
@@ -302,7 +301,6 @@ export function SubmissionPage() {
                   guests: submission.guests.map((guest) => ({
                     id: guest.id,
                     fullName: guest.fullName,
-                    age: guest.age,
                     retainFileIds: guest.files.map((file) => file.id)
                   }))
                 });
@@ -344,28 +342,16 @@ export function SubmissionPage() {
             </div>
             {draft.guests.map((guest, index) => (
               <div key={guest.id ?? index} className="rounded-xl bg-surface-raised p-4">
-                <div className="grid gap-3 sm:grid-cols-[1fr_100px_auto]">
+                <div className="grid gap-3 sm:grid-cols-[1fr_auto]">
                   <div className="space-y-2">
-                    <Label>Name</Label>
+                    <Label>
+                      Name{index === 0 ? " (form-filler · ID required)" : ""}
+                    </Label>
                     <Input
                       value={guest.fullName}
                       onChange={(event) => {
                         const guests = [...draft.guests];
                         guests[index] = { ...guest, fullName: event.target.value };
-                        setDraft({ ...draft, guests });
-                      }}
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <Label>Age</Label>
-                    <Input
-                      type="number"
-                      min="0"
-                      max="120"
-                      value={guest.age}
-                      onChange={(event) => {
-                        const guests = [...draft.guests];
-                        guests[index] = { ...guest, age: Number(event.target.value) };
                         setDraft({ ...draft, guests });
                       }}
                     />
@@ -440,7 +426,7 @@ export function SubmissionPage() {
                 onClick={() =>
                   setDraft({
                     ...draft,
-                    guests: [...draft.guests, { fullName: "", age: 0, retainFileIds: [] }]
+                    guests: [...draft.guests, { fullName: "", retainFileIds: [] }]
                   })
                 }
               >
@@ -481,7 +467,9 @@ export function SubmissionPage() {
                 <div className="flex items-start justify-between gap-3">
                   <div>
                     <h3 className="font-semibold">{guest.fullName}</h3>
-                    <p className="text-sm text-ink-muted">Age {guest.age}</p>
+                    {guest.age != null && (
+                      <p className="text-sm text-ink-muted">Age {guest.age} (legacy)</p>
+                    )}
                   </div>
                   {guest.requiresId && <Badge>ID required</Badge>}
                 </div>

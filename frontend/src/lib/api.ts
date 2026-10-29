@@ -31,7 +31,7 @@ export const api = {
     }),
   listInvites: () => request<{ invites: InviteSummary[] }>("/api/admin/invites"),
   deleteInvite: (id: string) => request<{ ok: true }>(`/api/admin/invites/${id}`, { method: "DELETE" }),
-  updateInvite: (id: string, body: { purpose?: string; expiresAt?: string }) =>
+  updateInvite: (id: string, body: { purpose?: string; expiresAt?: string; expectedGuestCount?: number }) =>
     request<{ ok: true }>(`/api/admin/invites/${id}`, { method: "PATCH", body }),
   regenerateInvite: (id: string, expiresAt?: string) =>
     request<{ id: string; guestUrl: string; expiresAt: string }>(`/api/admin/invites/${id}/regenerate`, {

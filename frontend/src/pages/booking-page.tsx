@@ -42,6 +42,10 @@ import {
   submissionTone
 } from "@/lib/display";
 
+function clampGuests(value: number) {
+  return Math.min(10, Math.max(1, Math.trunc(value) || 1));
+}
+
 export function BookingPage() {
   const { id = "" } = useParams();
   const [booking, setBooking] = useState<BookingDetail | null>(null);
@@ -49,6 +53,7 @@ export function BookingPage() {
   const [expiresAt, setExpiresAt] = useState(() =>
     new Date(Date.now() + 7 * 86_400_000).toISOString().slice(0, 16)
   );
+  const [expectedGuestCount, setExpectedGuestCount] = useState(1);
   const [creating, setCreating] = useState(false);
 
   const [error, setError] = useState<string | null>(null);
@@ -63,6 +68,10 @@ export function BookingPage() {
   }, [id]);
 
   useEffect(() => void load(), [load]);
+
+  useEffect(() => {
+    if (booking) setExpectedGuestCount(clampGuests(booking.numberOfGuests ?? 1));
+  }, [booking?.id, booking?.numberOfGuests]);
 
   if (!booking)
     return error ? (
@@ -147,7 +156,8 @@ export function BookingPage() {
               try {
                 const result = await api.createBookingInvite(booking.id, {
                   purpose,
-                  expiresAt: new Date(expiresAt).toISOString()
+                  expiresAt: new Date(expiresAt).toISOString(),
+                  expectedGuestCount: clampGuests(expectedGuestCount)
                 });
                 await navigator.clipboard.writeText(result.guestUrl);
                 toast.success("New link created and copied; it was not sent");
@@ -175,6 +185,21 @@ export function BookingPage() {
                   <option key={value}>{value}</option>
                 ))}
               </Select>
+            </div>
+            <div className="mt-4 space-y-2">
+              <Label htmlFor="booking-guests">Guests on form</Label>
+              <Input
+                id="booking-guests"
+                type="number"
+                min={1}
+                max={10}
+                value={expectedGuestCount}
+                onChange={(event) => setExpectedGuestCount(clampGuests(Number(event.target.value)))}
+              />
+              <p className="text-xs text-ink-muted">
+                Prefills from Hostex ({booking.numberOfGuests ?? "unknown"}). Guests must name everyone; only
+                the form-filler uploads an ID.
+              </p>
             </div>
             <div className="mt-4 space-y-2">
               <Label htmlFor="booking-expiry">Expires</Label>
@@ -228,11 +253,20 @@ function RegistrationCard({
   const [editing, setEditing] = useState(false);
   const [purpose, setPurpose] = useState<Purpose>(invite.purpose);
   const [expiresAt, setExpiresAt] = useState(() => new Date(invite.expiresAt).toISOString().slice(0, 16));
+  const [guestCount, setGuestCount] = useState(() => clampGuests(invite.expectedGuestCount));
   const [emailOpen, setEmailOpen] = useState(false);
   const [emailTo, setEmailTo] = useState(guestEmail);
+  const [sendGuestCount, setSendGuestCount] = useState(() => clampGuests(invite.expectedGuestCount));
   const emailDeliveries = registration.deliveries.filter((delivery) => delivery.kind === "email");
   const lastEmail = emailDeliveries[emailDeliveries.length - 1];
   const emailValid = /^\S+@\S+\.\S+$/.test(emailTo.trim());
+
+  useEffect(() => {
+    setGuestCount(clampGuests(invite.expectedGuestCount));
+    setSendGuestCount(clampGuests(invite.expectedGuestCount));
+    setPurpose(invite.purpose);
+    setExpiresAt(new Date(invite.expiresAt).toISOString().slice(0, 16));
+  }, [invite.expectedGuestCount, invite.purpose, invite.expiresAt, invite.id]);
 
   async function action(work: () => Promise<unknown>, message: string) {
     setActing(true);
@@ -247,6 +281,13 @@ function RegistrationCard({
     }
   }
 
+  async function persistGuestCountIfNeeded(count: number) {
+    const next = clampGuests(count);
+    if (next !== invite.expectedGuestCount) {
+      await api.updateInvite(invite.id, { expectedGuestCount: next });
+    }
+  }
+
   return (
     <article className="sg-enter rounded-xl bg-surface-raised p-5 sm:p-6">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-start">
@@ -257,6 +298,9 @@ function RegistrationCard({
               {statusLabel(registration.submission?.status || invite.status)}
             </Badge>
             {automationManaged && <Badge tone="sent">Scheduled Tenant</Badge>}
+            <Badge tone="sent">
+              {invite.expectedGuestCount} guest{invite.expectedGuestCount === 1 ? "" : "s"} on form
+            </Badge>
           </div>
           <p className="mt-2 text-xs text-ink-muted">
             Created {formatDateTime(invite.createdAt)} · expires {formatDateTime(invite.expiresAt)}
@@ -335,7 +379,10 @@ function RegistrationCard({
               open={emailOpen}
               onOpenChange={(open) => {
                 setEmailOpen(open);
-                if (open) setEmailTo(lastEmail?.to || guestEmail);
+                if (open) {
+                  setEmailTo(lastEmail?.to || guestEmail);
+                  setSendGuestCount(clampGuests(invite.expectedGuestCount));
+                }
               }}
             >
               <AlertDialogTrigger asChild>
@@ -353,10 +400,10 @@ function RegistrationCard({
                   onSubmit={(event) => {
                     event.preventDefault();
                     if (!emailValid) return;
-                    void action(
-                      () => api.emailBookingInvite(invite.id, emailTo.trim()),
-                      "Registration email sent"
-                    ).then(() => setEmailOpen(false));
+                    void action(async () => {
+                      await persistGuestCountIfNeeded(sendGuestCount);
+                      await api.emailBookingInvite(invite.id, emailTo.trim());
+                    }, "Registration email sent").then(() => setEmailOpen(false));
                   }}
                 >
                   <AlertDialogTitle>Email registration link</AlertDialogTitle>
@@ -374,6 +421,17 @@ function RegistrationCard({
                       placeholder="guest@example.com"
                       value={emailTo}
                       onChange={(event) => setEmailTo(event.target.value)}
+                    />
+                  </div>
+                  <div className="mt-4 space-y-2">
+                    <Label htmlFor={`email-guests-${invite.id}`}>Guests on form</Label>
+                    <Input
+                      id={`email-guests-${invite.id}`}
+                      type="number"
+                      min={1}
+                      max={10}
+                      value={sendGuestCount}
+                      onChange={(event) => setSendGuestCount(clampGuests(Number(event.target.value)))}
                     />
                   </div>
                   <AlertDialogFooter>
@@ -403,7 +461,11 @@ function RegistrationCard({
             active &&
             latestManual?.status !== "sent" &&
             latestManual?.status !== "confirmed" && (
-              <AlertDialog>
+              <AlertDialog
+                onOpenChange={(open) => {
+                  if (open) setSendGuestCount(clampGuests(invite.expectedGuestCount));
+                }}
+              >
                 <AlertDialogTrigger asChild>
                   <Button size="icon" variant="secondary" aria-label="Send through Hostex" disabled={acting}>
                     <Send className="size-4 text-green" />
@@ -420,14 +482,25 @@ function RegistrationCard({
                       ? "Hostex may already have accepted the prior message. Continuing creates a duplicate-message risk. Reconcile first whenever possible."
                       : "This sends a real message to the guest conversation. Creating or regenerating a link alone never sends."}
                   </AlertDialogDescription>
+                  <div className="mt-4 space-y-2">
+                    <Label htmlFor={`send-guests-${invite.id}`}>Guests on form</Label>
+                    <Input
+                      id={`send-guests-${invite.id}`}
+                      type="number"
+                      min={1}
+                      max={10}
+                      value={sendGuestCount}
+                      onChange={(event) => setSendGuestCount(clampGuests(Number(event.target.value)))}
+                    />
+                  </div>
                   <AlertDialogFooter>
                     <AlertDialogCancel>Cancel</AlertDialogCancel>
                     <AlertDialogAction
                       onClick={() =>
-                        void action(
-                          () => api.sendBookingInvite(invite.id, latestManual?.status === "unknown"),
-                          "Hostex message submitted"
-                        )
+                        void action(async () => {
+                          await persistGuestCountIfNeeded(sendGuestCount);
+                          await api.sendBookingInvite(invite.id, latestManual?.status === "unknown");
+                        }, "Hostex message submitted")
                       }
                     >
                       {latestManual?.status === "unknown" ? "Accept duplicate risk and retry" : "Send now"}
@@ -441,11 +514,16 @@ function RegistrationCard({
 
       {editing && (
         <form
-          className="mt-4 grid gap-3 border-t border-hairline pt-4 sm:grid-cols-[1fr_1fr_auto] sm:items-end"
+          className="mt-4 grid gap-3 border-t border-hairline pt-4 sm:grid-cols-[1fr_1fr_1fr_auto] sm:items-end"
           onSubmit={(event) => {
             event.preventDefault();
             void action(
-              () => api.updateInvite(invite.id, { purpose, expiresAt: new Date(expiresAt).toISOString() }),
+              () =>
+                api.updateInvite(invite.id, {
+                  purpose,
+                  expiresAt: new Date(expiresAt).toISOString(),
+                  expectedGuestCount: clampGuests(guestCount)
+                }),
               "Link updated"
             ).then(() => setEditing(false));
           }}
@@ -461,6 +539,17 @@ function RegistrationCard({
                 <option key={value}>{value}</option>
               ))}
             </Select>
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor={`guests-${invite.id}`}>Guests on form</Label>
+            <Input
+              id={`guests-${invite.id}`}
+              type="number"
+              min={1}
+              max={10}
+              value={guestCount}
+              onChange={(event) => setGuestCount(clampGuests(Number(event.target.value)))}
+            />
           </div>
           <div className="space-y-2">
             <Label htmlFor={`expires-${invite.id}`}>Expires</Label>

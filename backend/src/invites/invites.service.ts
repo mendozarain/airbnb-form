@@ -8,7 +8,7 @@ import type {
   RegenerateInviteInput,
   UpdateInviteInput
 } from "@cozy-d-714/shared";
-import { MINOR_ID_CUTOFF, SENIOR_ID_CUTOFF, requiresGuestId } from "@cozy-d-714/shared";
+import { clampExpectedGuestCount, guestRequiresId } from "@cozy-d-714/shared";
 import { AuditService, type AuditActor } from "../audit/audit.service.js";
 import { HostexDeliveryStatus, InviteStatus, SubmissionStatus } from "../generated/prisma/enums.js";
 import { JobDispatcher } from "../jobs/job.dispatcher.js";
@@ -38,6 +38,7 @@ export class InvitesService {
         checkIn: new Date(`${input.checkIn}T00:00:00.000Z`),
         checkOut: new Date(`${input.checkOut}T00:00:00.000Z`),
         purpose: input.purpose,
+        expectedGuestCount: clampExpectedGuestCount(input.expectedGuestCount),
         expiresAt
       }
     });
@@ -66,6 +67,7 @@ export class InvitesService {
         checkOut: dateOnly(invite.checkOut),
         purpose: invite.purpose,
         status: invite.expiresAt < new Date() ? "expired" : "open",
+        expectedGuestCount: invite.expectedGuestCount,
         expiresAt: invite.expiresAt.toISOString(),
         createdAt: invite.createdAt.toISOString(),
         booking: invite.booking
@@ -124,11 +126,15 @@ export class InvitesService {
       checkIn: booking.checkIn,
       checkOut: booking.checkOut,
       purpose: input.purpose,
+      expectedGuestCount: clampExpectedGuestCount(
+        input.expectedGuestCount ?? booking.numberOfGuests
+      ),
       expiresAt: input.expiresAt ? new Date(input.expiresAt) : new Date(Date.now() + 7 * 86_400_000)
     });
     await this.audit.record(actor, "invite.created", "invite", created.inviteId, {
       bookingId,
-      purpose: input.purpose
+      purpose: input.purpose,
+      expectedGuestCount: created.expectedGuestCount
     });
     return created;
   }
@@ -149,11 +155,16 @@ export class InvitesService {
       where: { id },
       data: {
         purpose: input.purpose,
-        expiresAt: input.expiresAt ? new Date(input.expiresAt) : undefined
+        expiresAt: input.expiresAt ? new Date(input.expiresAt) : undefined,
+        expectedGuestCount:
+          input.expectedGuestCount !== undefined
+            ? clampExpectedGuestCount(input.expectedGuestCount)
+            : undefined
       }
     });
     await this.audit.record(actor, "invite.updated", "invite", id, {
       purpose: updated.purpose,
+      expectedGuestCount: updated.expectedGuestCount,
       expiresAt: updated.expiresAt.toISOString()
     });
     return { ok: true };
@@ -196,6 +207,7 @@ export class InvitesService {
           checkIn: invite.checkIn,
           checkOut: invite.checkOut,
           purpose: invite.purpose,
+          expectedGuestCount: invite.expectedGuestCount,
           expiresAt
         }
       });
@@ -203,7 +215,8 @@ export class InvitesService {
     await this.audit.record(actor, "invite.regenerated", "invite", created.id, {
       bookingId: created.bookingId,
       replacedInviteId: invite.id,
-      purpose: created.purpose
+      purpose: created.purpose,
+      expectedGuestCount: created.expectedGuestCount
     });
     return {
       id: created.id,
@@ -239,6 +252,7 @@ export class InvitesService {
     checkIn: Date;
     checkOut: Date;
     purpose: string;
+    expectedGuestCount: number;
     expiresAt: Date;
   }) {
     const token = nanoid(32);
@@ -250,6 +264,7 @@ export class InvitesService {
         checkIn: input.checkIn,
         checkOut: input.checkOut,
         purpose: input.purpose,
+        expectedGuestCount: input.expectedGuestCount,
         expiresAt: input.expiresAt
       }
     });
@@ -257,7 +272,8 @@ export class InvitesService {
       inviteId: invite.id,
       token,
       guestUrl: `${requiredEnv("PUBLIC_APP_URL").replace(/\/+$/, "")}/invite/${token}`,
-      expiresAt: invite.expiresAt.toISOString()
+      expiresAt: invite.expiresAt.toISOString(),
+      expectedGuestCount: invite.expectedGuestCount
     };
   }
 
@@ -272,8 +288,7 @@ export class InvitesService {
       purpose: invite.purpose,
       ownerName: requiredEnv("OWNER_NAME"),
       ownerContact: requiredEnv("OWNER_CONTACT"),
-      minorIdCutoff: Number(process.env.MINOR_ID_CUTOFF ?? MINOR_ID_CUTOFF),
-      seniorIdCutoff: Number(process.env.SENIOR_ID_CUTOFF ?? SENIOR_ID_CUTOFF)
+      expectedGuestCount: invite.expectedGuestCount
     };
   }
 
@@ -298,22 +313,25 @@ export class InvitesService {
 
   async submit(token: string, input: GuestSubmission) {
     const invite = await this.findOpen(token);
+    if (input.guests.length !== invite.expectedGuestCount) {
+      throw new ConflictException(
+        `This registration expects ${invite.expectedGuestCount} guest${invite.expectedGuestCount === 1 ? "" : "s"}`
+      );
+    }
+
     const [autoQueue, aiIdCheck] = await Promise.all([
       this.settings.isAutoQueueEnabled(),
       this.settings.isAiIdCheckEnabled()
     ]);
-    const lowerCutoff = Number(process.env.MINOR_ID_CUTOFF ?? MINOR_ID_CUTOFF);
-    const upperCutoff = Number(process.env.SENIOR_ID_CUTOFF ?? SENIOR_ID_CUTOFF);
-    const needsAiCheck =
-      aiIdCheck && input.guests.some((guest) => requiresGuestId(guest.age, lowerCutoff, upperCutoff));
+    const needsAiCheck = aiIdCheck && input.guests.some((_, index) => guestRequiresId(index));
     const initialStatus = needsAiCheck
       ? SubmissionStatus.AI_CHECK_PENDING
       : autoQueue
         ? SubmissionStatus.QUEUED
         : SubmissionStatus.READY_FOR_REVIEW;
 
-    for (const guest of input.guests) {
-      if (requiresGuestId(guest.age, lowerCutoff, upperCutoff) && !guest.idFileKey) {
+    for (const [index, guest] of input.guests.entries()) {
+      if (guestRequiresId(index) && !guest.idFileKey) {
         throw new ConflictException(`Valid ID is required for ${guest.fullName}`);
       }
     }
@@ -357,13 +375,13 @@ export class InvitesService {
         });
       }
 
-      for (const guest of input.guests) {
+      for (const [index, guest] of input.guests.entries()) {
         const createdGuest = await tx.guest.create({
           data: {
             submissionId: created.id,
             fullName: guest.fullName,
-            age: guest.age,
-            requiresId: requiresGuestId(guest.age, lowerCutoff, upperCutoff)
+            age: null,
+            requiresId: guestRequiresId(index)
           }
         });
 

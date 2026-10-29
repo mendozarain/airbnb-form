@@ -50,7 +50,7 @@ export type GoogleFormSubmission = {
   purpose: Purpose;
   ownerName: string;
   ownerContact: string;
-  guests: Array<{ fullName: string; age: number }>;
+  guests: Array<{ fullName: string; age?: number | null }>;
   idFiles: GoogleFormFile[];
 };
 

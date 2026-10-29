@@ -233,8 +233,8 @@ export function renderRegistrationInviteEmail(input: {
         "How it works",
         "Three quick steps",
         numberedSteps([
-          `Add everyone who will be ${visit ? "visiting" : "staying"}, including yourself.`,
-          "Upload a photo of a valid ID for each guest aged <strong>16 to 59</strong>. Guests under 16 or aged 60+ don’t need one.",
+          "Enter your full name and upload a photo of your valid ID.",
+          `Enter the full name of everyone else who will be ${visit ? "visiting" : "staying"}.`,
           "We’ll email your <strong>entrance pass</strong> once building management approves it."
         ]),
         "badge-check"

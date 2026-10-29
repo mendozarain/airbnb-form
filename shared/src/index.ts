@@ -28,6 +28,7 @@ export const SUBMISSION_STATUSES = [
 
 export const MINOR_ID_CUTOFF = 16;
 export const SENIOR_ID_CUTOFF = 60;
+export const MAX_GUESTS = 10;
 
 /** OTA relay addresses (Booking.com, Agoda, Airbnb) that don't reach the guest's own inbox. */
 export function isRelayEmail(email: string | null | undefined) {
@@ -37,13 +38,25 @@ export function isRelayEmail(email: string | null | undefined) {
   );
 }
 
+/** The form-filler (guest index 0) must upload one ID; other guests are names only. */
+export function guestRequiresId(index: number) {
+  return index === 0;
+}
+
+/** @deprecated Prefer guestRequiresId — ages are no longer collected. */
 export function requiresGuestId(age: number, lowerCutoff = MINOR_ID_CUTOFF, upperCutoff = SENIOR_ID_CUTOFF) {
   return age >= lowerCutoff && age < upperCutoff;
 }
 
+export function clampExpectedGuestCount(value: number | null | undefined, fallback = 1) {
+  if (value == null || !Number.isFinite(value)) return fallback;
+  return Math.min(MAX_GUESTS, Math.max(1, Math.trunc(value)));
+}
+
+export const expectedGuestCountSchema = z.coerce.number().int().min(1).max(MAX_GUESTS);
+
 export const guestSchema = z.object({
   fullName: z.string().trim().min(1, "Guest name is required"),
-  age: z.coerce.number().int().min(0).max(120),
   idFileKey: z.string().optional()
 });
 
@@ -52,7 +65,8 @@ export const createInviteSchema = z
     checkIn: z.string().date(),
     checkOut: z.string().date(),
     purpose: z.enum(PURPOSES, { message: "Purpose is required" }),
-    expiresAt: z.string().datetime().optional()
+    expiresAt: z.string().datetime().optional(),
+    expectedGuestCount: expectedGuestCountSchema.optional()
   })
   .refine((value) => value.checkOut >= value.checkIn, {
     message: "Check-out must be on or after check-in",
@@ -61,12 +75,14 @@ export const createInviteSchema = z
 
 export const createBookingInviteSchema = z.object({
   purpose: z.enum(PURPOSES, { message: "Purpose is required" }),
-  expiresAt: z.string().datetime().optional()
+  expiresAt: z.string().datetime().optional(),
+  expectedGuestCount: expectedGuestCountSchema.optional()
 });
 
 export const updateInviteSchema = z.object({
   purpose: z.enum(PURPOSES).optional(),
-  expiresAt: z.string().datetime().optional()
+  expiresAt: z.string().datetime().optional(),
+  expectedGuestCount: expectedGuestCountSchema.optional()
 });
 
 export const regenerateInviteSchema = z.object({
@@ -77,16 +93,25 @@ export const emailInviteSchema = z.object({ email: z.string().trim().email("Ente
 
 export const assignInviteBookingSchema = z.object({ bookingId: z.string().uuid().nullable() });
 
-export const guestSubmissionSchema = z.object({
-  guestEmail: z.string().email("Guest email is required"),
-  guests: z.array(guestSchema).min(1).max(10),
-  acceptedRules: z.literal(true)
-});
+export const guestSubmissionSchema = z
+  .object({
+    guestEmail: z.string().email("Guest email is required"),
+    guests: z.array(guestSchema).min(1).max(MAX_GUESTS),
+    acceptedRules: z.literal(true)
+  })
+  .superRefine((value, ctx) => {
+    if (!value.guests[0]?.idFileKey) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Upload a photo of your ID",
+        path: ["guests", 0, "idFileKey"]
+      });
+    }
+  });
 
 export const editableGuestSchema = z.object({
   id: z.string().uuid().optional(),
   fullName: z.string().trim().min(1, "Guest name is required"),
-  age: z.coerce.number().int().min(0).max(120),
   retainFileIds: z.array(z.string().uuid()).default([]),
   idFileKey: z.string().optional()
 });
@@ -94,7 +119,7 @@ export const editableGuestSchema = z.object({
 export const updateSubmissionSchema = z.object({
   guestEmail: z.string().email("Guest email is required"),
   purpose: z.enum(PURPOSES),
-  guests: z.array(editableGuestSchema).min(1).max(10)
+  guests: z.array(editableGuestSchema).min(1).max(MAX_GUESTS)
 });
 
 export const publicInviteSchema = z.object({
@@ -106,8 +131,7 @@ export const publicInviteSchema = z.object({
   purpose: z.enum(PURPOSES),
   ownerName: z.string(),
   ownerContact: z.string(),
-  minorIdCutoff: z.number().int(),
-  seniorIdCutoff: z.number().int()
+  expectedGuestCount: expectedGuestCountSchema
 });
 
 export type Purpose = (typeof PURPOSES)[number];
@@ -130,6 +154,7 @@ export type InviteSummary = {
   checkOut: string;
   purpose: Purpose;
   status: InviteStatus | "expired" | "revoked";
+  expectedGuestCount: number;
   expiresAt: string;
   createdAt: string;
   hostex?: {
@@ -423,7 +448,7 @@ export type SubmissionDetail = SubmissionSummary & {
   guests: Array<{
     id: string;
     fullName: string;
-    age: number;
+    age: number | null;
     requiresId: boolean;
     files: GuestFileView[];
   }>;

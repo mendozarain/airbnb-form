@@ -262,7 +262,7 @@ export class AutomationService {
       purpose: submission.purpose as Purpose,
       ownerName: submission.ownerName,
       ownerContact: submission.ownerContact,
-      guests: submission.guests.map((guest) => ({ fullName: guest.fullName, age: guest.age })),
+      guests: submission.guests.map((guest) => ({ fullName: guest.fullName, age: guest.age ?? null })),
       idFiles
     };
   }

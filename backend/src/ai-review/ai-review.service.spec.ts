@@ -1,6 +1,6 @@
 import { Logger } from "@nestjs/common";
 import { jest } from "@jest/globals";
-import { requiresGuestId } from "@cozy-d-714/shared";
+import { guestRequiresId, requiresGuestId } from "@cozy-d-714/shared";
 import { AI_REVIEW_MODEL } from "../settings/settings.service.js";
 import {
   AiReviewService,
@@ -31,7 +31,13 @@ describe("AI ID review", () => {
     delete process.env.OPENROUTER_API_KEY;
   });
 
-  it("requires IDs only for ages 16 through 59", () => {
+  it("requires an ID only for the form-filler (guest index 0)", () => {
+    expect(guestRequiresId(0)).toBe(true);
+    expect(guestRequiresId(1)).toBe(false);
+    expect(guestRequiresId(2)).toBe(false);
+  });
+
+  it("keeps the legacy age-based ID helper for historical data", () => {
     expect(requiresGuestId(15)).toBe(false);
     expect(requiresGuestId(16)).toBe(true);
     expect(requiresGuestId(59)).toBe(true);
