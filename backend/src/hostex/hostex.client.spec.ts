@@ -148,7 +148,7 @@ describe("HostexClient", () => {
       )
     ).rejects.toThrow(/at least ₱318/);
     await expect(
-      new HostexClient().updateAirbnbPriceAndRules("listing-1", { extra_guest_fee: 350 })
+      new HostexClient().updateAirbnbPriceAndRules("listing-1", { extra_guest_fee: 320 })
     ).rejects.toThrow(/configured minimum/);
 
     expect(fetchMock).not.toHaveBeenCalled();
