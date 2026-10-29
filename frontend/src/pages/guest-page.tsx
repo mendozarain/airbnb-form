@@ -4,24 +4,21 @@ import {
   Camera,
   Check,
   Clock,
-  Hash,
   Hourglass,
   IdCard,
   LinkIcon,
   Mail,
   Pencil,
-  Plus,
   Send,
   Sparkles,
-  Trash2,
   User,
   Users
 } from "lucide-react";
-import { useEffect, useState } from "react";
-import { useFieldArray, useForm } from "react-hook-form";
+import { useEffect, useMemo, useState } from "react";
+import { useForm } from "react-hook-form";
 import { useParams } from "react-router-dom";
 import { toast } from "sonner";
-import { guestSubmissionSchema, requiresGuestId, type PublicInvite } from "@cozy-d-714/shared";
+import { guestSubmissionSchema, type PublicInvite } from "@cozy-d-714/shared";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { EmptyState } from "@/components/ui/empty-state";
@@ -38,14 +35,18 @@ import { StatusHero } from "@/components/ui/status-hero";
 import { Timeline } from "@/components/ui/timeline";
 import { api } from "@/lib/api";
 
-type GuestErrors = { name?: string; age?: string; id?: string };
+type GuestErrors = { name?: string; id?: string };
 type FormErrors = { email?: string; guests?: Record<number, GuestErrors> };
 
 type FormValues = {
   guestEmail: string;
-  guests: Array<{ fullName: string; age: number; idFileKey?: string }>;
+  guests: Array<{ fullName: string; idFileKey?: string }>;
   acceptedRules: boolean;
 };
+
+function blankGuests(count: number) {
+  return Array.from({ length: count }, () => ({ fullName: "", idFileKey: undefined as string | undefined }));
+}
 
 export function GuestPage() {
   const { token = "" } = useParams();
@@ -53,25 +54,42 @@ export function GuestPage() {
   const [step, setStep] = useState(0);
   const [loading, setLoading] = useState(true);
   const [completedStatus, setCompletedStatus] = useState<string | null>(null);
-  const [uploading, setUploading] = useState<number | null>(null);
+  const [uploading, setUploading] = useState(false);
   const [errors, setErrors] = useState<FormErrors>({});
-  const [previews, setPreviews] = useState<Record<number, { url: string; name: string; image: boolean }>>({});
+  const [preview, setPreview] = useState<{ url: string; name: string; image: boolean } | null>(null);
   const form = useForm<FormValues>({
     defaultValues: {
       guestEmail: "",
-      guests: [{ fullName: "", age: 18 }],
+      guests: blankGuests(1),
       acceptedRules: false
     }
   });
-  const guests = useFieldArray({ control: form.control, name: "guests" });
   const values = form.watch();
+  const expectedCount = invite?.expectedGuestCount ?? 1;
+  const hasOthers = expectedCount > 1;
+  const stepLabels = useMemo(
+    () => (hasOthers ? ["Your email", "You", "Other guests", "Confirm"] : ["Your email", "You", "Confirm"]),
+    [hasOthers]
+  );
+  const lastStep = stepLabels.length - 1;
+  const youStep = 1;
+  const othersStep = hasOthers ? 2 : -1;
+  const reviewStep = lastStep;
 
   useEffect(() => {
     api
       .getInvite(token)
-      .then(setInvite)
+      .then((next) => {
+        setInvite(next);
+        form.reset({
+          guestEmail: "",
+          guests: blankGuests(next.expectedGuestCount),
+          acceptedRules: false
+        });
+      })
       .catch((error) => toast.error(error instanceof Error ? error.message : "Invite is unavailable"))
       .finally(() => setLoading(false));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [token]);
 
   function validate(forStep: number): FormErrors {
@@ -80,15 +98,18 @@ export function GuestPage() {
       if (!email) return { email: "Add your email so we know where to send your pass." };
       if (!/^\S+@\S+\.\S+$/.test(email)) return { email: "Enter a valid email, like you@example.com." };
     }
-    if (forStep === 1 && invite) {
+    if (forStep === youStep) {
+      const you = form.getValues("guests")[0];
+      const found: GuestErrors = {};
+      if (!you?.fullName.trim()) found.name = "Add your full name.";
+      if (!you?.idFileKey) found.id = "Upload a photo of your ID.";
+      if (Object.keys(found).length) return { guests: { 0: found } };
+    }
+    if (forStep === othersStep) {
       const guestErrors: Record<number, GuestErrors> = {};
       form.getValues("guests").forEach((guest, index) => {
-        const found: GuestErrors = {};
-        if (!guest.fullName.trim()) found.name = "Add this guest's full name.";
-        if (!(guest.age >= 0)) found.age = "Add this guest's age.";
-        else if (requiresGuestId(guest.age, invite.minorIdCutoff, invite.seniorIdCutoff) && !guest.idFileKey)
-          found.id = "Upload a photo of this guest's ID.";
-        if (Object.keys(found).length) guestErrors[index] = found;
+        if (index === 0) return;
+        if (!guest.fullName.trim()) guestErrors[index] = { name: "Add this guest's full name." };
       });
       if (Object.keys(guestErrors).length) return { guests: guestErrors };
     }
@@ -102,7 +123,7 @@ export function GuestPage() {
       return;
     }
     setErrors({});
-    setStep((value) => Math.min(2, value + 1));
+    setStep((value) => Math.min(lastStep, value + 1));
     window.scrollTo({ top: 0, behavior: "smooth" });
   }
 
@@ -121,39 +142,35 @@ export function GuestPage() {
     setErrors((current) => {
       if (!current.email && !current.guests) return current;
       const fresh = validate(step);
-      const next: FormErrors = {};
-      if (current.email && fresh.email) next.email = fresh.email;
+      const nextErrors: FormErrors = {};
+      if (current.email && fresh.email) nextErrors.email = fresh.email;
       if (current.guests) {
         const guestsNext: Record<number, GuestErrors> = {};
         for (const [key, was] of Object.entries(current.guests)) {
           const now = fresh.guests?.[Number(key)];
           const kept: GuestErrors = {};
           if (was.name && now?.name) kept.name = now.name;
-          if (was.age && now?.age) kept.age = now.age;
           if (was.id && now?.id) kept.id = now.id;
           if (Object.keys(kept).length) guestsNext[Number(key)] = kept;
         }
-        if (Object.keys(guestsNext).length) next.guests = guestsNext;
+        if (Object.keys(guestsNext).length) nextErrors.guests = guestsNext;
       }
-      return JSON.stringify(next) === JSON.stringify(current) ? current : next;
+      return JSON.stringify(nextErrors) === JSON.stringify(current) ? current : nextErrors;
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [snapshot]);
 
-  async function upload(index: number, file: File) {
-    setUploading(index);
+  async function upload(file: File) {
+    setUploading(true);
     try {
       const result = await api.uploadFile(token, file);
-      form.setValue(`guests.${index}.idFileKey`, result.key, { shouldDirty: true });
-      setPreviews((value) => ({
-        ...value,
-        [index]: { url: URL.createObjectURL(file), name: file.name, image: file.type.startsWith("image/") }
-      }));
+      form.setValue("guests.0.idFileKey", result.key, { shouldDirty: true });
+      setPreview({ url: URL.createObjectURL(file), name: file.name, image: file.type.startsWith("image/") });
       toast.success("ID uploaded");
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Upload failed");
     } finally {
-      setUploading(null);
+      setUploading(false);
     }
   }
 
@@ -200,7 +217,7 @@ export function GuestPage() {
   if (completedStatus) return <Done />;
 
   const visit = invite.purpose !== "Tenant";
-  const idHint = `Guests under ${invite.minorIdCutoff} or aged ${invite.seniorIdCutoff}+ don't need an ID.`;
+  const youError = errors.guests?.[0];
 
   return (
     <main className="mx-auto min-h-screen max-w-2xl px-4 pb-36 pt-6 sm:px-6 sm:pb-10 sm:pt-10">
@@ -227,6 +244,7 @@ export function GuestPage() {
 
       <Stepper
         step={step}
+        labels={stepLabels}
         onJump={(index) => {
           setErrors({});
           setStep(index);
@@ -254,10 +272,16 @@ export function GuestPage() {
               <p className="mb-4 text-title text-ink">Before you start</p>
               <Checklist
                 items={[
-                  { icon: Users, text: `Full name and age of everyone ${visit ? "visiting" : "staying"}` },
                   {
-                    icon: IdCard,
-                    text: `A photo of a valid ID for guests aged ${invite.minorIdCutoff}–${invite.seniorIdCutoff - 1}`
+                    icon: User,
+                    text: "Your full name and a photo of your valid ID"
+                  },
+                  {
+                    icon: Users,
+                    text:
+                      expectedCount > 1
+                        ? `Full names for the other ${expectedCount - 1} guest${expectedCount === 2 ? "" : "s"}`
+                        : `Confirm you are the only guest ${visit ? "visiting" : "staying"}`
                   },
                   { icon: Clock, text: "About 2 minutes" }
                 ]}
@@ -265,173 +289,158 @@ export function GuestPage() {
             </div>
             <p className="flex flex-wrap items-center gap-2 text-sm text-ink-muted">
               Purpose of visit <Badge>{invite.purpose}</Badge>
+              <Badge>
+                {expectedCount} guest{expectedCount === 1 ? "" : "s"}
+              </Badge>
             </p>
           </section>
         )}
 
-        {step === 1 && (
+        {step === youStep && (
           <section className="sg-enter space-y-4">
             <StepIntro
-              icon={Users}
-              title={visit ? "Who is visiting?" : "Who is staying?"}
-              text={`Add everyone who will be ${visit ? "visiting" : "staying"}, including yourself.`}
+              icon={IdCard}
+              title="Your details"
+              text="You're guest 1. Enter your name and upload a photo of your ID — only you need to provide one."
             />
-            {guests.fields.map((field, index) => {
-              const age = Number(values.guests[index]?.age ?? 0);
-              const needsId = requiresGuestId(age, invite.minorIdCutoff, invite.seniorIdCutoff);
-              const guestError = errors.guests?.[index];
-              return (
-                <article key={field.id} className="sg-enter rounded-xl bg-surface-raised p-5 sm:p-6">
-                  <div className="flex items-center justify-between">
-                    <h3 className="flex items-center gap-3 text-title text-ink">
-                      <span className="grid size-9 place-items-center rounded-full bg-mint text-sm font-semibold text-on-accent">
-                        {index + 1}
-                      </span>
-                      Guest {index + 1}
-                      {index === 0 && <span className="text-sm font-normal text-ink-muted">(you)</span>}
-                    </h3>
-                    {guests.fields.length > 1 && (
-                      <Button
-                        type="button"
-                        size="icon"
-                        variant="secondary"
-                        aria-label={`Remove guest ${index + 1}`}
-                        onClick={() => guests.remove(index)}
-                      >
-                        <Trash2 className="size-4 text-danger" strokeWidth={1.75} />
-                      </Button>
+            <article className="rounded-xl bg-surface-raised p-5 sm:p-6">
+              <h3 className="flex items-center gap-3 text-title text-ink">
+                <span className="grid size-9 place-items-center rounded-full bg-mint text-sm font-semibold text-on-accent">
+                  1
+                </span>
+                You
+              </h3>
+              <div className="mt-4">
+                <IconField
+                  icon={User}
+                  label="Full name"
+                  placeholder="As shown on your ID"
+                  autoComplete="name"
+                  error={youError?.name}
+                  {...form.register("guests.0.fullName", { required: true })}
+                />
+              </div>
+              <div className="mt-5">
+                <p className="text-sm font-medium text-ink-muted">Valid ID</p>
+                {preview ? (
+                  <div className="mt-2 flex items-center gap-3 rounded-lg bg-surface-sunken p-3">
+                    {preview.image ? (
+                      <img src={preview.url} alt="ID preview" className="size-14 rounded-sm object-cover" />
+                    ) : (
+                      <div className="flex size-14 items-center justify-center rounded-sm bg-surface-raised text-xs font-semibold text-ink">
+                        PDF
+                      </div>
                     )}
-                  </div>
-                  <div className="mt-4 grid gap-5 sm:grid-cols-[1fr_120px]">
-                    <IconField
-                      icon={User}
-                      label="Full name"
-                      placeholder="As shown on their ID"
-                      autoComplete="name"
-                      error={guestError?.name}
-                      {...form.register(`guests.${index}.fullName`, { required: true })}
-                    />
-                    <IconField
-                      icon={Hash}
-                      label="Age"
-                      type="number"
-                      inputMode="numeric"
-                      min={0}
-                      max={120}
-                      error={guestError?.age}
-                      {...form.register(`guests.${index}.age`, { valueAsNumber: true })}
-                    />
-                  </div>
-                  {needsId ? (
-                    <div className="mt-5">
-                      <p className="text-sm font-medium text-ink-muted">Valid ID</p>
-                      {previews[index] ? (
-                        <div className="mt-2 flex items-center gap-3 rounded-lg bg-surface-sunken p-3">
-                          {previews[index].image ? (
-                            <img
-                              src={previews[index].url}
-                              alt="ID preview"
-                              className="size-14 rounded-sm object-cover"
-                            />
-                          ) : (
-                            <div className="flex size-14 items-center justify-center rounded-sm bg-surface-raised text-xs font-semibold text-ink">
-                              PDF
-                            </div>
-                          )}
-                          <span className="min-w-0 flex-1">
-                            <Badge tone="done" pop className="h-7 px-3">
-                              <Check className="size-4" /> ID uploaded
-                            </Badge>
-                            <span className="mt-1 block truncate text-xs text-ink-muted">
-                              {previews[index].name}
-                            </span>
-                          </span>
-                          <label className="inline-flex h-10 cursor-pointer items-center rounded-full bg-surface-raised px-4 text-sm font-medium text-ink hover:bg-hairline">
-                            Replace
-                            <input
-                              type="file"
-                              className="sr-only"
-                              accept="image/*,application/pdf"
-                              onChange={(event) => {
-                                const file = event.target.files?.[0];
-                                if (file) void upload(index, file);
-                              }}
-                            />
-                          </label>
-                        </div>
-                      ) : (
-                        <>
-                          <label
-                            data-field-error={guestError?.id ? "" : undefined}
-                            className={`mt-2 flex min-h-28 cursor-pointer flex-col items-center justify-center rounded-lg border-2 border-dashed bg-surface-sunken p-4 text-center hover:border-primary ${guestError?.id ? "border-danger" : "border-line-strong"}`}
-                          >
-                            <input
-                              type="file"
-                              className="sr-only"
-                              accept="image/*,application/pdf"
-                              onChange={(event) => {
-                                const file = event.target.files?.[0];
-                                if (file) void upload(index, file);
-                              }}
-                            />
-                            {uploading === index ? (
-                              <span className="sg-spinner sg-spinner--ring size-6" aria-hidden="true" />
-                            ) : (
-                              <Camera className="size-6 text-ink" strokeWidth={1.75} />
-                            )}
-                            <span
-                              className="mt-1.5 text-sm font-medium text-ink"
-                              role={uploading === index ? "status" : undefined}
-                            >
-                              {uploading === index ? "Uploading…" : "Tap to take a photo or upload"}
-                            </span>
-                            <span className="text-xs text-ink-muted">Image or PDF, up to 100 MB</span>
-                          </label>
-                          {guestError?.id && (
-                            <p role="alert" className="mt-2 text-sm font-medium text-danger">
-                              {guestError.id}
-                            </p>
-                          )}
-                          <IdTips />
-                        </>
-                      )}
-                    </div>
-                  ) : (
-                    <p className="mt-4 text-sm text-ink-muted">
-                      <Badge tone="done" className="mr-2 h-7">
-                        <Check className="size-4" /> No ID needed
+                    <span className="min-w-0 flex-1">
+                      <Badge tone="done" pop className="h-7 px-3">
+                        <Check className="size-4" /> ID uploaded
                       </Badge>
-                      for this guest.
-                    </p>
-                  )}
-                </article>
-              );
-            })}
-            {guests.fields.length < 10 && (
-              <Button
-                type="button"
-                variant="secondary"
-                onClick={() => guests.append({ fullName: "", age: 18 })}
-              >
-                <Plus className="size-4" />
-                Add another guest
-              </Button>
-            )}
-            <p className="text-sm text-ink-muted">{idHint}</p>
+                      <span className="mt-1 block truncate text-xs text-ink-muted">{preview.name}</span>
+                    </span>
+                    <label className="inline-flex h-10 cursor-pointer items-center rounded-full bg-surface-raised px-4 text-sm font-medium text-ink hover:bg-hairline">
+                      Replace
+                      <input
+                        type="file"
+                        className="sr-only"
+                        accept="image/*,application/pdf"
+                        onChange={(event) => {
+                          const file = event.target.files?.[0];
+                          if (file) void upload(file);
+                        }}
+                      />
+                    </label>
+                  </div>
+                ) : (
+                  <>
+                    <label
+                      data-field-error={youError?.id ? "" : undefined}
+                      className={`mt-2 flex min-h-28 cursor-pointer flex-col items-center justify-center rounded-lg border-2 border-dashed bg-surface-sunken p-4 text-center hover:border-primary ${youError?.id ? "border-danger" : "border-line-strong"}`}
+                    >
+                      <input
+                        type="file"
+                        className="sr-only"
+                        accept="image/*,application/pdf"
+                        onChange={(event) => {
+                          const file = event.target.files?.[0];
+                          if (file) void upload(file);
+                        }}
+                      />
+                      {uploading ? (
+                        <span className="sg-spinner sg-spinner--ring size-6" aria-hidden="true" />
+                      ) : (
+                        <Camera className="size-6 text-ink" strokeWidth={1.75} />
+                      )}
+                      <span
+                        className="mt-1.5 text-sm font-medium text-ink"
+                        role={uploading ? "status" : undefined}
+                      >
+                        {uploading ? "Uploading…" : "Tap to take a photo or upload"}
+                      </span>
+                      <span className="text-xs text-ink-muted">Image or PDF, up to 100 MB</span>
+                    </label>
+                    {youError?.id && (
+                      <p role="alert" className="mt-2 text-sm font-medium text-danger">
+                        {youError.id}
+                      </p>
+                    )}
+                    <IdTips />
+                  </>
+                )}
+              </div>
+            </article>
           </section>
         )}
 
-        {step === 2 && (
+        {step === othersStep && (
+          <section className="sg-enter space-y-4">
+            <StepIntro
+              icon={Users}
+              title={visit ? "Who else is visiting?" : "Who else is staying?"}
+              text={`Enter the full name of each other guest. No IDs needed for them.`}
+            />
+            {values.guests.slice(1).map((_, offset) => {
+              const index = offset + 1;
+              const guestError = errors.guests?.[index];
+              return (
+                <article key={index} className="sg-enter rounded-xl bg-surface-raised p-5 sm:p-6">
+                  <h3 className="flex items-center gap-3 text-title text-ink">
+                    <span className="grid size-9 place-items-center rounded-full bg-mint text-sm font-semibold text-on-accent">
+                      {index + 1}
+                    </span>
+                    Guest {index + 1}
+                  </h3>
+                  <div className="mt-4">
+                    <IconField
+                      icon={User}
+                      label="Full name"
+                      placeholder="Full legal name"
+                      autoComplete="off"
+                      error={guestError?.name}
+                      {...form.register(`guests.${index}.fullName`, { required: true })}
+                    />
+                  </div>
+                </article>
+              );
+            })}
+          </section>
+        )}
+
+        {step === reviewStep && (
           <section className="sg-enter space-y-5">
             <StepIntro icon={Check} title="Almost done" text="Check the details, tick the box, and submit." />
             <div className="divide-y divide-hairline rounded-xl bg-surface-raised">
               <Review label="Email" value={values.guestEmail} onEdit={() => setStep(0)} />
-              {values.guests.map((guest, index) => (
+              <Review
+                label="You"
+                value={`${values.guests[0]?.fullName ?? ""}${values.guests[0]?.idFileKey ? " · ID uploaded" : ""}`}
+                onEdit={() => setStep(youStep)}
+              />
+              {values.guests.slice(1).map((guest, offset) => (
                 <Review
-                  key={index}
-                  label={`Guest ${index + 1}`}
-                  value={`${guest.fullName}, age ${guest.age}${guest.idFileKey ? " · ID uploaded" : ""}`}
-                  onEdit={() => setStep(1)}
+                  key={offset + 1}
+                  label={`Guest ${offset + 2}`}
+                  value={guest.fullName}
+                  onEdit={() => setStep(othersStep)}
                 />
               ))}
             </div>
@@ -462,7 +471,7 @@ export function GuestPage() {
           >
             <ArrowLeft className="size-5" />
           </Button>
-          {step < 2 ? (
+          {step < lastStep ? (
             <Button type="button" size="lg" className="flex-1" onClick={() => void next()}>
               Continue
               <ArrowRight className="size-5" />

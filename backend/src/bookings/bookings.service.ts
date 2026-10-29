@@ -15,7 +15,7 @@ import { bookingRegistrationStatus } from "./registration-status.js";
 
 const MESSAGE = (firstName: string, guestUrl: string) =>
   `Hi ${firstName}, please complete the guest registration form for your upcoming stay at Cozy Davao D-714 before arrival: ${guestUrl}\n\n` +
-  "Please include every guest and upload a valid ID for each guest aged 16 to 59. Guests aged 60 or older do not need an ID. Thank you!";
+  "Please enter the full name of every guest staying, and upload a photo of your own valid ID. Thank you!";
 
 @Injectable()
 export class BookingsService {
@@ -166,6 +166,7 @@ export class BookingsService {
             : invite.status === InviteStatus.OPEN && invite.expiresAt < new Date()
               ? "expired"
               : invite.status.toLowerCase(),
+          expectedGuestCount: invite.expectedGuestCount,
           expiresAt: invite.expiresAt.toISOString(),
           createdAt: invite.createdAt.toISOString(),
           booking: null
@@ -363,6 +364,7 @@ function inviteSummary(
     checkOut: Date;
     purpose: string;
     status: InviteStatus;
+    expectedGuestCount: number;
     expiresAt: Date;
     createdAt: Date;
     revokedAt: Date | null;
@@ -389,6 +391,7 @@ function inviteSummary(
       : invite.status === InviteStatus.OPEN && invite.expiresAt < new Date()
         ? "expired"
         : invite.status.toLowerCase(),
+    expectedGuestCount: invite.expectedGuestCount,
     expiresAt: invite.expiresAt.toISOString(),
     createdAt: invite.createdAt.toISOString(),
     booking: {

@@ -220,7 +220,7 @@ describe("HostexService", () => {
     );
     expect(sendMessage).toHaveBeenCalledWith(
       "conversation-1",
-      "Hi Alex, please complete the guest registration form for your upcoming stay at Cozy Davao D-714 before arrival: https://cozy.example.com/invite/public-token\n\nPlease include every guest and upload a valid ID for each guest aged 16 to 59. Guests aged 60 or older do not need an ID. Thank you!"
+      "Hi Alex, please complete the guest registration form for your upcoming stay at Cozy Davao D-714 before arrival: https://cozy.example.com/invite/public-token\n\nPlease enter the full name of every guest staying, and upload a photo of your own valid ID. Thank you!"
     );
     expect(attemptCreate).toHaveBeenCalledWith({
       data: expect.objectContaining({

@@ -164,6 +164,7 @@ model Invite {
   checkOut           DateTime                 @map("check_out") @db.Date
   purpose            String
   status             InviteStatus             @default(OPEN)
+  expectedGuestCount Int                      @default(1) @map("expected_guest_count")
   expiresAt          DateTime                 @map("expires_at") @db.Timestamptz(3)
   submittedAt        DateTime?                @map("submitted_at") @db.Timestamptz(3)
   revokedAt          DateTime?                @map("revoked_at") @db.Timestamptz(3)
@@ -345,7 +346,7 @@ model Guest {
   id           String      @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   submissionId String      @map("submission_id") @db.Uuid
   fullName     String      @map("full_name")
-  age          Int
+  age          Int?
   requiresId   Boolean     @map("requires_id")
   createdAt    DateTime    @default(now()) @map("created_at") @db.Timestamptz(3)
   submission   Submission  @relation(fields: [submissionId], references: [id], onDelete: Cascade)

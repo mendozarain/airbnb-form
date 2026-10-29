@@ -335,8 +335,8 @@ export function SettingsPage() {
             </Button>
           </div>
           <p className="text-xs text-ink-muted">
-            IDs are required only for guests aged 16–59. Review emails contain findings and a link, never the
-            ID itself.
+            Only the form-filler uploads an ID. Review emails contain findings and a link, never the ID
+            itself.
           </p>
         </div>
       </section>

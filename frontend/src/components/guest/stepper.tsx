@@ -1,16 +1,22 @@
 import { cn } from "@/lib/utils";
 
-const steps = ["Your email", "Guests", "Confirm"];
-
 /** Signal progress segments that fill in sequence. */
-export function Stepper({ step, onJump }: { step: number; onJump: (index: number) => void }) {
+export function Stepper({
+  step,
+  labels,
+  onJump
+}: {
+  step: number;
+  labels: string[];
+  onJump: (index: number) => void;
+}) {
   return (
     <nav aria-label="Registration progress" className="my-5">
       <p className="mb-3 text-label text-ink-muted">
-        Step {step + 1} of {steps.length} · <span className="text-ink">{steps[step]}</span>
+        Step {step + 1} of {labels.length} · <span className="text-ink">{labels[step]}</span>
       </p>
       <ol className="flex gap-2">
-        {steps.map((label, index) => {
+        {labels.map((label, index) => {
           const done = index < step;
           const active = index === step;
           return (

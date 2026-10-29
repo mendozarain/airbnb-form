@@ -1,10 +1,5 @@
 import { ConflictException, Injectable, NotFoundException, Optional } from "@nestjs/common";
-import {
-  MINOR_ID_CUTOFF,
-  SENIOR_ID_CUTOFF,
-  requiresGuestId,
-  type UpdateSubmissionInput
-} from "@cozy-d-714/shared";
+import { guestRequiresId, type UpdateSubmissionInput } from "@cozy-d-714/shared";
 import { AuditService, type AuditActor } from "../audit/audit.service.js";
 import { SubmissionStatus } from "../generated/prisma/enums.js";
 import { JobDispatcher } from "../jobs/job.dispatcher.js";
@@ -136,11 +131,8 @@ export class SubmissionsService {
     if (!submission) throw new NotFoundException("Submission not found");
     ensureEditable(submission.status);
 
-    const lowerCutoff = Number(process.env.MINOR_ID_CUTOFF ?? MINOR_ID_CUTOFF);
-    const upperCutoff = Number(process.env.SENIOR_ID_CUTOFF ?? SENIOR_ID_CUTOFF);
     const aiIdCheck = await this.settings.isAiIdCheckEnabled();
-    const needsAiCheck =
-      aiIdCheck && input.guests.some((guest) => requiresGuestId(guest.age, lowerCutoff, upperCutoff));
+    const needsAiCheck = aiIdCheck && input.guests.some((_, index) => guestRequiresId(index));
     const existingGuests = new Map(submission.guests.map((guest) => [guest.id, guest]));
     const retainedIds = new Set(input.guests.flatMap((guest) => guest.retainFileIds));
     const existingFiles = new Map(
@@ -159,14 +151,10 @@ export class SubmissionsService {
       uploaded.set(key, object);
     }
 
-    for (const guest of input.guests) {
+    for (const [index, guest] of input.guests.entries()) {
       if (guest.id && !existingGuests.has(guest.id))
         throw new ConflictException("A guest does not belong to this registration");
-      if (
-        requiresGuestId(guest.age, lowerCutoff, upperCutoff) &&
-        guest.retainFileIds.length === 0 &&
-        !guest.idFileKey
-      ) {
+      if (guestRequiresId(index) && guest.retainFileIds.length === 0 && !guest.idFileKey) {
         throw new ConflictException(`Valid ID is required for ${guest.fullName}`);
       }
     }
@@ -183,13 +171,14 @@ export class SubmissionsService {
       });
       await tx.invite.update({ where: { id: submission.inviteId }, data: { purpose: input.purpose } });
 
-      for (const guest of input.guests) {
+      for (const [index, guest] of input.guests.entries()) {
+        const previous = guest.id ? existingGuests.get(guest.id) : undefined;
         const created = await tx.guest.create({
           data: {
             submissionId: id,
             fullName: guest.fullName,
-            age: guest.age,
-            requiresId: requiresGuestId(guest.age, lowerCutoff, upperCutoff)
+            age: previous?.age ?? null,
+            requiresId: guestRequiresId(index)
           }
         });
         for (const fileId of guest.retainFileIds) {
