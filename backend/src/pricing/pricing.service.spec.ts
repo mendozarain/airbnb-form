@@ -375,7 +375,7 @@ describe("pricing settings upgrade", () => {
       maximumPrice: 5000,
       weeklyDiscountPercent: 10,
       monthlyDiscountPercent: 25,
-      extraGuestFee: 350,
+      extraGuestFee: 320,
       airbnbExtraGuestFeeMinimum: 318,
       includedGuests: 4
     });
@@ -692,7 +692,7 @@ describe("publishing safeguards", () => {
     expect(hostex.updateAirbnbPriceAndRules).toHaveBeenCalledWith(
       "airbnb-1",
       {
-        extra_guest_fee: 350,
+        extra_guest_fee: 320,
         max_guests: 4,
         minimum_stay: 1
       },

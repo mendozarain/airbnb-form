@@ -28,7 +28,7 @@ export const DEMAND_PRICING_DEFAULTS = {
   minStayRelaxLeadDays: 3,
   weeklyDiscountPercent: 10,
   monthlyDiscountPercent: 25,
-  extraGuestFee: 350,
+  extraGuestFee: 320,
   airbnbExtraGuestFeeMinimum: 318,
   includedGuests: 4
 } as const;
