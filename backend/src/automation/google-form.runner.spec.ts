@@ -14,9 +14,13 @@ import {
   GoogleSubmissionUncertainError,
   isFormFailureScreenshotKey,
   listVisibleGoogleFormQuestions,
+  matchesBuildingCodeLabel,
+  matchesPurposeOptionLabel,
   matchesUnitNumberLabel,
+  normalizeGoogleFormQuestionTitle,
   pickUnitNumberQuestionIndex,
   selectBuildingCode,
+  selectPurpose,
   setGoogleEmailIdentityVisible,
   shouldHideUnusedGuestRow,
   submitGoogleForm,
@@ -24,6 +28,141 @@ import {
   validateEntrancePassScreenshot,
   validatePersistAndSubmitEntrancePass
 } from "./google-form.runner.js";
+
+/** Titles observed on the live form when v40 failed (8 Nov 2026). */
+const NOV8_VISIBLE_TITLES = [
+  "Building",
+  "Unit",
+  "Date Check in",
+  "Date Check out",
+  "Purpose :",
+  "Tenant",
+  "Visitor of tenant",
+  "viewing",
+  "Guest Names",
+  "1.",
+  "2.",
+  "3.",
+  "4",
+  "5",
+  "6",
+  "7.",
+  "8.",
+  "9",
+  "10.",
+  "Name of Owner:",
+  "Contact Number of Owner/Representative",
+  "Attach Valid Id's of each guests. (Kindly attached ID'S of all occupants)",
+  "I confirm that the information provided is accurate and I agree to follow the condo rules and regulations I agree",
+  "I agree"
+] as const;
+
+describe("Nov 2026 Google Form title compatibility", () => {
+  it("strips trailing form punctuation without touching inner punctuation", () => {
+    expect(normalizeGoogleFormQuestionTitle("Name of Owner:")).toBe("Name of Owner");
+    expect(normalizeGoogleFormQuestionTitle("Purpose :")).toBe("Purpose");
+    expect(normalizeGoogleFormQuestionTitle("Unit No.")).toBe("Unit No");
+    expect(normalizeGoogleFormQuestionTitle("Contact Number of Owner/Representative")).toBe(
+      "Contact Number of Owner/Representative"
+    );
+    expect(normalizeGoogleFormQuestionTitle("Name of Owner *")).toBe("Name of Owner");
+  });
+
+  it("matches Building and Building Code, but not unrelated Building* titles", () => {
+    expect(matchesBuildingCodeLabel("Building")).toBe(true);
+    expect(matchesBuildingCodeLabel("Building Code")).toBe(true);
+    expect(matchesBuildingCodeLabel("Building Code *")).toBe(true);
+    expect(matchesBuildingCodeLabel("Building Something")).toBe(false);
+    expect(matchesBuildingCodeLabel("Unit")).toBe(false);
+  });
+
+  it("matches owner/unit/building labels from the Nov 8 title list", () => {
+    expect(NOV8_VISIBLE_TITLES.some((title) => matchesBuildingCodeLabel(title))).toBe(true);
+    expect(NOV8_VISIBLE_TITLES.some((title) => matchesUnitNumberLabel(title))).toBe(true);
+    expect(
+      NOV8_VISIBLE_TITLES.some(
+        (title) => normalizeGoogleFormQuestionTitle(title) === "Name of Owner"
+      )
+    ).toBe(true);
+  });
+
+  it("matches purpose options case-insensitively against the live casing", () => {
+    expect(matchesPurposeOptionLabel("Tenant", "Tenant")).toBe(true);
+    expect(matchesPurposeOptionLabel("Visitor of tenant", "Visitor of Tenant")).toBe(true);
+    expect(matchesPurposeOptionLabel("viewing", "Viewing")).toBe(true);
+    expect(matchesPurposeOptionLabel("Visitor of Tenant", "Viewing")).toBe(false);
+    expect(matchesPurposeOptionLabel("Tenant guest", "Tenant")).toBe(false);
+  });
+
+  it("picks Unit by label when Building is shortened", () => {
+    const questions = [
+      { title: "Building", required: false, kind: "short_text" as const },
+      { title: "Unit", required: true, kind: "short_text" as const },
+      { title: "Date Check in", required: true, kind: "date" as const }
+    ];
+    expect(pickUnitNumberQuestionIndex(questions)).toBe(1);
+  });
+
+  it("fills Building short text and case-shifted Purpose options from the Nov 8 layout", async () => {
+    const browser = await chromium.launch({ headless: true });
+    const page = await browser.newPage();
+    try {
+      await page.setContent(`
+        <div role="list">
+          <div role="listitem">
+            <div role="heading">Building</div>
+            <input type="text" />
+          </div>
+          <div role="listitem">
+            <div role="heading">Unit</div>
+            <input type="text" />
+          </div>
+          <div role="listitem">
+            <div role="heading">Name of Owner:</div>
+            <input type="text" />
+          </div>
+          <div role="listitem">
+            <div role="heading">Purpose :</div>
+            <div role="radio" aria-checked="false">Tenant</div>
+            <div role="radio" aria-checked="false">Visitor of tenant</div>
+            <div role="radio" aria-checked="false">viewing</div>
+          </div>
+        </div>
+      `);
+      await page.locator('[role="radio"]').evaluateAll((options) => {
+        for (const option of options) {
+          option.addEventListener("click", () => {
+            for (const other of options) other.setAttribute("aria-checked", "false");
+            option.setAttribute("aria-checked", "true");
+          });
+        }
+      });
+
+      await selectBuildingCode(page, "D");
+      await expect(page.locator('div[role="listitem"]').nth(0).locator("input").inputValue()).resolves.toBe(
+        "D"
+      );
+
+      const ownerHeading = page.getByRole("heading", { name: "Name of Owner:" });
+      const ownerQuestion = ownerHeading.locator("xpath=ancestor::div[@role='listitem'][1]");
+      await ownerQuestion.getByRole("textbox").fill("Owner Name");
+      await expect(ownerQuestion.locator("input").inputValue()).resolves.toBe("Owner Name");
+      expect(normalizeGoogleFormQuestionTitle(await ownerHeading.innerText())).toBe("Name of Owner");
+
+      await selectPurpose(page, "Viewing");
+      await expect(page.getByText("viewing", { exact: true }).getAttribute("aria-checked")).resolves.toBe(
+        "true"
+      );
+
+      await selectPurpose(page, "Visitor of Tenant");
+      await expect(
+        page.getByText("Visitor of tenant", { exact: true }).getAttribute("aria-checked")
+      ).resolves.toBe("true");
+    } finally {
+      await browser.close();
+    }
+  });
+});
 
 describe("unit number label matching", () => {
   it.each([

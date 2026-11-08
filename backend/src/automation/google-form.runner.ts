@@ -7,13 +7,15 @@ import { chromiumLaunchOptions } from "./browser-launch.js";
 import { StorageService } from "../storage/storage.service.js";
 import { GoogleSessionService } from "../settings/google-session.service.js";
 
-const AUTOMATION_VERSION = "google-form-purpose-account-ui-redacted-v40";
+const AUTOMATION_VERSION = "google-form-purpose-account-ui-redacted-v41";
 const EMAIL_ADDRESS_PATTERN_SOURCE = String.raw`\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b`;
 const MINIMUM_VISIBLE_FORM_QUESTIONS = 5;
 /** Tolerant unit-question titles: "Unit Number", "Unit No.", "Unit #", "Unit", etc. */
 export const UNIT_NUMBER_LABEL_PATTERN =
   /^\s*Unit(?:\s*(?:Number|No\.?|#|Num\.?))?\s*$/i;
-const BUILDING_CODE_LABEL_PATTERN = /^\s*Building\s+Code\s*$/i;
+/** "Building" (current office title) or historical "Building Code". */
+const BUILDING_CODE_LABEL_PATTERN = /^\s*Building(?:\s+Code)?\s*$/i;
+const PURPOSE_LABEL_PATTERN = /^\s*Purpose\s*$/i;
 const DATE_CHECK_IN_LABEL_PATTERN = /^\s*Date\s+Check[\s-]*in\s*$/i;
 const DATE_CHECK_OUT_LABEL_PATTERN = /^\s*Date\s+Check[\s-]*out\s*$/i;
 const OWNER_NAME_LABEL_PATTERN = /^\s*Name\s+of\s+Owner\s*$/i;
@@ -129,7 +131,7 @@ export class GoogleFormRunner {
         "Contact Number of Owner/Representative"
       );
       await selectBuildingCode(page, submission.buildingCode);
-      await clickText(page, submission.purpose);
+      await selectPurpose(page, submission.purpose);
 
       const names = submission.guests.map((guest) => guest.fullName).slice(0, 10);
       for (const [index, name] of names.entries()) {
@@ -229,8 +231,20 @@ export class GoogleFormRunner {
   }
 }
 
+/**
+ * Collapse whitespace and strip trailing form-editor decoration (* / : / .) so
+ * titles like "Name of Owner:" and "Purpose :" still match stable field patterns.
+ * Does not strip punctuation inside the title (e.g. Owner/Representative).
+ */
 export function normalizeGoogleFormQuestionTitle(title: string) {
-  return title.replace(/\s+/g, " ").replace(/\*\s*$/, "").trim();
+  let value = title.replace(/\s+/g, " ").trim();
+  // Repeat so "Purpose : *" / "Owner:." style endings collapse cleanly.
+  for (let pass = 0; pass < 3; pass += 1) {
+    const next = value.replace(/[\s*:。.．]+$/u, "").trim();
+    if (next === value) break;
+    value = next;
+  }
+  return value;
 }
 
 export function matchesUnitNumberLabel(title: string) {
@@ -239,6 +253,10 @@ export function matchesUnitNumberLabel(title: string) {
 
 export function matchesBuildingCodeLabel(title: string) {
   return BUILDING_CODE_LABEL_PATTERN.test(normalizeGoogleFormQuestionTitle(title));
+}
+
+export function matchesPurposeOptionLabel(optionText: string, purpose: Purpose) {
+  return normalizeGoogleFormQuestionTitle(optionText).toLowerCase() === purpose.toLowerCase();
 }
 
 /**
@@ -766,6 +784,24 @@ function escapeRegExp(value: string) {
 
 async function clickText(page: any, text: string) {
   await page.getByText(text, { exact: true }).first().click();
+}
+
+/**
+ * Google Forms option casing drifts ("viewing" vs "Viewing"). Match the whole
+ * option label case-insensitively, preferring the Purpose question scope.
+ */
+export async function selectPurpose(page: any, purpose: Purpose) {
+  const purposeQuestion = await findQuestionListItem(page, PURPOSE_LABEL_PATTERN);
+  const scope = purposeQuestion ?? page;
+  const option = scope.getByText(new RegExp(`^\\s*${escapeRegExp(purpose)}\\s*$`, "i")).first();
+  const visible = await option.isVisible().catch(() => false);
+  if (!visible) {
+    throw new GoogleFormLayoutChangedError(
+      `Purpose option "${purpose}"`,
+      await listVisibleQuestionTitles(page)
+    );
+  }
+  await option.click({ timeout: 10_000 });
 }
 
 async function clickTextIfVisible(page: any, text: string | RegExp) {
