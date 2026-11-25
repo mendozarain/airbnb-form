@@ -7,7 +7,7 @@ import { chromiumLaunchOptions } from "./browser-launch.js";
 import { StorageService } from "../storage/storage.service.js";
 import { GoogleSessionService } from "../settings/google-session.service.js";
 
-const AUTOMATION_VERSION = "google-form-purpose-account-ui-redacted-v41";
+const AUTOMATION_VERSION = "google-form-purpose-account-ui-redacted-v42";
 const EMAIL_ADDRESS_PATTERN_SOURCE = String.raw`\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b`;
 const MINIMUM_VISIBLE_FORM_QUESTIONS = 5;
 /** Tolerant unit-question titles: "Unit Number", "Unit No.", "Unit #", "Unit", etc. */
@@ -253,6 +253,12 @@ export function matchesUnitNumberLabel(title: string) {
 
 export function matchesBuildingCodeLabel(title: string) {
   return BUILDING_CODE_LABEL_PATTERN.test(normalizeGoogleFormQuestionTitle(title));
+}
+
+export function matchesBuildingCodeOptionLabel(optionText: string, value: BuildingCode) {
+  const normalized = normalizeGoogleFormQuestionTitle(optionText).toUpperCase();
+  const target = value.toUpperCase();
+  return normalized === target || normalized === `BUILDING ${target}` || normalized === `BLDG ${target}`;
 }
 
 export function matchesPurposeOptionLabel(optionText: string, purpose: Purpose) {
@@ -634,6 +640,14 @@ async function fillTextByLabel(page: any, label: string | RegExp, value: string,
   await field.fill(value, { timeout: 5_000 });
 }
 
+async function readChoiceOptionLabel(option: any) {
+  const ariaLabel = (await option.getAttribute("aria-label").catch(() => null))?.trim();
+  if (ariaLabel) return ariaLabel;
+  const dataValue = (await option.getAttribute("data-value").catch(() => null))?.trim();
+  if (dataValue) return dataValue;
+  return ((await option.innerText().catch(() => "")) || "").replace(/\s+/g, " ").trim();
+}
+
 export async function selectBuildingCode(page: any, value: BuildingCode) {
   const question = await findQuestionListItem(page, BUILDING_CODE_LABEL_PATTERN);
   if (!question) {
@@ -641,30 +655,70 @@ export async function selectBuildingCode(page: any, value: BuildingCode) {
   }
   await question.scrollIntoViewIfNeeded({ timeout: 5_000 });
 
-  const options = question.getByRole("checkbox");
-  const optionCount = await options.count();
-  if (optionCount === 0) {
-    // Some form revisions use a short-text Building Code instead of checkboxes.
-    const textbox = question.getByRole("textbox").first();
-    if (await textbox.isVisible().catch(() => false)) {
-      await textbox.fill(value, { timeout: 5_000 });
-      return;
+  const radios = question.getByRole("radio");
+  const radioCount = await radios.count();
+  if (radioCount > 0) {
+    let matchedOption: any = null;
+    for (let index = 0; index < radioCount; index += 1) {
+      const option = radios.nth(index);
+      const optionValue = await readChoiceOptionLabel(option);
+      if (matchesBuildingCodeOptionLabel(optionValue, value)) {
+        matchedOption = option;
+        break;
+      }
     }
-    throw new GoogleFormLayoutChangedError("Building Code", await listVisibleQuestionTitles(page));
+    if (!matchedOption) {
+      throw new Error(`Building Code option ${value} is not available in the Google Form`);
+    }
+    if (!(await isChecked(matchedOption))) {
+      await matchedOption.click({ force: true, timeout: 10_000 });
+    }
+    return;
   }
 
-  let matched = false;
-  for (let index = 0; index < optionCount; index += 1) {
-    const option = options.nth(index);
-    const optionValue = (await option.getAttribute("aria-label"))?.trim();
-    const shouldBeChecked = optionValue === value;
-    if (shouldBeChecked) matched = true;
-    if ((await isChecked(option)) !== shouldBeChecked) {
-      await option.click({ force: true, timeout: 10_000 });
+  const checkboxes = question.getByRole("checkbox");
+  const checkboxCount = await checkboxes.count();
+  if (checkboxCount > 0) {
+    let matched = false;
+    for (let index = 0; index < checkboxCount; index += 1) {
+      const option = checkboxes.nth(index);
+      const optionValue = await readChoiceOptionLabel(option);
+      const shouldBeChecked = matchesBuildingCodeOptionLabel(optionValue, value);
+      if (shouldBeChecked) matched = true;
+      if ((await isChecked(option)) !== shouldBeChecked) {
+        await option.click({ force: true, timeout: 10_000 });
+      }
     }
+
+    if (!matched) throw new Error(`Building Code option ${value} is not available in the Google Form`);
+    return;
   }
 
-  if (!matched) throw new Error(`Building Code option ${value} is not available in the Google Form`);
+  const listbox = question.getByRole("listbox").first();
+  if (await listbox.isVisible().catch(() => false)) {
+    await listbox.click({ timeout: 10_000 });
+    const options = page.locator('[role="option"]');
+    const optionCount = await options.count().catch(() => 0);
+    for (let index = 0; index < optionCount; index += 1) {
+      const option = options.nth(index);
+      if (!(await option.isVisible().catch(() => false))) continue;
+      const optionValue = await readChoiceOptionLabel(option);
+      if (matchesBuildingCodeOptionLabel(optionValue, value)) {
+        await option.click({ timeout: 10_000 });
+        return;
+      }
+    }
+    throw new Error(`Building Code option ${value} is not available in the Google Form`);
+  }
+
+  // Some form revisions use a short-text Building Code instead of choices.
+  const textbox = question.getByRole("textbox").first();
+  if (await textbox.isVisible().catch(() => false)) {
+    await textbox.fill(value, { timeout: 5_000 });
+    return;
+  }
+
+  throw new GoogleFormLayoutChangedError("Building Code", await listVisibleQuestionTitles(page));
 }
 
 async function fillNthShortAnswer(page: any, questionNumber: number, value: string) {
@@ -792,6 +846,49 @@ async function clickText(page: any, text: string) {
  */
 export async function selectPurpose(page: any, purpose: Purpose) {
   const purposeQuestion = await findQuestionListItem(page, PURPOSE_LABEL_PATTERN);
+  if (purposeQuestion) {
+    await purposeQuestion.scrollIntoViewIfNeeded({ timeout: 5_000 });
+
+    const checkboxes = purposeQuestion.getByRole("checkbox");
+    const checkboxCount = await checkboxes.count();
+    if (checkboxCount > 0) {
+      let matched = false;
+      for (let index = 0; index < checkboxCount; index += 1) {
+        const option = checkboxes.nth(index);
+        const optionValue = await readChoiceOptionLabel(option);
+        const shouldBeChecked = matchesPurposeOptionLabel(optionValue, purpose);
+        if (shouldBeChecked) matched = true;
+        if ((await isChecked(option)) !== shouldBeChecked) {
+          await option.click({ force: true, timeout: 10_000 });
+        }
+      }
+      if (matched) return;
+      throw new GoogleFormLayoutChangedError(
+        `Purpose option "${purpose}"`,
+        await listVisibleQuestionTitles(page)
+      );
+    }
+
+    const radios = purposeQuestion.getByRole("radio");
+    const radioCount = await radios.count();
+    if (radioCount > 0) {
+      for (let index = 0; index < radioCount; index += 1) {
+        const option = radios.nth(index);
+        const optionValue = await readChoiceOptionLabel(option);
+        if (matchesPurposeOptionLabel(optionValue, purpose)) {
+          if (!(await isChecked(option))) {
+            await option.click({ force: true, timeout: 10_000 });
+          }
+          return;
+        }
+      }
+      throw new GoogleFormLayoutChangedError(
+        `Purpose option "${purpose}"`,
+        await listVisibleQuestionTitles(page)
+      );
+    }
+  }
+
   const scope = purposeQuestion ?? page;
   const option = scope.getByText(new RegExp(`^\\s*${escapeRegExp(purpose)}\\s*$`, "i")).first();
   const visible = await option.isVisible().catch(() => false);
