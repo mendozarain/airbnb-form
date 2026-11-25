@@ -15,6 +15,7 @@ import {
   isFormFailureScreenshotKey,
   listVisibleGoogleFormQuestions,
   matchesBuildingCodeLabel,
+  matchesBuildingCodeOptionLabel,
   matchesPurposeOptionLabel,
   matchesUnitNumberLabel,
   normalizeGoogleFormQuestionTitle,
@@ -158,6 +159,134 @@ describe("Nov 2026 Google Form title compatibility", () => {
       await expect(
         page.getByText("Visitor of tenant", { exact: true }).getAttribute("aria-checked")
       ).resolves.toBe("true");
+    } finally {
+      await browser.close();
+    }
+  });
+
+  it("matches Building choice option labels tolerantly without false positives", () => {
+    expect(matchesBuildingCodeOptionLabel("D", "D")).toBe(true);
+    expect(matchesBuildingCodeOptionLabel("d", "D")).toBe(true);
+    expect(matchesBuildingCodeOptionLabel("Building D", "D")).toBe(true);
+    expect(matchesBuildingCodeOptionLabel("Bldg D", "D")).toBe(true);
+    expect(matchesBuildingCodeOptionLabel("A", "D")).toBe(false);
+    expect(matchesBuildingCodeOptionLabel("D1", "D")).toBe(false);
+  });
+
+  it("selects radio Building and checkbox Purpose matching the live Nov 2026 Google Form DOM", async () => {
+    const browser = await chromium.launch({ headless: true });
+    const page = await browser.newPage();
+    try {
+      await page.setContent(`
+        <style>[role="radio"],[role="checkbox"]{display:inline-block;width:20px;height:20px;}</style>
+        <div role="list">
+          <div role="listitem">
+            <div role="heading">Building *</div>
+            <div role="radiogroup">
+              <div role="radio" aria-label="A" data-value="A" aria-checked="true"></div><span>A</span>
+              <div role="radio" aria-label="B" data-value="B" aria-checked="false"></div><span>B</span>
+              <div role="radio" aria-label="C" data-value="C" aria-checked="false"></div><span>C</span>
+              <div role="radio" aria-label="D" data-value="D" aria-checked="false"></div><span>D</span>
+              <div role="radio" aria-label="E" data-value="E" aria-checked="false"></div><span>E</span>
+            </div>
+          </div>
+          <div role="listitem">
+            <div role="heading">Unit *</div>
+            <input type="text" aria-required="true" />
+          </div>
+          <div role="listitem">
+            <div role="heading">Purpose : *</div>
+            <div role="list">
+              <div role="listitem">
+                <div role="checkbox" aria-label="Tenant" aria-checked="true"></div><span>Tenant</span>
+              </div>
+              <div role="listitem">
+                <div role="checkbox" aria-label="Visitor of tenant" aria-checked="false"></div><span>Visitor of tenant</span>
+              </div>
+              <div role="listitem">
+                <div role="checkbox" aria-label="viewing" aria-checked="false"></div><span>viewing</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      `);
+      await page.locator('[role="radio"]').evaluateAll((options) => {
+        for (const option of options) {
+          option.addEventListener("click", () => {
+            for (const other of options) other.setAttribute("aria-checked", "false");
+            option.setAttribute("aria-checked", "true");
+          });
+        }
+      });
+      await page.locator('[role="checkbox"]').evaluateAll((options) => {
+        for (const option of options) {
+          option.addEventListener("click", () => {
+            const next = option.getAttribute("aria-checked") === "true" ? "false" : "true";
+            option.setAttribute("aria-checked", next);
+          });
+        }
+      });
+
+      await selectBuildingCode(page, "D");
+      await expect(page.locator('[role="radio"][aria-label="D"]').getAttribute("aria-checked")).resolves.toBe("true");
+      await expect(page.locator('[role="radio"][aria-label="A"]').getAttribute("aria-checked")).resolves.toBe("false");
+
+      // Idempotent when already checked on a restored draft.
+      await selectBuildingCode(page, "D");
+      await expect(page.locator('[role="radio"][aria-label="D"]').getAttribute("aria-checked")).resolves.toBe("true");
+
+      // Selecting Viewing unchecks previously checked Tenant (restored draft) and checks viewing.
+      await selectPurpose(page, "Viewing");
+      await expect(page.locator('[role="checkbox"][aria-label="Tenant"]').getAttribute("aria-checked")).resolves.toBe("false");
+      await expect(page.locator('[role="checkbox"][aria-label="viewing"]').getAttribute("aria-checked")).resolves.toBe("true");
+
+      // Re-selecting Viewing does not toggle the checkbox off.
+      await selectPurpose(page, "Viewing");
+      await expect(page.locator('[role="checkbox"][aria-label="viewing"]').getAttribute("aria-checked")).resolves.toBe("true");
+
+      // Switching to Visitor of Tenant unchecks viewing.
+      await selectPurpose(page, "Visitor of Tenant");
+      await expect(page.locator('[role="checkbox"][aria-label="viewing"]').getAttribute("aria-checked")).resolves.toBe("false");
+      await expect(
+        page.locator('[role="checkbox"][aria-label="Visitor of tenant"]').getAttribute("aria-checked")
+      ).resolves.toBe("true");
+    } finally {
+      await browser.close();
+    }
+  });
+
+  it("selects Building from a Google Forms dropdown listbox when used", async () => {
+    const browser = await chromium.launch({ headless: true });
+    const page = await browser.newPage();
+    try {
+      await page.setContent(`
+        <div role="list">
+          <div role="listitem">
+            <div role="heading">Building *</div>
+            <div role="listbox" tabindex="0">Choose</div>
+            <div id="menu" style="display:none">
+              <div role="option" data-value="A">A</div>
+              <div role="option" data-value="D">D</div>
+            </div>
+          </div>
+        </div>
+      `);
+      await page.evaluate(() => {
+        const listbox = document.querySelector('[role="listbox"]')!;
+        const menu = document.getElementById("menu")!;
+        listbox.addEventListener("click", () => {
+          menu.style.display = "block";
+        });
+        for (const opt of document.querySelectorAll('[role="option"]')) {
+          opt.addEventListener("click", () => {
+            listbox.textContent = opt.textContent;
+            menu.style.display = "none";
+          });
+        }
+      });
+
+      await selectBuildingCode(page, "D");
+      await expect(page.locator('[role="listbox"]').innerText()).resolves.toBe("D");
     } finally {
       await browser.close();
     }
