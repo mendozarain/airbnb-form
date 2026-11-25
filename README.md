@@ -252,7 +252,7 @@ Channel prices are the Airbnb night multiplied by that listing's ratio. Defaults
 
 Weekly 10% and monthly 25% are stored as the recommended discounts. They are not pushed. Length-of-stay discounts on Airbnb are listing-wide, so they would also cut ₱4,800 nights. Booking.com, Agoda, and direct promotions are not on the endpoints this app calls.
 
-The extra-guest fee defaults to ₱350 per guest per night after 4 guests, matching the live Airbnb listing. Airbnb's minimum is its own setting, seeded at ₱318. A lower fee cannot be saved, and apply does not send one.
+The extra-guest fee defaults to ₱320 per guest per night after 4 guests, matching the live Airbnb listing. Airbnb's minimum is its own setting, seeded at ₱318. A lower fee cannot be saved, and apply does not send one.
 
 The first read of older settings upgrades them to `demand-pace-v1`, pauses automation, and writes a settings version. Historical runs stay readable. A run from another day, another settings version, or the retired tier algorithm cannot be applied.
 
@@ -266,7 +266,7 @@ Writes are asynchronous: HTTP success means the task was queued. Confirm the res
 | Per-date minimum on arrival | Yes, `min_stay_on_arrival` | Yes | Yes | Yes |
 | `min_stay_through` | No | Yes, unused. Arrival rules match Fri/Sat check-in | Yes, unused | No |
 | Weekly / monthly discount | Listing-wide only. Not written, because peak dates cannot be excluded | Not on this API. Set in Booking.com | Not on this API. Set in Agoda | Not on this API |
-| Extra guest ₱350 after 4. Airbnb minimum ₱318, configurable. A lower fee is not sent | Yes, `extra_guest_fee` and `max_guests` on apply | Manual in the channel | Manual | Manual |
+| Extra guest ₱320 after 4. Airbnb minimum ₱318, configurable. A lower fee is not sent | Yes, `extra_guest_fee` and `max_guests` on apply | Manual in the channel | Manual | Manual |
 | Listing default minimum | Set to 1 night on apply so a per-date rule can allow a weekday stay. `day_of_week_min_nights` is not used | No listing-rules endpoint. If the channel default is above 1, lower it in the extranet or a 1-night weekday can stay blocked | Same as Booking.com | Same as Booking.com |
 
 Preview shows the price, the minimum stay, and the restriction batches that apply would queue. Export is available from the preview and from `GET /api/admin/pricing/runs/:id/export`.
